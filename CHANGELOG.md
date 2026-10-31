@@ -2,6 +2,21 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## v2.2.1 — sites on the Server page, a ready image, both installs tested
+
+### Server page
+- **Services kept by the services keeper are Sites & apps.** A site or app you run as `<work folder>/.services/<name>.sh` now shows under Sites & apps by its own name, with its whole process tree, instead of System › Other; a stopped one shows as stopped.
+
+### Install
+- **A ready Docker image with every release:** `ghcr.io/yanhs/agentkennel:<version>` and `:latest`, amd64 and arm64. `docker compose up -d` downloads it instead of building; `docker compose up -d --build` still builds your checkout; your volumes stay the same either way.
+- **The Docker way is tested end to end, like `install.sh`:** `docker compose up -d`, the setup link from the logs, the first login, a new terminal running Claude, a restart that keeps the password. GitHub runs it on every push, and after a release on the image it has just published.
+- The release page carries `install.sh` and `docker-compose.yml`.
+
+### Sandboxes for other people (`--guests`)
+- `guestctl move-domain --from OLD` moves every guest to a new `GUESTS_DOMAIN`: the old addresses redirect, no sandbox is restarted.
+- `guestctl address <guest> <name>` gives a guest a readable address (`sb-<name>.<domain>`) instead of a row of digits; the old one redirects.
+- `guestctl recreate` works for a guest with its own disk.
+
 ## v2.2.0 — Claude's usage next to the terminals
 
 ### Dashboard
