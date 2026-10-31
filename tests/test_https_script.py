@@ -289,7 +289,7 @@ def test_idempotent(env):
     assert all(len(v) == 1 for v in kv.values()), kv
 
 
-def test_off_reverts_to_plain_http(env):
+def test_off_reverts_to_the_default_self_signed_https(env):
     (env.dir / ".env").write_text("AGENTKENNEL_PORT=9000\n")
     assert env.run().returncode == 0
     r = env.run("--off")
@@ -300,7 +300,7 @@ def test_off_reverts_to_plain_http(env):
     assert env.override() is None
     last_up = ups(env.log())[-1]
     assert "docker-compose.https.yml" not in last_up
-    assert "http://45.67.89.10:9000" in r.stdout
+    assert "https://45.67.89.10:9000" in r.stdout          # the compose default since v2.2.2
 
 
 def test_off_when_never_on_is_harmless(env):

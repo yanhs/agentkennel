@@ -3,7 +3,8 @@
 #
 #   ./https.sh                  use <your-ip>.sslip.io (a free name that resolves to your IP)
 #   ./https.sh your-domain.com  use your own domain (its A record should point at this server)
-#   ./https.sh --off            back to plain http on :8765 (or AGENTKENNEL_PORT)
+#   ./https.sh --off            back to the default: HTTPS on :8765 (or AGENTKENNEL_PORT) with
+#                               the container's own certificate
 #
 # What it does: writes AGENTKENNEL_SITE=<name> and COMPOSE_FILE (adds docker-compose.https.yml,
 # which publishes host ports 80 + 443) into .env — other lines in .env are kept — then runs
@@ -41,7 +42,7 @@ Usage: ./https.sh [your-domain.com | --off]
 
   ./https.sh                  HTTPS on <your-ip>.sslip.io — no domain needed
   ./https.sh your-domain.com  HTTPS on your own domain (A record -> this server)
-  ./https.sh --off            back to plain http on :8765
+  ./https.sh --off            back to the default: self-signed HTTPS on :8765
 
 Caddy gets a free Let's Encrypt certificate. Host ports 80 and 443 must be free and open.
 Fallback without them (self-signed, browser warns once):
@@ -191,13 +192,13 @@ if [ "$MODE" = off ]; then
   env_unset AGENTKENNEL_SITE
   env_unset AGENTDECK_SITE      # compat: what https.sh wrote before v2.1.0
   rm -f "$OVERRIDE"
-  say "HTTPS off — restarting on plain http..."
+  say "Trusted certificate off — restarting with the container's own certificate..."
   compose "$(env_get COMPOSE_FILE)" up -d || die "docker compose up failed"
   port=${AGENTKENNEL_PORT:-${AGENTDECK_PORT:-$(env_get AGENTKENNEL_PORT)}}
   port=${port:-$(env_get AGENTDECK_PORT)}; port=${port:-8765}   # compat: an older .env
   ip=$(public_ip) && is_public_ipv4 "$ip" || ip="<your-vps-ip>"
   say ""
-  say "Done: http://$ip:$port"
+  say "Done: https://$ip:$port (the browser warns once about the certificate)"
   exit 0
 fi
 

@@ -39,7 +39,7 @@ Or keep the agents inside a container:
 
 ```bash
 git clone https://github.com/yanhs/agentkennel.git && cd agentkennel
-docker compose up -d                           # → http://<your-vps-ip>:8765
+docker compose up -d                           # → https://<your-vps-ip>:8765
 docker compose logs agentkennel | grep setup   # the one-time link that sets the password
 ```
 
@@ -175,11 +175,14 @@ docker compose logs agentkennel | grep setup   # → /login?setup=<token>
 `AGENTKENNEL_VERSION=2.2.0 docker compose up -d` pins a version;
 `docker compose up -d --build` builds your checkout instead.
 
-1. Open `http://<your-vps-ip>:8765/login?setup=<token>` and set the password.
+1. Open `https://<your-vps-ip>:8765/login?setup=<token>` and set the password. The
+   certificate is one the container made for itself: the browser warns once, the
+   connection is encrypted.
 2. **＋ New**, then sign in to Claude once: it asks for a colour theme, then how to
    log in (subscription or API key). The login is kept in a volume.
-3. Want HTTPS? `./https.sh` (a free `<ip>.sslip.io` name, needs ports 80 and 443) or
-   `./https.sh your-domain.com`; `./https.sh --off` goes back.
+3. A trusted certificate, no warning: `./https.sh` (a free `<ip>.sslip.io` name, needs
+   ports 80 and 443) or `./https.sh your-domain.com`; `./https.sh --off` goes back.
+   Plain http behind a proxy of your own: `AGENTKENNEL_SITE=:8765 docker compose up -d`.
 
 Agents work in `/work`, a named volume that survives `docker compose down` and rebuilds; to
 use your own project, replace that line in `docker-compose.yml` with `./my-project:/work`.

@@ -16,7 +16,7 @@ REPO="$(cd "$HERE/../.." && pwd)"
 PROJECT="agentkennel-e2e-$$"
 export AGENTKENNEL_PORT="${AGENTKENNEL_PORT:-$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')}"
 PW="docker-e2e-$$-pass"
-URL="http://127.0.0.1:$AGENTKENNEL_PORT"
+URL="https://127.0.0.1:$AGENTKENNEL_PORT"
 
 dc() { docker compose -p "$PROJECT" -f "$REPO/docker-compose.yml" --project-directory "$REPO" "$@"; }
 finish() {
@@ -52,10 +52,10 @@ done
 echo "setup link found"
 
 python3 "$REPO/tests/install/smoke.py" "$URL" --password "$PW" --first-run --setup "$link" \
-  --new-terminal --wait 90
+  --new-terminal --wait 90 --insecure
 dc exec -T agentkennel claude --version
 dc exec -T agentkennel tmux ls
 
 dc restart agentkennel
-python3 "$REPO/tests/install/smoke.py" "$URL" --password "$PW" --wait 90
+python3 "$REPO/tests/install/smoke.py" "$URL" --password "$PW" --wait 90 --insecure
 echo "the password survived the restart"

@@ -49,3 +49,25 @@ def test_building_the_checkout_leaves_the_release_tags_alone():
     text = SCRIPT.read_text()
     assert 'AGENTKENNEL_VERSION="e2e-build-' in text
     assert "docker rmi" in text
+
+
+# HTTPS by default (owner, 31.10.2026: "должно быть https"): `docker compose up -d` serves
+# https://<ip>:8765 with a certificate the container makes for itself — encrypted, the
+# browser warns once — the same fallback install.sh uses. ./https.sh still gets a trusted
+# certificate; AGENTKENNEL_SITE=:8765 is plain http, behind a proxy of your own.
+
+def test_compose_serves_https_by_default():
+    text = (REPO / "docker-compose.yml").read_text()
+    assert 'AGENTKENNEL_SITE: "${AGENTKENNEL_SITE:-${AGENTDECK_SITE:-https://:8765}}"' in text
+
+
+def test_the_readme_opens_the_docker_install_over_https():
+    text = (REPO / "README.md").read_text()
+    assert "http://<your-vps-ip>:8765" not in text
+    assert "https://<your-vps-ip>:8765" in text
+
+
+def test_the_end_to_end_test_goes_over_https():
+    text = SCRIPT.read_text()
+    assert 'URL="https://127.0.0.1:$AGENTKENNEL_PORT"' in text
+    assert text.count("--insecure") >= 2
