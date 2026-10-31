@@ -23,12 +23,18 @@ finish() {
   local rc=$?
   [ $rc -eq 0 ] || dc logs --tail 120 agentkennel || true
   dc down -v --remove-orphans >/dev/null 2>&1 || true
+  [ -z "$BUILT" ] || docker rmi "$BUILT" >/dev/null 2>&1 || true
   [ $rc -eq 0 ] && echo "PASS  docker install ($WHAT)" || echo "FAIL  docker install ($WHAT)"
   exit $rc
 }
 trap finish EXIT
 
+BUILT=""
 if [ "$WHAT" = build ]; then
+  # a tag of its own: under :latest the build would hide the published image from the
+  # next plain `docker compose up -d` on this machine
+  export AGENTKENNEL_VERSION="e2e-build-$$"
+  BUILT="ghcr.io/yanhs/agentkennel:$AGENTKENNEL_VERSION"
   dc up -d --build
 else
   export AGENTKENNEL_VERSION="$WHAT"

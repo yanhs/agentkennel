@@ -41,3 +41,11 @@ def test_every_push_runs_it_on_the_checkout():
 def test_a_release_runs_it_on_the_image_it_pushed():
     text = IMAGE.read_text()
     assert "tests/install/docker_e2e.sh ${{ steps.v.outputs.version }}" in text
+
+
+def test_building_the_checkout_leaves_the_release_tags_alone():
+    # `up -d --build` tags what it builds with the compose file's image name; under
+    # :latest that hid the published image from the next `docker compose up -d` (31.10).
+    text = SCRIPT.read_text()
+    assert 'AGENTKENNEL_VERSION="e2e-build-' in text
+    assert "docker rmi" in text
