@@ -24,7 +24,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSTALL = os.path.join(REPO, "hooks", "install_guards.py")
 HOOKS = os.path.join(REPO, "hooks")
 EXAMPLE = os.path.join(HOOKS, "settings.example.json")
-MAX_MD_LINES = 70
+# the default CLAUDE.md stays short enough to be read whole (70 until the web rule, 31.10)
+MAX_MD_LINES = 80
 
 
 def run(tmp_path, *args, env=None):
@@ -588,8 +589,11 @@ def test_old_marks_count_as_present_and_no_block_is_added_twice(tmp_path, header
     for _ in range(2):
         r = run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
         assert r.returncode == 0, r.stderr
-    assert md.read_text() == before
-    assert not any(m in md.read_text() for m in NEW_MARKS)
+    after = md.read_text()
+    # only the blocks that came after the rename are added (the web rule, 31.10), once
+    assert after.startswith(before) and after[len(before):].startswith("<!-- agentkennel-web -->")
+    assert after.count("<!-- agentkennel-web -->") == 1
+    assert not any(m in after for m in NEW_MARKS)
 
 
 def test_an_old_mark_line_alone_still_opts_out(tmp_path):
@@ -600,3 +604,36 @@ def test_an_old_mark_line_alone_still_opts_out(tmp_path):
     text = md.read_text()
     assert "## Safety" not in text and "<!-- agentkennel-safety -->" not in text
     assert text.count("<!-- agentkennel-environment -->") == 1      # missing ones still come
+
+
+WEB_MARK = "<!-- agentkennel-web -->"
+
+
+def test_a_new_claude_md_builds_websites_with_nextjs(tmp_path):
+    """31.10.2026, the owner: sites are made on a modern stack - Next.js; the rest is the
+    agent's choice. Every AgentKennel and every guest sandbox gets it."""
+    md = tmp_path / "CLAUDE.md"
+    r = run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
+    assert r.returncode == 0, r.stderr
+    text = md.read_text()
+    assert text.count(WEB_MARK) == 1
+    web = " ".join(text.split(WEB_MARK, 1)[1].split())
+    for words in ("Next.js", "TypeScript", "Tailwind", "create-next-app", "rendered on the server",
+                  "existing site keeps its stack"):
+        assert words in web, words
+    assert text.isascii() and len(text.splitlines()) < MAX_MD_LINES
+
+
+def test_a_claude_md_agentkennel_wrote_earlier_gets_the_web_rule_once(tmp_path):
+    md = tmp_path / "CLAUDE.md"
+    md.write_text("# Working rules (AgentKennel)\n\n" + LINKS_MARK + "\n## Links go last\n")
+    for _ in range(2):
+        run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
+    assert md.read_text().count(WEB_MARK) == 1
+
+
+def test_a_persons_own_claude_md_gets_no_web_rule(tmp_path):
+    md = tmp_path / "CLAUDE.md"
+    md.write_text("my own rules\n")
+    run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
+    assert WEB_MARK not in md.read_text()

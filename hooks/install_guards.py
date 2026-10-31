@@ -133,10 +133,22 @@ A link the person should open is the LAST line of your message, alone, with noth
 it: no period, bracket, quote or more text (chat apps glue the next character to the
 address and the link stops opening). Several links: one per line, all at the very end.
 """
+# Websites on a modern stack. 31.10.2026 the owner: sites are made with Next.js, the rest
+# is the agent's choice; his own agents have built on Next.js since 12.06.2026.
+WEB_MARK = "<!-- agentkennel-web -->"
+WEB_MD = """\
+{mark}
+## Websites: Next.js
+A new website or web app is built with Next.js on TypeScript with Tailwind CSS
+(`npx create-next-app@latest`), not hand-written HTML and scripts or a server-side
+template engine. Pages people should find (a landing, articles) are rendered on the
+server, so search engines and link previews see them. An existing site keeps its stack
+unless the person asks to move it.
+"""
 # Blocks that go into AgentKennel's own CLAUDE.md (new, or written by it earlier), once.
 # Keeping only a block's mark line opts out of it: the block is not added back.
 OWN_BLOCKS = ((ENV_MARK, ENV_MD), (SAFETY_MARK, SAFETY_MD), (TDD_MARK, TDD_MD),
-              (LINKS_MARK, LINKS_MD))
+              (LINKS_MARK, LINKS_MD), (WEB_MARK, WEB_MD))
 
 
 def has_mark(text: str, mark: str) -> bool:
