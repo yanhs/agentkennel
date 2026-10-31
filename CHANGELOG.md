@@ -2,6 +2,17 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## v2.2.2 — HTTPS in Docker by default, websites on Next.js
+
+### Docker
+- **HTTPS by default.** `docker compose up -d` serves `https://<your-ip>:8765` with a certificate the container makes for itself: the connection is encrypted, the browser warns once. Before, it was plain http and the password travelled in clear. `./https.sh` still gets a trusted certificate (a free `<ip>.sslip.io` name or your domain), and `./https.sh --off` now goes back to this default. Plain http behind a proxy of your own: `AGENTKENNEL_SITE=:8765`.
+
+### Agents' rules
+- **Websites: Next.js.** The default CLAUDE.md gets one more block (once, and only in the file AgentKennel wrote): a new website or web app is built with Next.js on TypeScript with Tailwind CSS, pages people should find are rendered on the server, an existing site keeps its stack. Keep only its mark line, `<!-- agentkennel-web -->`, to opt out.
+
+### Upgrading
+- Docker behind your own proxy that talks plain http to the container: set `AGENTKENNEL_SITE=:8765`, or point the proxy at `https://` (certificate check off).
+
 ## v2.2.1 — sites on the Server page, a ready image, both installs tested
 
 ### Server page
