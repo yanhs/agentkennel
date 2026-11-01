@@ -1448,8 +1448,23 @@ class GuestsPanel:
                     "admin": guests_admin(),
                     "guests": self.guests if configured else None,
                     "list_error": self.list_error if configured else None,
+                    "agents": self.agents() if configured else {},
                     "checks": self.checks, "checking": self.checking,
                     "jobs": {n: dict(j) for n, j in self.jobs.items()}}
+
+    def agents(self):
+        """{guest: {"agents", "working"}}: the claude processes in each sandbox, counted by
+        the server page's collector; a guest whose container it hasn't seen is left out."""
+        try:
+            seen = SERVER_COLLECTOR.container_agents()
+        except Exception:
+            return {}
+        out = {}
+        for g in self.guests or []:
+            c = g.get("container") if isinstance(g, dict) else None
+            if isinstance(c, str) and c in seen:
+                out[g.get("name")] = seen[c]
+        return out
 
     def setup(self, body):
         if not guests_installed():

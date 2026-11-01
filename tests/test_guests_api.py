@@ -198,6 +198,39 @@ def test_a_slow_guestctl_does_not_hold_the_server(g):
     assert time.time() - t < 1.5
 
 
+def test_each_guest_says_how_many_agents_are_loaded_in_its_sandbox(g, monkeypatch):
+    """The dot on the Guests block (01.11.2026): the collector counts the claude processes
+    in each sandbox's container; guestctl names the container."""
+    configure(g)
+    rows = [dict(GUESTS[0], container="sbx-masha"),
+            dict(GUESTS[0], name="petya", container="sbx-petya"),
+            dict(GUESTS[0], name="old")]                       # an older guestctl: no container
+    g.behave(guests=rows)
+
+    class Collector:
+        @staticmethod
+        def container_agents():
+            return {"sbx-masha": {"agents": 2, "working": 1}, "sbx-petya": {"agents": 0, "working": 0},
+                    "old": {"agents": 9, "working": 9}, "acme": {"agents": 1, "working": 0}}
+    monkeypatch.setattr(g.mod, "SERVER_COLLECTOR", Collector)
+    d = until(lambda: (lambda r: r[1] if r[1]["guests"] is not None else None)(get(g.base)))
+    assert d["guests"] == rows                                   # the list itself as guestctl gave it
+    assert d["agents"] == {"masha": {"agents": 2, "working": 1}, "petya": {"agents": 0, "working": 0}}
+
+
+def test_no_sample_yet_no_agent_counts(g, monkeypatch):
+    configure(g)
+    g.behave(guests=[dict(GUESTS[0], container="sbx-masha")])
+
+    class Collector:
+        @staticmethod
+        def container_agents():
+            return {}
+    monkeypatch.setattr(g.mod, "SERVER_COLLECTOR", Collector)
+    d = until(lambda: (lambda r: r[1] if r[1]["guests"] is not None else None)(get(g.base)))
+    assert d["agents"] == {}
+
+
 def test_check_runs_the_doctor(g):
     code, _ = post(g.base, "/api/guests/check")
     assert code == 200

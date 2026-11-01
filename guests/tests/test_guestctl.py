@@ -292,11 +292,12 @@ def test_list_json_shape(data, monkeypatch, capsys):
         {"name": "anna", "telegram_id": 111, "port": 18101, "state": "running", "enabled": True,
          "five_hour": {"used": 1000, "limit": 20_000_000, "resets_at": window_end},
          "seven_day": {"used": 1000, "limit": 140_000_000, "resets_at": next_monday()},
-         "url": "https://sb-anna.example.test", "created": "2026-10-27 08:54:00"},
+         "url": "https://sb-anna.example.test", "created": "2026-10-27 08:54:00",
+         "container": "sbx-anna"},
         {"name": "boris", "telegram_id": 222, "port": 18102, "state": "missing", "enabled": False,
          "five_hour": {"used": 0, "limit": 5_000, "resets_at": 0},
          "seven_day": {"used": 0, "limit": 35_000, "resets_at": next_monday()},
-         "url": None, "created": "2026-10-27 09:00:00"}]}
+         "url": None, "created": "2026-10-27 09:00:00", "container": "sbx-boris"}]}
 
 
 def test_list_line_shows_the_five_hours_and_the_week(data, monkeypatch, capsys):

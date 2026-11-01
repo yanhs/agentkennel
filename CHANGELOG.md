@@ -2,6 +2,11 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## v2.2.4 — a guest's dot says whether agents are loaded
+
+### Server page
+- **Guests: the dot shows the agents, not just the sandbox.** Green used to mean only "the sandbox's container runs", even with no agent in it. Now: amber while an agent in it works, green while agents are loaded and waiting, grey when the sandbox is on with none loaded (idle ones are unloaded to save memory), a hollow ring when it is off. The row says how many ("2 agents · 1 working"), the summary counts them all. The count comes from the server page's own process sampling: no extra calls into the sandboxes.
+
 ## v2.2.3 — behind your own proxy, "+ New" works
 
 ### Fixed

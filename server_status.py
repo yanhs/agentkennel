@@ -578,6 +578,16 @@ class Collector:
             snap["history"] = {"interval": self.interval, "points": list(self.history)}
             return snap
 
+    def container_agents(self):
+        """{container name: {"agents", "working"}} from the latest sample, {} before one:
+        the Guests block's dot (a guest's sandbox is the container sbx-<name>)."""
+        with self._lock:
+            snap = self.latest
+        if snap is None:
+            return {}
+        return {m["name"]: {"agents": m["agents"], "working": m["agents_working"]}
+                for g in snap["groups"] for m in g["members"] if m.get("kind") == "container"}
+
     def _host(self, dt):
         try:
             cpus, mem, load, uptime = self._read_host()
@@ -713,12 +723,35 @@ class Collector:
             key = "docker:" + info["name"]
             members.setdefault(key, self._container_member(key, info))
 
-        # 3. agents: top-most claude processes and everything under them
         def is_claude(p):
             if p.comm == "claude":
                 return True
             argv = self._meta_for(p)["argv"]
             return bool(argv) and os.path.basename(argv[0]) == "claude"
+
+        # the agents inside each container (a guest's sandbox): its top-most claude
+        # processes; one works when it and everything under it use WORKING_PCT of a core
+        for p in procs.values():
+            key = owner.get(p.pid)
+            if not (key or "").startswith("docker:") or not is_claude(p):
+                continue
+            anc, top, hops = procs.get(p.ppid), True, 0
+            while anc is not None and owner.get(anc.pid) == key and hops < 64:
+                if is_claude(anc):
+                    top = False
+                    break
+                anc, hops = procs.get(anc.ppid), hops + 1
+            if not top:
+                continue
+            cpu, stack = 0.0, [p.pid]
+            while stack:
+                pid = stack.pop()
+                cpu += procs[pid].cpu
+                stack.extend(k for k in kids.get(pid, ()) if k in procs)
+            members[key]["agents"] += 1
+            members[key]["agents_working"] += cpu >= WORKING_PCT
+
+        # 3. agents: top-most claude processes and everything under them
         for p in sorted(procs.values(), key=lambda p: p.start):
             if p.pid in owner or not is_claude(p):
                 continue
@@ -846,6 +879,7 @@ class Collector:
         return {"id": key, "group": "apps", "kind": "container", "name": redact(info["name"], 60),
                 "what": what or (f"Docker container ({img})" if img else "Docker container"),
                 "detail": redact(info.get("status", ""), 60),
+                "agents": 0, "agents_working": 0,
                 "stopped": info.get("state") not in (None, "running", "restarting")}
 
     def _unit_member(self, key, unit, grp, info, fr):

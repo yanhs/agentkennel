@@ -743,3 +743,43 @@ def test_kept_services_come_from_the_keepers_status_file(tmp_path, monkeypatch):
     assert ss.default_kept_services() == {"web": {"state": "running", "pid": 9}}
     (d / "status.json").write_text("{broken")
     assert ss.default_kept_services() == {}
+
+
+# ── agents inside a container: a guest's sandbox on the Guests block (01.11.2026) ──
+def test_a_container_counts_the_agents_in_it(world):
+    snap = world[3]
+    d = member(snap, "apps", lambda m: m["name"] == "acme-dev")
+    assert (d["agents"], d["agents_working"]) == (1, 0)      # claude 1002 did nothing
+    old = member(snap, "apps", lambda m: m["name"] == "old-thing")
+    assert (old["agents"], old["agents_working"]) == (0, 0)
+
+
+def test_an_agent_in_a_container_works_when_it_or_its_children_use_cpu(tmp_path):
+    cg = f"0::/system.slice/docker-{DOCKER_ID}.scope"
+    fp = FakeProc(tmp_path / "proc")
+    fp.add(1, "systemd", 0, cgroup="0::/init.scope", argv=["/sbin/init"])
+    fp.add(10, "tini", 1, cgroup=cg)
+    fp.add(20, "claude", 10, cgroup=cg, argv=["/root/.local/bin/claude", "--resume"])
+    fp.add(21, "node", 20, cgroup=cg, argv=["node", "build.js"])
+    fp.add(22, "claude", 20, cgroup=cg, argv=["claude", "-p", "sub-agent"])   # its sub-agent: not one more
+    fp.add(30, "claude", 10, cgroup=cg, argv=["/root/.local/bin/claude"])       # idle
+    fp.add(40, "bash", 10, cgroup=cg, argv=["bash"])
+    clock = Clock()
+    c = make_collector(fp, clock)
+    assert c.container_agents() == {}                    # nothing sampled yet
+    c.sample()
+    clock.t += 5
+    fp.tick(21, 100)                                     # the build: 20 % of a core
+    fp.tick(40, 100)                                     # a shell outside any agent: not work
+    snap = c.sample()
+    d = member(snap, "apps", lambda m: m["name"] == "acme-dev")
+    assert (d["agents"], d["agents_working"]) == (2, 1)
+    assert c.container_agents()["acme-dev"] == {"agents": 2, "working": 1}
+    assert c.container_agents()["old-thing"] == {"agents": 0, "working": 0}
+
+
+def test_container_agents_are_not_on_other_members(world):
+    snap = world[3]
+    for g in snap["groups"]:
+        for m in g["members"]:
+            assert ("agents" in m) == (m["kind"] == "container"), m["id"]

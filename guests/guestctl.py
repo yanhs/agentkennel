@@ -664,6 +664,8 @@ def guests_report() -> list:
             **ts.usage_windows(g or ts.Guest(name, 0, 0, None, False), ledger),
             "url": f"https://{dashboard_host(name)}" if has_domain and web_exists(name) else None,
             "created": str(info.get("created") or ""),
+            # the panel counts the agents in it (status_server -> server_status)
+            "container": f"sbx-{name}",
         })
     return out
 
