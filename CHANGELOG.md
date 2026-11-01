@@ -2,6 +2,11 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## v2.2.3 — behind your own proxy, "+ New" works
+
+### Fixed
+- **Behind a proxy of your own (nginx, Traefik, a load balancer) with HTTPS, a new terminal couldn't be created (403).** The proxy says the browser came over https; Caddy didn't believe it and the dashboard took the browser's address for a foreign one. Caddy now believes a proxy on the same machine or its private network (this includes Docker's port forwarding). `AGENTKENNEL_ORIGIN` is no longer needed in that case; it still works.
+
 ## v2.2.2 — HTTPS in Docker by default, websites on Next.js
 
 ### Docker
