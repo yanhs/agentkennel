@@ -4,6 +4,11 @@
 # Set AGENTKENNEL_SITE to a domain (or <ip>.sslip.io) for automatic HTTPS.
 {
 	email {$AGENTKENNEL_EMAIL:you@example.com}
+	# a proxy of your own on this machine or its private network (nginx in front, Docker's
+	# port forwarding) is believed when it says the browser came over https
+	servers {
+		trusted_proxies static private_ranges
+	}
 }
 
 {$AGENTKENNEL_SITE::8765} {
