@@ -122,17 +122,28 @@ that makes it pass, then the whole test suite, and the result is shown before yo
 existing test, fix the change, not the test. Skip only for docs, config values and
 one-off commands.
 """
-# Links last. The person reads replies in Telegram or a terminal, and both glue the next
-# character to an address - "(https://x.y/z)." stops opening. The owner's own agents have
-# had this rule since 26.09.2026; on 28.10 he asked for it in every AgentKennel.
+# Links. The person reads replies in Telegram or a terminal, and both glue the next
+# character to an address - "(https://x.y/z)." stops opening. What the owner asked for
+# (26.09.2026, restated 02.11.2026): nothing glued to a link, a space after it. v2.0.3 to
+# v2.2.5 said "links go last", a misreading: an upgrade replaces that exact old block.
 LINKS_MARK = "<!-- agentkennel-links -->"
 LINKS_MD = """\
+{mark}
+## Links
+Nothing touches a link: right after the address comes a space or a line break, never a
+period, comma, bracket or quote, and no [text](url) form (chat apps and terminals glue the
+next character to the address and the link stops opening). Put a link where it is needed,
+in the sentence or the step it belongs to.
+"""
+# Blocks earlier versions wrote, word for word, and what replaces them on an upgrade.
+# Only the exact old text is replaced: a block a person edited is theirs.
+REPLACED_BLOCKS = ((LINKS_MARK, """\
 {mark}
 ## Links go last
 A link the person should open is the LAST line of your message, alone, with nothing after
 it: no period, bracket, quote or more text (chat apps glue the next character to the
 address and the link stops opening). Several links: one per line, all at the very end.
-"""
+""", LINKS_MD),)
 # Websites on a modern stack. 31.10.2026 the owner: sites are made with Next.js, the rest
 # is the agent's choice; his own agents have built on Next.js since 12.06.2026.
 WEB_MARK = "<!-- agentkennel-web -->"
@@ -321,6 +332,15 @@ def main(argv=None) -> int:
             f.write(CLAUDE_MD.format(tracker=a.tracker))
     if a.claude_md and not a.remove and os.path.exists(a.claude_md):
         # once, and only into the file AgentKennel wrote — a person's own CLAUDE.md is theirs
+        text = open(a.claude_md).read()
+        if text.startswith(OWN_HEADERS):
+            fixed = text
+            for mark, was, now in REPLACED_BLOCKS:
+                for m in (mark, mark.replace("<!-- agentkennel-", "<!-- agentdeck-", 1)):
+                    fixed = fixed.replace(was.format(mark=m), now.format(mark=m))
+            if fixed != text:
+                with open(a.claude_md, "w") as f:
+                    f.write(fixed)
         for mark, block in OWN_BLOCKS:
             text = open(a.claude_md).read()
             if text.startswith(OWN_HEADERS) and not has_mark(text, mark):

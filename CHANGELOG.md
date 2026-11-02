@@ -2,6 +2,11 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## v2.2.6 — links: nothing glued to them, and they go where they're needed
+
+### Agents' rules
+- **The links rule said the wrong thing.** Since v2.0.3 the agents' CLAUDE.md said "a link goes last: the last line of the message". What it should say, and now does: nothing touches a link (a space or a line break right after it, no brackets, no `[text](url)`), and the link goes where it is needed, in the sentence or the step it belongs to. Upgrading replaces the old block in the CLAUDE.md AgentKennel wrote, if it is still word for word what AgentKennel put there; a block you edited stays yours.
+
 ## v2.2.5 — new license (AGPL-3.0); the product's name shown in the dashboard
 
 ### License

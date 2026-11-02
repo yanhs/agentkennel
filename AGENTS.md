@@ -68,7 +68,8 @@ This file is the longer, editable form.
 
 ## Conventions
 
-- **A link goes last.** A link the reader should open is the last line of the reply, alone,
-  with nothing after it: chat apps and terminals glue a trailing period or bracket to it.
+- **Nothing touches a link.** Right after the address comes a space or a line break, never a
+  period or bracket, and no `[text](url)`: chat apps and terminals glue the next character to
+  it. The link itself goes where it is needed.
 - **Long commands run in the background** (test suites, builds, deploys), so the
   conversation stays responsive.

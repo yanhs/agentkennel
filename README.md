@@ -209,7 +209,7 @@ delete a block and keep its mark line to opt out):
   anything to people. A yes covers that one action only.
 - A job that runs later (a timer, cron) reports its result, success and failure alike.
 - Test first: a code change starts with a failing test, a bug fix with one that reproduces it.
-- A link you should open goes alone on the last line, so chat apps don't glue a period to it.
+- Nothing is glued to a link (a space after it, no brackets), so chat apps don't break it.
 
 **The guards** are Claude Code hooks that run before every shell command. Each blocks with
 a message saying what it found and what to do instead, has a visible one-time override,
