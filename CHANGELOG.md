@@ -5,6 +5,7 @@ All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 ## Unreleased
 
 ### Changed
+- **A new install opens with something on screen.** On the first visit (no terminal registry yet) the dashboard makes one terminal, "Getting started", and shows it; the Tasks and Server rows are already in the list, one click away. An existing install never gets it, even after deleting every terminal. API: `GET /api/library` carries `first_run`; `POST /api/library/welcome` makes that terminal once (`{"id": null}` when the registry already exists).
 - **Tasks, Server and cmd rows have icons.** In the left list, the pinned Tasks, Server and Command line rows now show a small icon before the name (a checklist, the server gauge, a prompt), so they stand apart from ordinary terminals.
 
 ### Fixed

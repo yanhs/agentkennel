@@ -740,6 +740,7 @@ def lib_rows(entries, live=None, legacy_paths=None, working=None):
 def lib_listing(include_archived=False, trash=False):
     """The list (never a trashed terminal); trash=True: the trash itself instead."""
     lib_sync()                                      # the page polls this every 4 s
+    first_run = not os.path.exists(lib_path())      # a new install: see library.welcome
     lib = library.load(lib_path())
     live = lib_live()
     legacy = lib_legacy()
@@ -752,6 +753,7 @@ def lib_listing(include_archived=False, trash=False):
         pids[_SHELL_KEY] = shell["pane_pid"]
     working = sample_working(pids)                  # one CPU sample for all rows
     return {"max_active": library.MAX_ACTIVE,
+            "first_run": first_run,
             "sessions": lib_rows(entries, live, legacy, working),
             # the "cmd" button's shell: not a topic, so not in sessions[]
             "shell": {"active": shell is not None,
@@ -798,6 +800,10 @@ def lib_post(route, body):
         with library.update(lib_path()) as lib:
             e = library.create(lib, name, cwd=lib_workdir(), now=int(time.time()))
         return lib_rows([e], live={})[0]          # not started: nothing to ask tmux
+    if route == "welcome":
+        # first visit of a new install: one "Getting started" terminal, once
+        e = library.welcome(lib_path(), cwd=lib_workdir(), now=int(time.time()))
+        return lib_rows([e], live={})[0] if e else {"id": None}
     if route == "reorder":
         return lib_reorder(body.get("ids"))
     if route == "shell-close":

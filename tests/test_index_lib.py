@@ -86,6 +86,8 @@ class FakeAPI:
         self.held = []
         self.renews = 0            # GET /login?renew=1 the page sent (sliding session)
         self.shell = None          # top-level "shell" of GET /api/library (None = absent)
+        self.first_run = False     # top-level "first_run": a new install, no registry yet
+        self.welcome_taken = False # POST welcome finds the registry already made
         self._n = 0
 
     def gets(self):
@@ -159,7 +161,7 @@ class FakeAPI:
             else:
                 rows = [s for s in self.sessions
                         if not s.get("trashed") and (with_arch or not s["archived"])]
-            out = {"max_active": 12, "sessions": rows}
+            out = {"max_active": 12, "first_run": self.first_run, "sessions": rows}
             if self.with_system:
                 out["_system"] = {"cpu_pct": 42, "ram_pct": 50,
                                   "ram_used_mb": 7000, "ram_total_mb": 16000}
@@ -175,6 +177,17 @@ class FakeAPI:
             self._n += 1
             sid = f"eeee000{self._n}"
             e = {"id": sid, "name": (body.get("name") or "").strip() or "Terminal 24.09 10:00",
+                 "cwd": "/home/ubuntu/pr", "created": 999, "last_used": 999,
+                 "archived": False, "active": False, "attached": False, "status": "off"}
+            self.sessions.append(e)
+            return self._json(route, e)
+        if path == "/api/library/welcome":
+            if self.welcome_taken:
+                self.first_run = False
+            if not self.first_run:
+                return self._json(route, {"id": None})
+            self.first_run = False
+            e = {"id": "ffff0001", "name": "Getting started",
                  "cwd": "/home/ubuntu/pr", "created": 999, "last_used": 999,
                  "archived": False, "active": False, "attached": False, "status": "off"}
             self.sessions.append(e)
@@ -269,7 +282,7 @@ def browser():
 
 
 def _open(browser, site, api, width=1440, height=900, mobile=False,
-          user_agent=None, init_script=None):
+          user_agent=None, init_script=None, wait_rows=True):
     kw = {"user_agent": user_agent} if user_agent else {}
     ctx = browser.new_context(viewport={"width": width, "height": height},
                               is_mobile=mobile, has_touch=mobile, **kw)
@@ -293,7 +306,8 @@ def _open(browser, site, api, width=1440, height=900, mobile=False,
                                  body="<html><body style='background:#000;color:#0f0'>"
                                       "ttyd stub</body></html>"))
     pg.goto(site)
-    pg.wait_for_selector(".card[data-sid]")
+    if wait_rows:
+        pg.wait_for_selector(".card[data-sid]")
     return ctx, pg
 
 
@@ -4201,5 +4215,70 @@ def test_pinned_rows_have_icons_and_terminal_rows_do_not(browser, site):
             "#list .card:not(.tasks-row):not(.server-row):not(.shell-row) .row-ico")
         assert others == []
         assert len(row_ids(pg)) == 4
+    finally:
+        ctx.close()
+
+
+def test_new_install_opens_tasks_server_and_one_terminal_on_screen(browser, site):
+    """Owner, 2026-11-02: on a new install's first visit the list already has Tasks
+    and Server, and one "Getting started" terminal is what the screen shows."""
+    api = FakeAPI()
+    api.sessions = []
+    api.first_run = True
+    ctx, pg = _open_server_ctx(browser, site, api)
+    try:
+        _src_is(pg, "ffff0001")                        # the terminal is on screen
+        pg.wait_for_selector("#list .tasks-row")
+        pg.wait_for_selector("#list .server-row")
+        shot(pg, "index-lib-first-run.png")
+        assert len(api.posts("/api/library/welcome")) == 1
+        assert pg.inner_text(row("ffff0001") + " .proj") == "Getting started"
+        assert "sel" in pg.get_attribute(row("ffff0001"), "class")
+        assert "sel" not in pg.get_attribute("#list .tasks-row", "class")
+        assert "sel" not in pg.get_attribute("#list .server-row", "class")
+        order = pg.evaluate("() => [...document.querySelectorAll('#list > .card')]"
+                            ".map(e => e.dataset.sid || e.className.split(' ')[1])")
+        assert order == ["tasks-row", "server-row", "ffff0001"]
+        assert pg.inner_text("#tNum") == "ffff0001"
+        # later polls, a reload: no second welcome; the rows stay (remembered per browser)
+        _after_next_poll(pg, api)
+        pg.reload()
+        pg.wait_for_selector(row("ffff0001"))
+        _after_next_poll(pg, api)
+        assert len(api.posts("/api/library/welcome")) == 1
+        assert pg.query_selector("#list .tasks-row") and pg.query_selector("#list .server-row")
+    finally:
+        ctx.close()
+
+
+def test_an_existing_install_gets_no_welcome(browser, site):
+    api = FakeAPI()                                    # first_run False: the usual case
+    ctx, pg = _open_server_ctx(browser, site, api)
+    try:
+        pg.wait_for_selector(row("aaaa0001"))
+        _after_next_poll(pg, api)
+        assert api.posts("/api/library/welcome") == []
+        assert pg.query_selector("#list .tasks-row") is None
+        assert pg.query_selector("#list .server-row") is None
+        assert pg.query_selector("#wrap iframe") is None
+    finally:
+        ctx.close()
+
+
+def test_welcome_taken_by_another_tab_changes_nothing_here(browser, site):
+    api = FakeAPI()
+    api.sessions = []
+    api.first_run = True
+    api.welcome_taken = True                           # the server answers "already done"
+    ctx, pg = _open(browser, site, api, wait_rows=False)
+    try:
+        for _ in range(50):
+            if api.posts("/api/library/welcome"):
+                break
+            pg.wait_for_timeout(100)
+        _after_next_poll(pg, api)
+        assert len(api.posts("/api/library/welcome")) == 1
+        assert pg.query_selector("#wrap iframe") is None
+        assert pg.query_selector("#list .tasks-row") is None
     finally:
         ctx.close()

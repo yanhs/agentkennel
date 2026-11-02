@@ -2870,6 +2870,25 @@
       } catch {}
     }
 
+    /* A new install's first visit (GET says first_run: no registry yet): the
+       server makes one "Getting started" terminal, the list gets the Tasks and
+       Server rows, and the terminal is what the screen shows (owner 02.11.2026).
+       {id: null} = another tab already did it: change nothing here. */
+    let _welcomeAsked = false;
+    async function welcome() {
+      try {
+        const s = await jpost('/api/library/welcome', {});
+        if (!s || !ID_RE.test(s.id || '')) return;
+        mutSeq++;
+        if (!byId(s.id)) sessions.push(Object.assign({}, s, {name: String(s.name ?? '')}));
+        tasksOpen = true; saveTasksOpen();
+        serverOpen = true; saveServerOpen();
+        render();
+        pick(s.id);
+        setTimeout(poll, 1500);                // pick up "loaded" once ttyd has started it
+      } catch {}
+    }
+
     async function poll() {
       const seq = mutSeq;
       try {
@@ -2913,6 +2932,7 @@
           if (cur !== sel) pick(cur);
         }
         if (_pendingOpen) { const id = _pendingOpen; _pendingOpen = null; openTerminalById(id); }
+        if (d.first_run === true && !SOLO && !_welcomeAsked) { _welcomeAsked = true; welcome(); }
         if (showTrash) loadTrash();
       } catch {}
     }
