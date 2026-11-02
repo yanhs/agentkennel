@@ -47,6 +47,7 @@ JSON_BODY = json.dumps(
 class FakeUpstream:
     def __init__(self):
         self.requests = []
+        self.extra_headers = {}           # e.g. the subscription's rate-limit headers
         up = self
 
         class H(BaseHTTPRequestHandler):
@@ -63,6 +64,8 @@ class FakeUpstream:
                     "content-type", "text/event-stream" if stream else "application/json"
                 )
                 self.send_header("content-length", str(len(payload)))
+                for k, v in up.extra_headers.items():
+                    self.send_header(k, v)
                 self.end_headers()
                 self.wfile.write(payload)
 
@@ -324,6 +327,42 @@ class TestWeek:
         # the 5-hour window opened on Sunday 23:59 is still open: both requests are in it
         assert w["five_hour"] == {"used": 12, "limit": 143, "resets_at": int(monday - 60 + 5 * H)}
 
+    # 02.11.2026, the owner: his subscription's week resets on Wednesday 11:00, the guests'
+    # on Monday - it has to be the same moment. Anthropic says when, in a response header.
+    WED = 1793818800                       # Wed 4 Nov 2026 11:00 PT, the real header value
+
+    def test_the_week_follows_the_subscriptions_reset_once_it_is_known(self, ledger, book):
+        from datetime import datetime
+        ledger.set_week_reset(self.WED)
+        monday = datetime(2026, 11, 2, 1, 0, tzinfo=ts.DAY_TZ).timestamp()
+        start, end = ts.week_bounds(monday, self.WED)
+        assert (start, end) == (self.WED - 7 * 24 * H, self.WED)
+        book.add("maria", week_limit=1000)
+        ledger.record("maria", "m", {"input_tokens": 7}, ts_=self.WED - 7 * 24 * H - 60)   # before
+        ledger.record("maria", "m", {"input_tokens": 5}, ts_=self.WED - 6 * 24 * H)        # Thursday
+        w = ts.usage_windows(book.get("maria"), ledger, monday)
+        assert w["seven_day"] == {"used": 5, "limit": 1000, "resets_at": self.WED}
+
+    def test_after_the_reset_the_next_week_runs_seven_days_on(self, ledger):
+        assert ts.week_bounds(self.WED, self.WED) == (self.WED, self.WED + 7 * 24 * H)
+        assert ts.week_bounds(self.WED - 1, self.WED)[1] == self.WED
+        later = self.WED + 20 * 24 * H        # an old reset still gives this week's bounds
+        assert ts.week_bounds(later, self.WED) == (self.WED + 14 * 24 * H, self.WED + 21 * 24 * H)
+
+    def test_a_guest_over_the_week_is_told_when_it_resets(self, ledger, book):
+        ledger.set_week_reset(self.WED)
+        book.add("maria", week_limit=10)
+        ledger.record("maria", "m", {"input_tokens": 50}, ts_=self.WED - 24 * H)
+        text = ts.over_limit(book.get("maria"), ledger, self.WED - 23 * H)
+        assert "Wednesday at 11:00" in text or "среду в 11:00" in text, text
+
+    def test_the_reset_is_kept_on_disk_and_garbage_is_ignored(self, ledger, tmp_path):
+        assert ledger.week_reset() is None
+        ledger.set_week_reset(self.WED)
+        for bad in ("soon", -5, 0, None, True, 10 ** 13):
+            ledger.set_week_reset(bad)
+        assert ts.Ledger(tmp_path / "usage.db").week_reset() == self.WED
+
     def test_no_open_window_reads_zero_and_no_reset(self, ledger, book):
         book.add("maria", week_limit=7000)
         ledger.record("maria", "m", {"input_tokens": 9}, ts_=NOW - 6 * H)
@@ -335,6 +374,18 @@ class TestWeek:
 # the gate itself
 # --------------------------------------------------------------------------- #
 class TestGate:
+    def test_the_subscriptions_week_reset_is_read_from_upstream(self, gate, upstream, book, ledger):
+        p = book.add("maria", week_limit=10 ** 9)
+        upstream.extra_headers = {"anthropic-ratelimit-unified-7d-reset": "1793818800"}
+        status, headers, _ = call(gate, headers={"authorization": f"Bearer {p}"})
+        assert status == 200 and ledger.week_reset() == 1793818800
+        assert headers.get("anthropic-ratelimit-unified-7d-reset") == "1793818800"   # passed on
+        upstream.extra_headers = {"anthropic-ratelimit-unified-7d-reset": "tomorrow"}
+        call(gate, headers={"authorization": f"Bearer {p}"})
+        upstream.extra_headers = {}
+        call(gate, headers={"authorization": f"Bearer {p}"})
+        assert ledger.week_reset() == 1793818800             # garbage and silence change nothing
+
     def test_unknown_pass_is_refused_and_upstream_not_called(self, gate, upstream):
         status, _, _ = call(gate, headers={"authorization": "Bearer sbx-wrong"})
         assert status == 401

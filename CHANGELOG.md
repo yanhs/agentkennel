@@ -2,6 +2,14 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## v2.2.7 — guests' week resets with your subscription's
+
+### Guests
+- **The guests' week now resets when your subscription's week does**, not on Monday midnight. The turnstile reads the moment from Anthropic's replies (the `anthropic-ratelimit-unified-7d-reset` header, on every guest request) and keeps it; until it has seen one, the week still runs from Monday. A guest who used up the week is told the real day and hour it comes back.
+
+### Server page
+- **Your subscription's limits show even with no 5-hour window open.** Anthropic then sends only the week's numbers, and the dashboard showed nothing at all; now the week shows and the 5 hours read 0.
+
 ## v2.2.6 — links: nothing glued to them, and they go where they're needed
 
 ### Agents' rules

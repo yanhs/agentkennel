@@ -347,6 +347,19 @@ def test_the_token_file(q, monkeypatch, text, want):
     assert q.mod.quota_oauth_token() == want
 
 
+def test_no_five_hour_window_open_still_shows_the_week(q):
+    """02.11.2026: with no 5-hour window open, Anthropic sends only the 7d headers; the
+    Server page and the quota chip then showed nothing at all."""
+    h = {"anthropic-ratelimit-unified-7d-utilization": "0.16",
+         "anthropic-ratelimit-unified-7d-reset": "1793818800",
+         "anthropic-ratelimit-unified-7d-status": "allowed"}
+    assert q.mod.quota_from_headers(h) == {
+        "five_hour": {"utilization": 0.0, "resets_at": 0},
+        "seven_day": {"utilization": 0.16, "resets_at": 1793818800}}
+    half = dict(h, **{"anthropic-ratelimit-unified-5h-utilization": "0.2"})   # 5h without its reset
+    assert q.mod.quota_from_headers(half) is None
+
+
 def test_the_real_probe_asks_for_one_token_of_haiku(q):
     """quota_probe() itself, against a local stand-in for api.anthropic.com."""
     seen = []

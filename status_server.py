@@ -1650,12 +1650,18 @@ def _quota_window(utilization, resets_at):
 
 def quota_from_headers(headers):
     """The anthropic-ratelimit-unified-{5h,7d}-{utilization,reset} headers ->
-    {"five_hour": {...}, "seven_day": {...}}, or None when any is missing or garbage."""
+    {"five_hour": {...}, "seven_day": {...}}, or None when the week is missing or anything is
+    garbage. No 5h headers at all = no 5-hour window open: 0, no reset."""
     h = {str(k).lower(): v for k, v in (headers or {}).items()}
     out = {}
     for key, tag in _QUOTA_WINDOWS:
-        w = _quota_window(h.get(f"anthropic-ratelimit-unified-{tag}-utilization"),
-                          h.get(f"anthropic-ratelimit-unified-{tag}-reset"))
+        u = h.get(f"anthropic-ratelimit-unified-{tag}-utilization")
+        r = h.get(f"anthropic-ratelimit-unified-{tag}-reset")
+        if key == "five_hour" and u is None and r is None:
+            # no 5-hour window open: Anthropic sends only the week (seen 02.11.2026)
+            out[key] = {"utilization": 0.0, "resets_at": 0}
+            continue
+        w = _quota_window(u, r)
         if w is None:
             return None
         out[key] = w

@@ -12,8 +12,9 @@ you set it up.
 - **Your subscription, a 5-hour and a weekly limit.** The Claude turnstile holds your
   login; a sandbox only has a personal pass. The turnstile counts every guest's usage and
   stops them at either limit, like the subscription's own: the 5-hour window opens with
-  the first request and lasts 5 hours, the week runs from Monday midnight, Los Angeles
-  time (default 140M weighted tokens a week, a seventh of it — 20M — per 5 hours). It
+  the first request and lasts 5 hours, the week resets when your subscription's week does
+  (the turnstile reads it from Anthropic's replies; Monday midnight, Los Angeles time, until
+  it has seen one) (default 140M weighted tokens a week, a seventh of it — 20M — per 5 hours). It
   tells you if a guest burns more than 1% of your week in an hour.
 - **One bot for everyone.** The Telegram turnstile holds the real bot token and gives each
   sandbox a Bot API of its own: a guest's agent writes only to that guest's chat.
