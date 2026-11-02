@@ -4,6 +4,9 @@ All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
 ## Unreleased
 
+### Changed
+- **Tasks, Server and cmd rows have icons.** In the left list, the pinned Tasks, Server and Command line rows now show a small icon before the name (a checklist, the server gauge, a prompt), so they stand apart from ordinary terminals.
+
 ### Fixed
 - **"Open in tab" opens a terminal that can copy and paste.** The button used to open the bare terminal page, which has none of the dashboard's copy, paste, 📎 or image-paste helpers. It now opens the dashboard itself with `?solo=<id>`: no left column, the terminal fills the tab, and every helper works. Reloading the tab reopens the same terminal, and the tab title is the topic's name. The task board still opens as itself.
 

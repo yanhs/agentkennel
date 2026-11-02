@@ -4168,3 +4168,38 @@ def test_task_board_open_in_tab_still_opens_the_board_itself(page):
                            " return f && (f.getAttribute('src') || '').startsWith('/tasks'); }")
     href = page.get_attribute("#tOpen", "href")
     assert "solo=" not in href and "/tasks" in href, href
+
+
+def test_pinned_rows_have_icons_and_terminal_rows_do_not(browser, site):
+    """Owner, 2026-11-02: Tasks, Server and cmd rows carry an icon before the
+    name, so they stand apart from ordinary terminals in the list."""
+    api = FakeAPI()
+    api.shell = dict(SHELL_ON)
+    ctx, pg = _open_server_ctx(browser, site, api)
+    try:
+        pg.click(TASKS_LINK)
+        pg.wait_for_selector("#list .tasks-row")
+        pg.click(SERVER_LINK)
+        pg.wait_for_selector("#list .server-row")
+        pg.wait_for_selector("#list .shell-row")
+        shot(pg, "index-lib-pinned-icons.png")
+        icons = []
+        for cls, name in (("tasks-row", "Tasks"), ("server-row", "Server"),
+                          ("shell-row", "Command line")):
+            proj = f"#list .{cls} .proj"
+            assert pg.inner_text(proj) == name, cls          # the name itself is unchanged
+            first = pg.evaluate(f"() => document.querySelector('{proj}').firstElementChild?.outerHTML || ''")
+            assert first.startswith("<svg") and 'class="row-ico"' in first, cls
+            assert 'aria-hidden="true"' in first, cls
+            box = pg.eval_on_selector(f"{proj} .row-ico", "e => e.getBoundingClientRect().toJSON()")
+            assert box["width"] >= 10 and box["height"] >= 10, cls
+            # the icon sits on the same line as the name, before it
+            assert pg.eval_on_selector(proj, "e => e.getBoundingClientRect().height") < 24, cls
+            icons.append(first)
+        assert len(set(icons)) == 3                           # three different icons
+        others = pg.query_selector_all(
+            "#list .card:not(.tasks-row):not(.server-row):not(.shell-row) .row-ico")
+        assert others == []
+        assert len(row_ids(pg)) == 4
+    finally:
+        ctx.close()

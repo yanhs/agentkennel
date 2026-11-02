@@ -243,6 +243,8 @@
     .card.shell-row .proj { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; }
     .card.tasks-row, .card.server-row { border-bottom: 1px solid rgba(var(--fg-rgb),0.10); }
     .card.tasks-row .proj, .card.server-row .proj { font-weight: 500; }
+    /* Tasks / Server / cmd: an icon before the name sets them apart from terminals. */
+    .proj .row-ico { width: 12px; height: 12px; margin-right: 6px; vertical-align: -2px; color: var(--dim); }
     .shell-close, .tasks-close, .server-close {
       width: 18px; height: 18px; flex-shrink: 0; padding: 0;
       border: 1px solid rgba(239,68,68,0.12); border-radius: 4px;
@@ -958,7 +960,7 @@
     tasksRow.dataset.tasks = '1';
     tasksRow.innerHTML = `
         <div class="card-top">
-          <div class="proj">Tasks</div>
+          <div class="proj"><svg class="row-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4l1.5 1.5L6 3"/><path d="M2 10l1.5 1.5L6 9"/><path d="M8.5 4.5H14"/><path d="M8.5 10.5H14"/></svg>Tasks</div>
           <div class="card-btns">
             <button type="button" class="tasks-close" title="Close task board" aria-label="Close task board">✕</button>
             <span class="dot idle" title="open"></span>
@@ -980,7 +982,7 @@
     serverRow.dataset.server = '1';
     serverRow.innerHTML = `
         <div class="card-top">
-          <div class="proj">Server</div>
+          <div class="proj"><svg class="row-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M2.5 12a5.5 5.5 0 0 1 11 0"/><path d="M8 12l2.8-3.6"/></svg>Server</div>
           <div class="card-btns">
             <button type="button" class="server-close" title="Close server status" aria-label="Close server status">✕</button>
             <span class="dot idle" title="open"></span>
@@ -1001,7 +1003,7 @@
     shellRow.dataset.shell = '1';
     shellRow.innerHTML = `
         <div class="card-top">
-          <div class="proj">Command line</div>
+          <div class="proj"><svg class="row-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5L6.5 8 3 11.5"/><path d="M8.5 12H13"/></svg>Command line</div>
           <div class="card-btns">
             <button type="button" class="shell-close" title="Close command line" aria-label="Close command line">✕</button>
             <span class="dot off"></span>
