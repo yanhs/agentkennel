@@ -2,6 +2,14 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## v2.2.8 — forgot the password? one command; Docker hands over the link right away
+
+### Sign-in
+- **Forgot the password: one command, a new one-time link.** `~/agentkennel/install.sh --reset-password`, or in Docker `docker compose exec agentkennel python3 status_server.py --reset-password`. The old password and every signed-in browser stop working at once, no restart. The sign-in page says so under "Forgot your password?".
+
+### Docker
+- **The setup link right after the start.** `docker compose up -d --wait && docker compose logs agentkennel | grep setup`: `--wait` returns once the dashboard answers (the image has a health check now), and the log line is the whole link, the server's address in front (`AGENTKENNEL_PUBLIC_PORT` from docker-compose.yml; the address is asked from api.ipify.org once, on a fresh install only).
+
 ## v2.2.7 — guests' week resets with your subscription's
 
 ### Guests

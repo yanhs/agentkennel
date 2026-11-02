@@ -152,4 +152,4 @@ def test_container_log_line_holds_only_the_real_link():
     # README/tests grep `/login?setup=…` from `docker compose logs`: an example link in the
     # message would be grabbed instead of the real one
     src = (ROOT / "docker" / "entrypoint.sh").read_text()
-    assert src.count("/login?setup=") == 0 and "--setup-link" in src
+    assert src.count("/login?setup=") == 0 and "--setup-url" in src           # the whole link (02.11.2026)

@@ -2441,10 +2441,24 @@ def _auth_secret():
 
 
 AUTH_SECRET = _auth_secret()
+_SECRET_SEEN = [None, AUTH_SECRET]          # (inode, mtime, size) of the file, its key
+
+
+def _secret():
+    """The cookie key, re-read when its file changes: `--reset-password` writes a new one,
+    and every signed-in browser is out at once, without a restart."""
+    try:
+        st = os.stat(AUTH_SECRET_FILE)
+        seen = (st.st_ino, st.st_mtime_ns, st.st_size)
+    except OSError:
+        return _SECRET_SEEN[1]
+    if seen != _SECRET_SEEN[0]:
+        _SECRET_SEEN[0], _SECRET_SEEN[1] = seen, _auth_secret()
+    return _SECRET_SEEN[1]
 
 
 def _sign_token(user, exp):
-    sig = hmac.new(AUTH_SECRET, f"{user}.{exp}".encode(), hashlib.sha256).hexdigest()
+    sig = hmac.new(_secret(), f"{user}.{exp}".encode(), hashlib.sha256).hexdigest()
     return f"{user}.{exp}.{sig}"
 
 
@@ -2454,7 +2468,7 @@ def _verify_token(tok):
     user, exp, sig = tok.rsplit(".", 2)
     if not exp.isdigit() or int(exp) < int(time.time()):
         return None
-    expect = hmac.new(AUTH_SECRET, f"{user}.{exp}".encode(), hashlib.sha256).hexdigest()
+    expect = hmac.new(_secret(), f"{user}.{exp}".encode(), hashlib.sha256).hexdigest()
     return user if hmac.compare_digest(expect, sig) else None
 
 
@@ -2535,6 +2549,55 @@ def setup_link_path():
     return f"/login?setup={tok}" if tok else ""
 
 
+def reset_password():
+    """Forgot the password (02.11.2026): drop it, write a new cookie key (every signed-in
+    browser is out) and a new setup token. -> the new link's path."""
+    for path in (PASSFILE, _setup_token_file()):
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+    tmp = AUTH_SECRET_FILE + ".new"
+    old = os.umask(0o077)
+    try:
+        with open(tmp, "wb") as f:
+            f.write(os.urandom(32).hex().encode())
+    finally:
+        os.umask(old)
+    os.replace(tmp, AUTH_SECRET_FILE)
+    return setup_link_path()
+
+
+def _public_ip():
+    """This server's address for the setup link: AGENTKENNEL_PUBLIC_IP ("none" = unknown),
+    else one question to api.ipify.org; None when that fails."""
+    ip = (envcompat.get("PUBLIC_IP") or "").strip()
+    if ip:
+        return None if ip == "none" else ip
+    try:
+        with urllib.request.urlopen("https://api.ipify.org", timeout=3) as r:
+            ip = r.read(64).decode().strip()
+    except (OSError, ValueError):
+        return None
+    return ip if re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", ip) else None
+
+
+def setup_url():
+    """The whole first-run link, address included (the Docker log prints it: `docker compose
+    logs agentkennel | grep setup` hands over something to open). '' once a password is set.
+    AGENTKENNEL_SITE says the scheme / name; AGENTKENNEL_PUBLIC_PORT (docker-compose.yml) the
+    port the server publishes."""
+    path = setup_link_path()
+    if not path:
+        return ""
+    site = (envcompat.get("SITE") or "https://:8765").strip()
+    if site.startswith(":") or site.startswith("https://:") or site.startswith("http://:"):
+        scheme = "http" if site.startswith((":", "http://")) else "https"
+        port = (envcompat.get("PUBLIC_PORT") or "").strip().rsplit(":", 1)[-1] or site.rsplit(":", 1)[-1]
+        return f"{scheme}://{_public_ip() or '<your-server-ip>'}:{port}{path}"
+    return f"https://{site.split('://', 1)[-1].rstrip('/')}{path}"
+
+
 def _pw_verify(pw):
     try:
         with open(PASSFILE) as f:
@@ -2605,6 +2668,9 @@ button{width:100%;margin-top:18px;padding:11px;border:0;border-radius:8px;backgr
   color:#fff;font-size:15px;font-weight:600;cursor:pointer}
 button:hover{background:#2ea043}
 .err{margin:14px 0 0;color:#ff7b72;font-size:13px;text-align:center}
+.forgot{margin:16px 0 0;font-size:12px;color:#8b949e} .forgot summary{cursor:pointer;text-align:center}
+.forgot p{margin:8px 0 4px} .forgot code{display:block;padding:6px 8px;border-radius:6px;background:#0d1117;
+  border:1px solid #30363d;color:#e6edf3;font-size:11.5px;overflow-wrap:anywhere}
 </style>__BREAKOUT__</head><body>
 <form class="card" method="POST" action="/login">
   <h1>🐾 AgentKennel</h1><p class="sub">Sign in to open the panel</p>
@@ -2612,6 +2678,13 @@ button:hover{background:#2ea043}
   <input id="p" name="pass" type="password" autocomplete="current-password"__PFOCUS__>
   <button type="submit">Sign in</button>
   __ERR__
+  <details class="forgot"><summary>Forgot your password?</summary>
+    <p>On the server, run this. It prints a new one-time link to set a new password; the old
+    one and every signed-in browser stop working.</p>
+    <code>~/agentkennel/install.sh --reset-password</code>
+    <p>Docker, in the AgentKennel folder:</p>
+    <code>docker compose exec agentkennel python3 status_server.py --reset-password</code>
+  </details>
 </form></body></html>"""
 
 
@@ -2996,6 +3069,18 @@ class PasteHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     if "--setup-link" in sys.argv[1:]:   # the first-run link's path ('' + exit 1: none)
         link = setup_link_path()
+        print(link)
+        sys.exit(0 if link else 1)
+    if "--setup-url" in sys.argv[1:]:    # the same, with the server's address in front
+        link = setup_url()
+        print(link)
+        sys.exit(0 if link else 1)
+    if "--reset-password" in sys.argv[1:]:
+        if not PASSFILE:
+            print("--reset-password works with the dashboard's own password file "
+                  "(AGENTKENNEL_PASSFILE), which this setup doesn't use", file=sys.stderr)
+            sys.exit(2)
+        link = reset_password()
         print(link)
         sys.exit(0 if link else 1)
     from threading import Thread

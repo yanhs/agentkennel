@@ -35,19 +35,19 @@ if [ "$WHAT" = build ]; then
   # next plain `docker compose up -d` on this machine
   export AGENTKENNEL_VERSION="e2e-build-$$"
   BUILT="ghcr.io/yanhs/agentkennel:$AGENTKENNEL_VERSION"
-  dc up -d --build
+  dc up -d --build --wait
 else
   export AGENTKENNEL_VERSION="$WHAT"
   dc pull agentkennel
-  dc up -d --no-build
+  dc up -d --no-build --wait
 fi
 
-link=""
-for _ in $(seq 90); do
-  link="$(dc logs agentkennel 2>&1 | grep -o '/login?setup=[A-Za-z0-9_-]*' | tail -1 || true)"
-  [ -n "$link" ] && break
-  sleep 2
-done
+# the README's way: right after `up -d --wait`, one `logs | grep setup`, no waiting loop;
+# the line is the whole link, the server's address in front
+line="$(dc logs agentkennel 2>&1 | grep setup | tail -1 || true)"
+echo "log line: ${line//setup=*/setup=<token>}"
+case "$line" in *"://"*":${AGENTKENNEL_PORT}/login?setup="*) ;; *) echo "the setup line is not a whole link"; exit 1 ;; esac
+link="$(printf '%s' "$line" | grep -o '/login?setup=[A-Za-z0-9_-]*' | tail -1)"
 [ -n "$link" ] || { echo "no setup link in the logs"; exit 1; }
 echo "setup link found"
 
@@ -59,3 +59,13 @@ dc exec -T agentkennel tmux ls
 dc restart agentkennel
 python3 "$REPO/tests/install/smoke.py" "$URL" --password "$PW" --wait 90 --insecure
 echo "the password survived the restart"
+
+# forgot the password: one command in the container, a new link; the old password is out
+reset="$(dc exec -T agentkennel python3 status_server.py --reset-password)"
+case "$reset" in /login\?setup=*) ;; *) echo "reset printed no link: $reset"; exit 1 ;; esac
+if python3 "$REPO/tests/install/smoke.py" "$URL" --password "$PW" --wait 20 --insecure >/dev/null 2>&1; then
+  echo "the old password still works after --reset-password"; exit 1
+fi
+python3 "$REPO/tests/install/smoke.py" "$URL" --password "$PW-new" --first-run --setup "$reset" \
+  --wait 30 --insecure
+echo "reset: the old password is out, the new link set a new one"

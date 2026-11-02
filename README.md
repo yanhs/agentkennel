@@ -39,8 +39,8 @@ Or keep the agents inside a container:
 
 ```bash
 git clone https://github.com/yanhs/agentkennel.git && cd agentkennel
-docker compose up -d                           # → https://<your-vps-ip>:8765
-docker compose logs agentkennel | grep setup   # the one-time link that sets the password
+docker compose up -d --wait && docker compose logs agentkennel | grep setup
+# → the one-time link that sets the password: https://<your-vps-ip>:8765/login?setup=…
 ```
 
 > ⚠️ **What the agents may do.** AgentKennel starts Claude Code with
@@ -158,6 +158,8 @@ curl -fsSL https://raw.githubusercontent.com/yanhs/agentkennel/master/install.sh
 - **Update or repair:** run the same command again; running agents keep running.
   **Remove:** `~/agentkennel/install.sh --uninstall` keeps your terminals, board and password;
   add `--purge` to delete the folder too (only one the installer cloned itself).
+- **Forgot the password?** `~/agentkennel/install.sh --reset-password` prints a new one-time
+  link to set a new one; the old password and every signed-in browser stop working.
 
 ### Docker sandbox — agents stay inside a container
 
@@ -166,16 +168,18 @@ firewall. Docker-published ports bypass `ufw`.
 
 ```bash
 git clone https://github.com/yanhs/agentkennel.git && cd agentkennel
-docker compose up -d
-docker compose logs agentkennel | grep setup   # → /login?setup=<token>
+docker compose up -d --wait && docker compose logs agentkennel | grep setup
 ```
+
+`--wait` returns once the dashboard answers, and the log line is the whole link:
+`https://<your-vps-ip>:8765/login?setup=<token>`.
 
 `docker compose up -d` downloads the ready image of the latest release,
 `ghcr.io/yanhs/agentkennel` (amd64 and arm64), so nothing is built on your machine.
 `AGENTKENNEL_VERSION=2.2.0 docker compose up -d` pins a version;
 `docker compose up -d --build` builds your checkout instead.
 
-1. Open `https://<your-vps-ip>:8765/login?setup=<token>` and set the password. The
+1. Open that link and set the password. The
    certificate is one the container made for itself: the browser warns once, the
    connection is encrypted.
 2. **＋ New**, then sign in to Claude once: it asks for a colour theme, then how to
@@ -183,6 +187,11 @@ docker compose logs agentkennel | grep setup   # → /login?setup=<token>
 3. A trusted certificate, no warning: `./https.sh` (a free `<ip>.sslip.io` name, needs
    ports 80 and 443) or `./https.sh your-domain.com`; `./https.sh --off` goes back.
    Plain http behind a proxy of your own: `AGENTKENNEL_SITE=:8765 docker compose up -d`.
+
+**Forgot the password?** In the AgentKennel folder:
+`docker compose exec agentkennel python3 status_server.py --reset-password` prints a new
+one-time link (put your address in front); the old password and every signed-in browser
+stop working.
 
 Agents work in `/work`, a named volume that survives `docker compose down` and rebuilds; to
 use your own project, replace that line in `docker-compose.yml` with `./my-project:/work`.
