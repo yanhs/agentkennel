@@ -2,6 +2,14 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## v2.2.5 — AGPL-3.0, and the name inside the dashboard
+
+### License
+- **AgentKennel is now `AGPL-3.0-only`** (was MIT). Using it, changing it and running it on your own servers, for yourself or your company, stays free. What the AGPL adds: if you run a changed copy as a service for other people, you offer them its source. Releases up to v2.2.4 were MIT and stay MIT. [CONTRIBUTING.md](CONTRIBUTING.md) says how contributions are licensed.
+
+### Dashboard
+- **The name is in the dashboard, not only in the tab.** The paw and "AgentKennel" head the sidebar (on a phone, the paw starts the top row), and the empty screen, before you pick a terminal, shows both. On a phone that screen now says the list is above, not on the left.
+
 ## v2.2.4 — a guest's dot says whether agents are loaded
 
 ### Server page

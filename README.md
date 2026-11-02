@@ -4,7 +4,7 @@ A dozen Claude Code agents, kept and fed on your own server: open any of them fr
 browser tab or Telegram, close the tab, and they keep working.
 
 - **Real Claude Code terminals** — the actual `claude` TUI in tmux, not a chat wrapper.
-- **On your own VPS** — your server, your Claude subscription, open source (MIT).
+- **On your own VPS** — your server, your Claude subscription, open source (AGPL-3.0).
 - **Browser and Telegram, even from your phone** — type, paste, dictate, tap buttons.
 - **Keeps working when you close the tab** — and resumes the same conversation after a reboot.
 - **A shared task board** — agents log their work there and are nudged to keep going until
@@ -13,7 +13,7 @@ browser tab or Telegram, close the tab, and they keep working.
 
 <p>
   <a href="https://github.com/yanhs/agentkennel/actions/workflows/install.yml"><img alt="install.sh on fresh servers" src="https://github.com/yanhs/agentkennel/actions/workflows/install.yml/badge.svg"></a>
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
+  <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg"></a>
   <img alt="Docker" src="https://img.shields.io/badge/docker-compose%20up-2496ED.svg">
 </p>
 
@@ -90,7 +90,7 @@ one-time setup link for the first password, services that outlive a terminal, sa
 | Back after a reboot | ✅ same conversations | restart `claude` | restart its server | ❌ resume each by hand |
 | Shared task board | ✅ | ❌ | TaskMaster, optional | ❌ |
 | Other agents (Codex, Cursor…) | ❌ Claude only | ❌ Claude only | ✅ | anything |
-| Price | free, MIT | included in Pro / Max / Team / Enterprise | free (AGPL); cloud from €7/mo | free |
+| Price | free (AGPL) | included in Pro / Max / Team / Enterprise | free (AGPL); cloud from €7/mo | free |
 
 Want one session from your own laptop? Use Remote Control. AgentKennel is for a dozen agents
 that live on a server around the clock. (Rather have no server at all? Claude Code on the
@@ -282,7 +282,12 @@ uninstalls. GitHub runs it on every push, plus `./install.sh --yes` on real Ubun
 ## 🤝 Contributing
 
 Issues and PRs are welcome. Plain Python and Bash, no build step: clone, run `pytest`, go.
+Before your first PR, read [CONTRIBUTING.md](CONTRIBUTING.md): it says how contributions are licensed.
 
 ## 📄 License
 
-[MIT](LICENSE) © yanhs
+[AGPL-3.0](LICENSE) © yanhs
+
+Use it, change it, run it on your own servers, for yourself or your company: free. If you run a
+changed copy as a service for other people, the AGPL asks you to offer them its source.
+Versions up to v2.2.4 were released under the MIT license and remain under it.

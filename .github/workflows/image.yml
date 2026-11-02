@@ -45,7 +45,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/yanhs/agentkennel
             org.opencontainers.image.version=${{ steps.v.outputs.version }}
-            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.licenses=AGPL-3.0-only
             org.opencontainers.image.description=AgentKennel: Claude Code terminals on your own server, in the browser
       # what a user gets: the image just pushed, the README's way (tags before v2.2.1 lack it)
       - name: docker compose up -d with the published image, login, new terminal, restart
