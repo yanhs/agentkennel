@@ -1118,10 +1118,13 @@ explain_mode() {
 }
 
 reset_password() {  # forgot the password: a new one-time link; the old password and sign-ins stop working
-  [ -f "$DIR/status_server.py" ] || die "no AgentKennel in $DIR (AGENTKENNEL_DIR says where it is)"
-  local link
-  link="$(cd "$DIR" && AGENTKENNEL_PASSFILE="$DIR/.sessions/.dashpass" \
-    AGENTKENNEL_AUTH_SECRET="$DIR/.sessions/.agents_auth_secret" \
+  # the folder: this script's own clone (~/agentkennel/install.sh), else the install record /
+  # AGENTKENNEL_DIR / the default — DIR itself is only set later, by get_repo
+  local d link
+  d="${DIR:-}"; [ -n "$d" ] || d="$(self_dir)"; [ -n "$d" ] || d="$(install_dir)"
+  [ -f "$d/status_server.py" ] || die "no AgentKennel in $d (AGENTKENNEL_DIR says where it is)"
+  link="$(cd "$d" && AGENTKENNEL_PASSFILE="$d/.sessions/.dashpass" \
+    AGENTKENNEL_AUTH_SECRET="$d/.sessions/.agents_auth_secret" \
     python3 status_server.py --reset-password)" || die "could not reset the password"
   say "Password reset: the old one and every signed-in browser no longer work."
   say "Set a new password at this one-time link (only it can — keep it private):"

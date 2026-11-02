@@ -189,6 +189,32 @@ def test_install_sh_reset_password(tmp_path):
     assert not (d / ".sessions" / ".dashpass").exists()
 
 
+def test_install_sh_reset_finds_its_folder_by_itself(tmp_path):
+    """Run as ~/agentkennel/install.sh --reset-password, DIR is not set yet (get_repo sets it,
+    later): 02.11.2026 on a fresh box this died with "DIR: unbound variable"."""
+    d = tmp_path / "agentkennel"
+    (d / ".sessions").mkdir(parents=True)
+    for f in ROOT.glob("*.py"):
+        (d / f.name).symlink_to(f)
+    for f in ("install.sh", "open-session.sh"):
+        (d / f).write_bytes((ROOT / f).read_bytes())
+    (d / ".sessions" / ".dashpass").write_text("aa$bb")
+    script = f"""
+      set -u
+      AGENTKENNEL_SOURCE_ONLY=1 . {d / 'install.sh'}
+      unset DIR
+      SITE=":8765" SELF_IP=203.0.113.7 PORT=8765
+      reset_password
+    """
+    env = dict(os.environ, AGENTKENNEL_HTPASSWD=str(tmp_path / "no-htpasswd"),
+               HOME=str(tmp_path / "home"))
+    env.pop("AGENTKENNEL_DIR", None)
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60, env=env)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert re.search(r"http://203\.0\.113\.7:8765/login\?setup=[A-Za-z0-9_-]{20,}", r.stdout), r.stdout
+    assert not (d / ".sessions" / ".dashpass").exists()
+
+
 def test_install_sh_lists_the_flag():
     src = (ROOT / "install.sh").read_text()
     assert "--reset-password" in src.split("Env:", 1)[0]       # in the --help text
