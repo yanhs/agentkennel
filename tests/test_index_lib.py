@@ -451,7 +451,8 @@ def test_click_opens_the_session_endpoint(page):
     page.wait_for_selector("#wrap iframe")
     src = page.get_attribute("#wrap iframe", "src")
     assert src == "/sess/?arg=cccc0003"
-    assert page.get_attribute("#tOpen", "href") == "/sess/?arg=cccc0003"
+    # «Open in tab» = this dashboard in solo mode, not the bare terminal (owner, 02.11.2026)
+    assert page.get_attribute("#tOpen", "href").endswith("?solo=cccc0003")
     assert page.is_visible("#topbar")
     assert page.inner_text("#tNum") == "cccc0003"
     assert "Old notes" in page.inner_text("#tInfo")
@@ -2457,7 +2458,7 @@ def test_open_terminal_follows_a_switch_and_not_back(page, api):
     old.update(name=old["name"] + " (earlier)", active=False, attached=False, status="off")
     _src_is(page, "eeee0009")
     assert page.inner_text("#tNum") == "eeee0009"
-    assert page.get_attribute("#tOpen", "href") == "/sess/?arg=eeee0009"
+    assert page.get_attribute("#tOpen", "href").endswith("?solo=eeee0009")
     assert "sel" in page.get_attribute(row("eeee0009"), "class")
     # opening the earlier conversation on purpose: the page does not jump back
     page.click(row("dddd0004") + " .proj")
@@ -4093,3 +4094,77 @@ def test_file_upload_error_is_shown(browser, site, tmp_path):
         assert "big.iso" in pg.inner_text("#_imgToast")
     finally:
         ctx.close()
+
+
+# ── «Open in tab» = the terminal alone in a tab, WITH the dashboard's copy/paste ──
+# (owner, 02.11.2026: the button opened the bare /sess/ page — no copy, no paste, no
+# 📎 — because all of that lives in the dashboard around the iframe). Now the button
+# opens this same page with ?solo=<id>: no left column, the terminal fills the tab,
+# and it is opened through the same openFrame() as a click, so every helper is on.
+def _open_solo(browser, site, api, query, width=1440, height=900):
+    ctx = browser.new_context(viewport={"width": width, "height": height})
+    ctx.set_default_timeout(10000)
+    pg = ctx.new_page()
+    pg.route(re.compile(r"^https://fonts\.(googleapis|gstatic)\.com/"), lambda r: r.abort())
+    pg.route(re.compile(r"/api/library(/|\?|$)"), api.library)
+    pg.route(re.compile(r"/api/terminal-status(\?|$)"),
+             lambda r: r.fulfill(status=200, content_type="application/json", body="{}"))
+    pg.route(re.compile(r"/api/page-version"), lambda r: r.abort())
+    pg.route(re.compile(r"/sess/"),
+             lambda r: r.fulfill(status=200, content_type="text/html",
+                                 body="<html><body>ttyd stub</body></html>"))
+    pg.goto(site + query)
+    return ctx, pg
+
+
+def _iframe_src(pg):
+    return pg.evaluate("() => { const f = document.querySelector('#wrap iframe');"
+                       " return f ? f.getAttribute('src') : null; }")
+
+
+def test_open_in_tab_link_points_at_the_solo_dashboard_not_the_bare_terminal(page):
+    page.click(".card[data-sid='bbbb0002']")
+    page.wait_for_function("() => document.querySelector('#wrap iframe')")
+    href = page.get_attribute("#tOpen", "href")
+    assert href.endswith("?solo=bbbb0002"), href
+    assert "/sess/" not in href
+    assert page.get_attribute("#tOpen", "target") == "_blank"
+
+
+def test_solo_tab_shows_only_that_terminal_full_width_with_helpers(browser, site):
+    api = FakeAPI()
+    ctx, pg = _open_solo(browser, site, api, "?solo=cccc0003")
+    try:
+        pg.wait_for_function("() => { const f = document.querySelector('#wrap iframe');"
+                             " return f && f.getAttribute('src') === '/sess/?arg=cccc0003'; }")
+        assert pg.evaluate("() => document.body.classList.contains('solo')")
+        assert not pg.is_visible(".sidebar")
+        assert not pg.is_visible("#tOpen")             # already alone in its tab
+        assert pg.is_visible("#tPasteImg") and pg.is_visible("#tEsc")
+        w = pg.evaluate("() => document.getElementById('wrap').getBoundingClientRect().width")
+        assert w >= 1440 - 2, w
+        # the page title names the topic, so the tab is recognisable
+        pg.wait_for_function("() => document.title.includes('Old notes')")
+        # the URL keeps ?solo= so a reload of this tab opens the same terminal again
+        assert pg.url.endswith("?solo=cccc0003")
+    finally:
+        ctx.close()
+
+
+def test_solo_with_garbage_or_unknown_id_opens_nothing(browser, site):
+    for q in ("?solo=%3Cb%3E", "?solo=12345678"):
+        api = FakeAPI()
+        ctx, pg = _open_solo(browser, site, api, q)
+        try:
+            pg.wait_for_timeout(600)
+            assert _iframe_src(pg) is None, q
+        finally:
+            ctx.close()
+
+
+def test_task_board_open_in_tab_still_opens_the_board_itself(page):
+    page.click("#tasksBtn")
+    page.wait_for_function("() => { const f = document.querySelector('#wrap iframe');"
+                           " return f && (f.getAttribute('src') || '').startsWith('/tasks'); }")
+    href = page.get_attribute("#tOpen", "href")
+    assert "solo=" not in href and "/tasks" in href, href

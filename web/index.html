@@ -586,6 +586,8 @@
     .btn-logout:hover { color: var(--red-fg-hi); border-color: rgba(239,68,68,0.5); background: rgba(239,68,68,0.12); }
 
     /* ── Right area ── */
+    body.solo .sidebar, body.solo #tOpen { display: none !important; }
+    body.solo .main { height: 100vh !important; }
     .main {
       flex: 1;
       min-width: 0;        /* allow main to shrink to viewport-minus-sidebar */
@@ -917,6 +919,12 @@
        A topic is addressed ONLY by its 8-hex code; there are no slot numbers.
        Opening one = iframe /sess/?arg=<code> (the server loads it if needed). */
     const ID_RE = /^[0-9a-f]{8}$/;
+    // ?solo=<id>: «Open in tab» — this page with only that terminal, no left column, but
+    // with every copy/paste/📎 helper of the dashboard (the bare /sess/ page has none).
+    // The parameter stays in the URL, so reloading the tab reopens the same terminal.
+    const SOLO = (() => { try { const v = new URL(location.href).searchParams.get('solo') || '';
+                                return ID_RE.test(v) ? v : null; } catch { return null; } })();
+    if (SOLO) document.body.classList.add('solo');
     const _isMobile = window.matchMedia('(max-width: 700px)').matches;
     let sel = null;            // code of the open topic
     let sessions = [];         // last /api/library payload (+ local edits)
@@ -944,7 +952,7 @@
     const TASKS = 'tasks';
     const TASKS_PATH = '/tasks/';
     let tasksOpen = false;
-    try { tasksOpen = localStorage.getItem('lib-tasks-open') === '1'; } catch {}
+    try { tasksOpen = !SOLO && localStorage.getItem('lib-tasks-open') === '1'; } catch {}
     const tasksRow = document.createElement('div');
     tasksRow.className = 'card tasks-row';
     tasksRow.dataset.tasks = '1';
@@ -966,7 +974,7 @@
     const SERVER = 'server';
     const SERVER_PATH = '/server.html';
     let serverOpen = false;
-    try { serverOpen = localStorage.getItem('lib-server-open') === '1'; } catch {}
+    try { serverOpen = !SOLO && localStorage.getItem('lib-server-open') === '1'; } catch {}
     const serverRow = document.createElement('div');
     serverRow.className = 'card server-row';
     serverRow.dataset.server = '1';
@@ -1831,6 +1839,7 @@
       const row = sessions.find(s => s.id === id);
       const legacy = row && typeof row.legacy_path === 'string' && /^\/terminal\d*\/$/.test(row.legacy_path) ? row.legacy_path : null;
       openFrame(legacy || ('/sess/?arg=' + id));
+      if (SOLO && row && row.name) document.title = row.name + ' · AgentKennel';
     }
 
     // cmd button / "Command line" row: the server starts the shell if needed
@@ -1902,7 +1911,7 @@
       openTerminalById(d.id);
     });
     // ?open=<id>: honoured once the first list arrives, then dropped from the URL
-    let _pendingOpen = null;
+    let _pendingOpen = SOLO;
     try {
       const u = new URL(location.href);
       if (u.searchParams.has('open')) {
@@ -2006,7 +2015,10 @@
 
     // plain = a web page (the task board), not a terminal: no ttyd helpers
     function openFrame(path, plain) {
-      document.getElementById('tOpen').href = path;
+      // a terminal opens in a tab as this dashboard in solo mode (copy/paste work there);
+      // a plain page (the task board) opens as itself
+      document.getElementById('tOpen').href = (!plain && ID_RE.test(sel || ''))
+        ? location.pathname + '?solo=' + sel : path;
       const wrap = document.getElementById('wrap');
       const ph = document.getElementById('ph'); if (ph) ph.remove();
       const old = wrap.querySelector('iframe'); if (old) old.remove();

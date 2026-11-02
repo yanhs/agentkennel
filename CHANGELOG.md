@@ -2,6 +2,11 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## Unreleased
+
+### Fixed
+- **"Open in tab" opens a terminal that can copy and paste.** The button used to open the bare terminal page, which has none of the dashboard's copy, paste, 📎 or image-paste helpers. It now opens the dashboard itself with `?solo=<id>`: no left column, the terminal fills the tab, and every helper works. Reloading the tab reopens the same terminal, and the tab title is the topic's name. The task board still opens as itself.
+
 ## v2.2.9 — `install.sh --reset-password` works on a real install; one header per site
 
 ### Fixed
