@@ -154,12 +154,26 @@ A new website or web app is built with Next.js on TypeScript with Tailwind CSS
 (`npx create-next-app@latest`), not hand-written HTML and scripts or a server-side
 template engine. Pages people should find (a landing, articles) are rendered on the
 server, so search engines and link previews see them. An existing site keeps its stack
+unless the person asks to move it. A site has one header, one menu and one footer: one
+component on every page, the landing included. A test checks they are the same on all
+pages, and you check the site by going from page to page, as a visitor does.
+"""
+# v2.2.2-v2.2.8 wrote this one; v2.2.9 adds "one header" (02.11.2026, the owner: the landing
+# had its own header and the menu changed on a click)
+OLD_WEB_MD = """\
+{mark}
+## Websites: Next.js
+A new website or web app is built with Next.js on TypeScript with Tailwind CSS
+(`npx create-next-app@latest`), not hand-written HTML and scripts or a server-side
+template engine. Pages people should find (a landing, articles) are rendered on the
+server, so search engines and link previews see them. An existing site keeps its stack
 unless the person asks to move it.
 """
 # Blocks that go into AgentKennel's own CLAUDE.md (new, or written by it earlier), once.
 # Keeping only a block's mark line opts out of it: the block is not added back.
 OWN_BLOCKS = ((ENV_MARK, ENV_MD), (SAFETY_MARK, SAFETY_MD), (TDD_MARK, TDD_MD),
               (LINKS_MARK, LINKS_MD), (WEB_MARK, WEB_MD))
+REPLACED_BLOCKS += ((WEB_MARK, OLD_WEB_MD, WEB_MD),)
 
 
 def has_mark(text: str, mark: str) -> bool:

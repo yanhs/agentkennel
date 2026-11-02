@@ -2,10 +2,13 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
-## v2.2.9 — `install.sh --reset-password` works on a real install
+## v2.2.9 — `install.sh --reset-password` works on a real install; one header per site
 
 ### Fixed
 - **`~/agentkennel/install.sh --reset-password` stopped with "DIR: unbound variable"** (v2.2.8). The reset ran before the installer had worked out its folder; it now finds it itself (its own clone, the install record or `AGENTKENNEL_DIR`). The Docker reset was not affected.
+
+### Agents' rules
+- **A site has one header, one menu and one footer.** The "Websites: Next.js" block adds: one component on every page, the landing included; a test checks they're the same on all pages, and the agent checks the site by going from page to page. Upgrading replaces the old block if it is still word for word what AgentKennel wrote.
 
 ## v2.2.8 — forgot the password? one command; Docker hands over the link right away
 

@@ -669,6 +669,40 @@ def test_a_new_claude_md_builds_websites_with_nextjs(tmp_path):
     assert text.isascii() and len(text.splitlines()) < MAX_MD_LINES
 
 
+OLD_WEB_BLOCK = """{mark}
+## Websites: Next.js
+A new website or web app is built with Next.js on TypeScript with Tailwind CSS
+(`npx create-next-app@latest`), not hand-written HTML and scripts or a server-side
+template engine. Pages people should find (a landing, articles) are rendered on the
+server, so search engines and link previews see them. An existing site keeps its stack
+unless the person asks to move it.
+"""
+
+
+def test_the_web_rule_says_one_header_on_every_page(tmp_path):
+    """02.11.2026, the owner: a site came out with one header on the landing and another on
+    the other pages (the menu changed on a click). Into the agents' rules, everywhere."""
+    md = tmp_path / "CLAUDE.md"
+    run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
+    text = md.read_text()
+    web = " ".join(text.split(WEB_MARK, 1)[1].split("<!--", 1)[0].split())
+    for words in ("one header, one menu and one footer", "every page, the landing included",
+                  "going from page to page"):
+        assert words in web, words
+    assert text.isascii() and len(text.splitlines()) < MAX_MD_LINES
+
+
+@pytest.mark.parametrize("mark", [WEB_MARK, "<!-- agentdeck-web -->"])
+def test_an_upgrade_replaces_the_old_web_block(tmp_path, mark):
+    md = tmp_path / "CLAUDE.md"
+    md.write_text("# Working rules (AgentKennel)\n\n" + OLD_WEB_BLOCK.format(mark=mark) + "\n## Mine\nkeep\n")
+    for _ in range(2):
+        run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
+    text = md.read_text()
+    assert "one header, one menu and one footer" in text and text.count(mark) == 1
+    assert "## Mine\nkeep\n" in text
+
+
 def test_a_claude_md_agentkennel_wrote_earlier_gets_the_web_rule_once(tmp_path):
     md = tmp_path / "CLAUDE.md"
     md.write_text("# Working rules (AgentKennel)\n\n" + LINKS_MARK + "\n## Links\n")
