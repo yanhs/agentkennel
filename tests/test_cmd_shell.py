@@ -163,7 +163,7 @@ def test_api_shell_off_when_not_running(api):  # noqa: F811
     code, data = get(api)
     assert code == 200
     assert data["shell"] == {"active": False, "attached": False, "status": "off"}
-    assert set(data) == {"max_active", "sessions", "_system", "shell"}
+    assert set(data) == {"max_active", "first_run", "sessions", "_system", "shell"}
 
 
 def test_api_shell_active_and_not_mixed_into_sessions(api):  # noqa: F811

@@ -307,6 +307,27 @@ class Ledger:
             )
             self._db.execute("CREATE INDEX IF NOT EXISTS usage_day ON usage(day, guest)")
             self._db.execute("CREATE INDEX IF NOT EXISTS usage_guest_ts ON usage(guest, ts)")
+            self._db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+            self._db.commit()
+
+    def week_reset(self) -> Optional[int]:
+        """When the owner's subscription week resets (a unix time Anthropic sent in the
+        anthropic-ratelimit-unified-7d-reset header), None before the first one was seen."""
+        with self._lock:
+            row = self._db.execute("SELECT value FROM meta WHERE key='week_reset'").fetchone()
+        try:
+            return int(row[0]) if row else None
+        except (TypeError, ValueError):
+            return None
+
+    def set_week_reset(self, value) -> None:
+        """Keep the subscription's week reset; anything that isn't a sane unix time is ignored."""
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 < value < 10 ** 12:
+            return
+        if self.week_reset() == value:
+            return
+        with self._lock:
+            self._db.execute("INSERT OR REPLACE INTO meta VALUES ('week_reset', ?)", (str(value),))
             self._db.commit()
 
     @staticmethod
@@ -454,8 +475,18 @@ def rewrite_headers(headers, owner: str) -> Dict[str, str]:
 USAGE_PATH = "/guest/usage"
 
 
-def week_bounds(now: float) -> Tuple[float, float]:
-    """The calendar week around `now`: Monday 00:00 to the next Monday 00:00, DAY_TZ."""
+WEEK = 7 * 24 * 3600
+WEEK_RESET_HEADER = "anthropic-ratelimit-unified-7d-reset"
+
+
+def week_bounds(now: float, reset: Optional[int] = None) -> Tuple[float, float]:
+    """The guests' week around `now`. It runs with the owner's subscription week (02.11.2026,
+    the owner: his resets on Wednesday 11:00, the guests' must too): from one of its resets
+    to the next, seven days apart. Before Anthropic has told us a reset (`reset` None):
+    the calendar week, Monday 00:00 to the next Monday 00:00, DAY_TZ."""
+    if reset:
+        end = reset + (math.floor((now - reset) / WEEK) + 1) * WEEK
+        return float(end - WEEK), float(end)
     day = datetime.fromtimestamp(now, DAY_TZ).date()
     monday = day - timedelta(days=day.weekday())
     start = datetime.combine(monday, dtime(0), DAY_TZ)
@@ -465,14 +496,14 @@ def week_bounds(now: float) -> Tuple[float, float]:
 
 def usage_windows(guest, ledger, now: Optional[float] = None) -> Dict:
     """{"five_hour"|"seven_day": {"used", "limit", "resets_at"}} — weighted tokens in the
-    open 5-hour window (none open: 0 and resets_at 0) and in this calendar week."""
+    open 5-hour window (none open: 0 and resets_at 0) and in this week (week_bounds)."""
     now = time.time() if now is None else now
     window = ledger.five_hour_window(guest.name, now)
     if window:
         five_used, five_reset = ledger.spent_between(guest.name, *window), math.ceil(window[1])
     else:
         five_used, five_reset = 0, 0
-    week_start, week_end = week_bounds(now)
+    week_start, week_end = week_bounds(now, getattr(ledger, "week_reset", lambda: None)())
     return {
         "five_hour": {"used": int(five_used), "limit": int(guest.five_hour_limit),
                       "resets_at": int(five_reset)},
@@ -508,7 +539,9 @@ def over_limit(guest, ledger, now: Optional[float] = None) -> Optional[str]:
     w = usage_windows(guest, ledger, now)
     week, five = w["seven_day"], w["five_hour"]
     if week["used"] >= week["limit"]:
-        return _t("gate_limit_week", spent=week["used"], limit=week["limit"])
+        at = datetime.fromtimestamp(week["resets_at"], DAY_TZ)
+        return _t("gate_limit_week", spent=week["used"], limit=week["limit"],
+                  day=_t("weekdays").split()[at.weekday()], at=at.strftime("%H:%M"))
     if five["used"] >= five["limit"]:
         at = five["resets_at"] or now + FIVE_HOURS
         return _t("gate_limit_5h", spent=five["used"], limit=five["limit"],
@@ -585,6 +618,9 @@ def make_server(
             except OSError as exc:
                 log(f"UPSTREAM-ERROR guest={guest.name} {exc!r}")
                 return self._reply(502, _error("api_error", _t("gate_upstream")))
+            reset = (resp.getheader(WEEK_RESET_HEADER) or "").strip()
+            if reset.isdigit():
+                ledger.set_week_reset(int(reset))      # the guests' week follows the owner's
 
             self.send_response(resp.status)
             for key, value in resp.getheaders():

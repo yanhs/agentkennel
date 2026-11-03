@@ -30,7 +30,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Optional, Tuple
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -110,20 +110,24 @@ def cloudflare_api(method: str, path: str, data: Optional[Dict] = None,
     return json.loads(r.stdout or "{}")
 
 
-def host_for(site: str, guest: str) -> str:
+def host_for(site: str, guest: str, registry: Optional[Dict] = None) -> str:
     domain = guestenv.domain()
     if not domain:
         raise GateError(_t("site_no_domain"))
-    host = f"{site}-{guest}.{domain}"
+    host = f"{site}-{guestenv.address_of(guest, registry or {})}.{domain}"
     if len(host.split(".")[0]) > 63:
         raise ValueError(_t("site_too_long"))
     return host
 
 
-def render_vhost(host: str, ip: str, port: int, tls: bool, extra: str = "") -> str:
+def render_vhost(host: str, ip: str, port: int, tls: bool, extra: str = "",
+                 origin: Optional[Tuple[str, str]] = None) -> str:
     """nginx config for one guest site. tls=False: only what the first certificate needs.
     `extra`: locations put before the catch-all of the https block (a guest's dashboard
-    has one: the owner's way in, see guestctl.owner_entry_location)."""
+    has one: the owner's way in, see guestctl.owner_entry_location).
+    `origin` (this address's origin, the one the app knows): the app was made for another
+    address and takes writes only from that Origin — the browser's is swapped for it
+    (not on a websocket: the terminal checks Origin against Host)."""
     http = (
         "server {\n"
         "    listen 80;\n    listen [::]:80;\n"
@@ -154,7 +158,12 @@ def render_vhost(host: str, ip: str, port: int, tls: bool, extra: str = "") -> s
         "        proxy_set_header X-Real-IP $remote_addr;\n"
         "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
         "        proxy_set_header X-Forwarded-Proto https;\n"
-        "        proxy_read_timeout 300s;\n"
+        + (("        set $sbx_origin $http_origin;\n"
+            f'        if ($http_origin = "{origin[0]}") {{ set $sbx_origin "{origin[1]}"; }}\n'
+            # the terminal (a websocket: ttyd) checks Origin against Host — the real one
+            "        if ($http_upgrade) { set $sbx_origin $http_origin; }\n"
+            "        proxy_set_header Origin $sbx_origin;\n") if origin else "")
+        + "        proxy_read_timeout 300s;\n"
         "    }\n"
         "}\n"
     )
@@ -176,9 +185,31 @@ def render_gone(host: str) -> str:
     )
 
 
+def render_moved(host: str, to: str) -> str:
+    """An address that moved: everything goes to the same path on `to` (its certificate
+    is kept, and renews over http)."""
+    go = f"    location / {{ return 301 https://{to}$request_uri; }}\n"
+    return (
+        f"# guest site {host} (moved to {to})\n"
+        "server {\n    listen 80;\n    listen [::]:80;\n"
+        f"    server_name {host};\n"
+        "    location ^~ /.well-known/acme-challenge/ { root /var/www/html; }\n"
+        + go + "}\n"
+        "server {\n    listen 443 ssl;\n    listen [::]:443 ssl;\n"
+        f"    server_name {host};\n"
+        f"    ssl_certificate /etc/letsencrypt/live/{host}/fullchain.pem;\n"
+        f"    ssl_certificate_key /etc/letsencrypt/live/{host}/privkey.pem;\n"
+        "    include /etc/letsencrypt/options-ssl-nginx.conf;\n"
+        "    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;\n"
+        + go + "}\n"
+    )
+
+
 class Gate:
     def __init__(self, book: "ts.GuestBook", ops, registry: Path,
-                 ip_of: Callable[[str], Optional[str]], cleanup_delay: float = 90) -> None:
+                 ip_of: Callable[[str], Optional[str]], cleanup_delay: float = 90,
+                 sandboxes: Callable[[], Dict] = dict) -> None:
+        self.sandboxes = sandboxes   # guestctl's registry: each guest's own address name
         self.book = book
         self.ops = ops
         self.path = Path(registry)
@@ -206,7 +237,7 @@ class Gate:
         ip = self.ip_of(guest)
         if not ip:
             raise GateError(_t("site_no_ip"))
-        host = host_for(site, guest)
+        host = host_for(site, guest, self.sandboxes())
         with self._lock:
             reg = self._load()
             if host in reg:
@@ -242,7 +273,7 @@ class Gate:
 
     def unpublish(self, guest: str, site) -> Dict:
         site = validate_site(site)
-        host = host_for(site, guest)
+        host = host_for(site, guest, self.sandboxes())
         with self._lock:
             reg = self._load()
             if host not in reg or reg[host]["guest"] != guest:
@@ -337,6 +368,9 @@ class RealOps:
         conf.write_text(text)
         self._run("sudo", "-n", "ln", "-sfn", str(conf), f"/etc/nginx/sites-enabled/sbx-site-{host}")
 
+    def vhost_exists(self, host: str) -> bool:
+        return (self.VHOSTS / f"{host}.conf").exists()
+
     def remove_vhost(self, host: str) -> None:
         self._run("sudo", "-n", "rm", "-f", f"/etc/nginx/sites-enabled/sbx-site-{host}")
         (self.VHOSTS / f"{host}.conf").unlink(missing_ok=True)
@@ -424,11 +458,13 @@ def main(argv=None) -> int:
     book = ts.GuestBook(data / "guests.json")
     sandboxes = data / "sandboxes.json"
 
-    def ip_of(name: str) -> Optional[str]:
-        reg = json.loads(sandboxes.read_text()) if sandboxes.exists() else {}
-        return (reg.get(name) or {}).get("ip")
+    def registry() -> Dict:
+        return json.loads(sandboxes.read_text()) if sandboxes.exists() else {}
 
-    gate = Gate(book, RealOps(), data / "sites.json", ip_of)
+    def ip_of(name: str) -> Optional[str]:
+        return (registry().get(name) or {}).get("ip")
+
+    gate = Gate(book, RealOps(), data / "sites.json", ip_of, sandboxes=registry)
     args = list(sys.argv[1:] if argv is None else argv)
     if args[:1] == ["remove"] and len(args) == 2:  # owner: take any site down
         host = args[1]

@@ -43,6 +43,7 @@ class FakeGuests:
         self.configured = configured
         self.admin = {"bot_set": admin, "owner_id": "42" if admin else ""}
         self.guests = copy.deepcopy(GUESTS)
+        self.agents = {"masha": {"agents": 2, "working": 0}}    # the collector's count per sandbox
         self.checks = None
         self.jobs = {}
         self.posts = []
@@ -89,6 +90,8 @@ class FakeGuests:
         state = {"installed": True, "configured": self.configured, "dir": "/home/me/agentkennel/guests",
                  "env": self.env, "admin": self.admin, "guests": self.guests if self.configured else None,
                  "list_error": None, "checks": self.checks, "checking": False, "jobs": self.jobs}
+        if self.agents is not None:
+            state["agents"] = self.agents
         route.fulfill(status=200, content_type="application/json", body=json.dumps(state))
 
 
@@ -155,6 +158,61 @@ def test_lists_guests_with_their_five_hours_and_week(page):
     assert "2 guests" in page.inner_text("#gSum")
     assert "week 52M" in page.inner_text("#gSum")          # the summary counts the week
     shot(page, "server-guests-desktop.png")
+
+
+def dot(pg, name):
+    return pg.eval_on_selector(f'#guests .guest[data-name="{name}"] .dot',
+                               "e => [e.className, e.title]")
+
+
+def note(pg, name):
+    return pg.inner_text(f'#guests .guest[data-name="{name}"] .gnote')
+
+
+def wait_dot(pg, name, cls):
+    pg.wait_for_function(
+        "([n, c]) => { const d = document.querySelector(`#guests .guest[data-name='${n}'] .dot`);"
+        " return d && d.classList.contains(c); }", arg=[name, cls])
+
+
+def test_the_dot_says_whether_agents_are_loaded(page, fake):
+    """01.11.2026: green only while agents are loaded, amber while one works, grey when
+    the sandbox runs with none, a hollow ring when it is off."""
+    guest_rows(page)
+    assert dot(page, "masha")[0] == "dot running"
+    assert "2 agents loaded" in dot(page, "masha")[1]
+    assert note(page, "masha") == "2 agents"
+    assert dot(page, "petya")[0] == "dot off"                  # stopped sandbox: a hollow ring
+    assert note(page, "petya") == "off"
+    assert "agents 2" in page.inner_text("#gSum")
+
+    fake.agents = {"masha": {"agents": 2, "working": 1}}
+    wait_dot(page, "masha", "working")
+    assert note(page, "masha") == "2 agents · 1 working"
+
+    fake.agents = {"masha": {"agents": 1, "working": 0}}
+    wait_dot(page, "masha", "running")
+    assert note(page, "masha") == "1 agent"
+
+    fake.agents = {"masha": {"agents": 0, "working": 0}}
+    wait_dot(page, "masha", "unloaded")
+    assert dot(page, "masha")[0] == "dot unloaded"
+    assert page.eval_on_selector('#guests .guest[data-name="masha"] .dot',
+                                 "e => [e.offsetWidth, e.offsetHeight]") == [8, 8]
+    assert note(page, "masha") == "no agents loaded"
+    assert "unloaded" in dot(page, "masha")[1]
+    assert "agents 0" in page.inner_text("#gSum")
+    shot(page, "server-guests-no-agents.png")
+
+
+def test_without_a_count_the_dot_only_says_the_sandbox_runs(page, fake):
+    """An older server (no "agents" in /api/guests): as before, green = running."""
+    guest_rows(page)
+    fake.agents = None                                         # from the next poll on
+    page.wait_for_function("() => !document.querySelector('#gSum').innerText.includes('agents')")
+    assert dot(page, "masha")[0] == "dot running"
+    assert note(page, "masha") == ""
+    assert "agents" not in page.inner_text("#gSum")
 
 
 def test_the_bar_is_the_fuller_of_the_two(page):

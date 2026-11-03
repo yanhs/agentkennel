@@ -48,8 +48,18 @@ COPY . /app
 # AGENTDECK_WORKDIR: the same, under its name before v2.1.0 (compat, for older tools).
 ENV AGENTKENNEL_WORKDIR=/work AGENTDECK_WORKDIR=/work IS_SANDBOX=1 LANG=C.UTF-8 LC_ALL=C.UTF-8 \
     XDG_DATA_HOME=/data XDG_CONFIG_HOME=/data/config \
-    TRACKER_STATE=/app/.sessions/tasks-state.json
+    TRACKER_STATE=/app/.sessions/tasks-state.json \
+    AGENTKENNEL_PASSFILE=/app/.sessions/.dashpass \
+    AGENTKENNEL_AUTH_SECRET=/app/.sessions/.agents_auth_secret
+# (the password file and the cookie key image-wide too, so `docker compose exec agentkennel
+# python3 status_server.py --reset-password` finds them; the entrypoint uses the same paths)
 RUN mkdir -p /work /app/.sessions /data/config
 
 EXPOSE 8765 80 443
+# Ready = the sign-in service answers (status_server, :3046, any HTTP status) and Caddy runs.
+# Not a request through Caddy: its port and scheme depend on the mode (:8765 https or http, a
+# domain on 443). `docker compose up -d --wait` waits for this, so the setup link can be read
+# right after it.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --start-interval=2s --retries=3 \
+  CMD [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3046/login)" != 000 ] && pgrep -x caddy >/dev/null
 ENTRYPOINT ["bash", "/app/docker/entrypoint.sh"]

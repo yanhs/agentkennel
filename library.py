@@ -113,6 +113,24 @@ def update(path=LIB_FILE):
         save(path, lib)
 
 
+WELCOME_NAME = "Getting started"
+
+
+def welcome(path, cwd, now, name=WELCOME_NAME):
+    """A new install's first terminal: created only while the registry file does
+    not exist yet (an install that deleted all its terminals still has the file).
+    Under the same lock as update(), so two tabs make one. The entry, or None."""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path + ".lock", "w") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        if os.path.exists(path):
+            return None
+        lib = empty()
+        e = create(lib, name, cwd=cwd, now=now)
+        save(path, lib)
+        return e
+
+
 # ── edit ────────────────────────────────────────────────────────────────────
 def find(lib, sid):
     for e in lib["sessions"]:

@@ -2,6 +2,88 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## Unreleased
+
+### Changed
+- **A new install opens with something on screen.** On the first visit (no terminal registry yet) the dashboard makes one terminal, "Getting started", and shows it; the Tasks and Server rows are already in the list, one click away. An existing install never gets it, even after deleting every terminal. API: `GET /api/library` carries `first_run`; `POST /api/library/welcome` makes that terminal once (`{"id": null}` when the registry already exists).
+- **Tasks, Server and cmd rows have icons.** In the left list, the pinned Tasks, Server and Command line rows now show a small icon before the name (a checklist, the server gauge, a prompt), so they stand apart from ordinary terminals.
+
+### Fixed
+- **"Open in tab" opens a terminal that can copy and paste.** The button used to open the bare terminal page, which has none of the dashboard's copy, paste, 📎 or image-paste helpers. It now opens the dashboard itself with `?solo=<id>`: no left column, the terminal fills the tab, and every helper works. Reloading the tab reopens the same terminal, and the tab title is the topic's name. The task board still opens as itself.
+
+## v2.2.9 — `install.sh --reset-password` works on a real install; one header per site
+
+### Fixed
+- **`~/agentkennel/install.sh --reset-password` stopped with "DIR: unbound variable"** (v2.2.8). The reset ran before the installer had worked out its folder; it now finds it itself (its own clone, the install record or `AGENTKENNEL_DIR`). The Docker reset was not affected.
+
+### Agents' rules
+- **A site has one header, one menu and one footer.** The "Websites: Next.js" block adds: one component on every page, the landing included; a test checks they're the same on all pages, and the agent checks the site by going from page to page. Upgrading replaces the old block if it is still word for word what AgentKennel wrote.
+
+## v2.2.8 — forgot the password? one command; Docker hands over the link right away
+
+### Sign-in
+- **Forgot the password: one command, a new one-time link.** `~/agentkennel/install.sh --reset-password`, or in Docker `docker compose exec agentkennel python3 status_server.py --reset-password`. The old password and every signed-in browser stop working at once, no restart. The sign-in page says so under "Forgot your password?".
+
+### Docker
+- **The setup link right after the start.** `docker compose up -d --wait && docker compose logs agentkennel | grep setup`: `--wait` returns once the dashboard answers (the image has a health check now), and the log line is the whole link, the server's address in front (`AGENTKENNEL_PUBLIC_PORT` from docker-compose.yml; the address is asked from api.ipify.org once, on a fresh install only).
+
+## v2.2.7 — guests' week resets with your subscription's
+
+### Guests
+- **The guests' week now resets when your subscription's week does**, not on Monday midnight. The turnstile reads the moment from Anthropic's replies (the `anthropic-ratelimit-unified-7d-reset` header, on every guest request) and keeps it; until it has seen one, the week still runs from Monday. A guest who used up the week is told the real day and hour it comes back.
+
+### Server page
+- **Your subscription's limits show even with no 5-hour window open.** Anthropic then sends only the week's numbers, and the dashboard showed nothing at all; now the week shows and the 5 hours read 0.
+
+## v2.2.6 — links: nothing glued to them, and they go where they're needed
+
+### Agents' rules
+- **The links rule said the wrong thing.** Since v2.0.3 the agents' CLAUDE.md said "a link goes last: the last line of the message". What it should say, and now does: nothing touches a link (a space or a line break right after it, no brackets, no `[text](url)`), and the link goes where it is needed, in the sentence or the step it belongs to. Upgrading replaces the old block in the CLAUDE.md AgentKennel wrote, if it is still word for word what AgentKennel put there; a block you edited stays yours.
+
+## v2.2.5 — new license (AGPL-3.0); the product's name shown in the dashboard
+
+### License
+- **AgentKennel is now `AGPL-3.0-only`** (was MIT). Using it, changing it and running it on your own servers, for yourself or your company, stays free. What the AGPL adds: if you run a changed copy as a service for other people, you offer them its source. Releases up to v2.2.4 were MIT and stay MIT. [CONTRIBUTING.md](CONTRIBUTING.md) says how contributions are licensed.
+
+### Dashboard
+- **The name is in the dashboard, not only in the tab.** The paw and "AgentKennel" head the sidebar; on a phone they sit at the left end of the bar with the ⋯ menu (the paw alone while a terminal is open, so its name keeps the room). The empty screen, before you pick a terminal, shows both. On a phone that screen now says the list is above, not on the left.
+
+## v2.2.4 — a guest's dot says whether agents are loaded
+
+### Server page
+- **Guests: the dot shows the agents, not just the sandbox.** Green used to mean only "the sandbox's container runs", even with no agent in it. Now: amber while an agent in it works, green while agents are loaded and waiting, grey when the sandbox is on with none loaded (idle ones are unloaded to save memory), a hollow ring when it is off. The row says how many ("2 agents · 1 working"), the summary counts them all. The count comes from the server page's own process sampling: no extra calls into the sandboxes.
+
+## v2.2.3 — behind your own proxy, "+ New" works
+
+### Fixed
+- **Behind a proxy of your own (nginx, Traefik, a load balancer) with HTTPS, a new terminal couldn't be created (403).** The proxy says the browser came over https; Caddy didn't believe it and the dashboard took the browser's address for a foreign one. Caddy now believes a proxy on the same machine or its private network (this includes Docker's port forwarding). `AGENTKENNEL_ORIGIN` is no longer needed in that case; it still works.
+
+## v2.2.2 — HTTPS in Docker by default, websites on Next.js
+
+### Docker
+- **HTTPS by default.** `docker compose up -d` serves `https://<your-ip>:8765` with a certificate the container makes for itself: the connection is encrypted, the browser warns once. Before, it was plain http and the password travelled in clear. `./https.sh` still gets a trusted certificate (a free `<ip>.sslip.io` name or your domain), and `./https.sh --off` now goes back to this default. Plain http behind a proxy of your own: `AGENTKENNEL_SITE=:8765`.
+
+### Agents' rules
+- **Websites: Next.js.** The default CLAUDE.md gets one more block (once, and only in the file AgentKennel wrote): a new website or web app is built with Next.js on TypeScript with Tailwind CSS, pages people should find are rendered on the server, an existing site keeps its stack. Keep only its mark line, `<!-- agentkennel-web -->`, to opt out.
+
+### Upgrading
+- Docker behind your own proxy that talks plain http to the container: set `AGENTKENNEL_SITE=:8765`, or point the proxy at `https://` (certificate check off).
+
+## v2.2.1 — sites on the Server page, a ready image, both installs tested
+
+### Server page
+- **Services kept by the services keeper are Sites & apps.** A site or app you run as `<work folder>/.services/<name>.sh` now shows under Sites & apps by its own name, with its whole process tree, instead of System › Other; a stopped one shows as stopped.
+
+### Install
+- **A ready Docker image with every release:** `ghcr.io/yanhs/agentkennel:<version>` and `:latest`, amd64 and arm64. `docker compose up -d` downloads it instead of building; `docker compose up -d --build` still builds your checkout; your volumes stay the same either way.
+- **The Docker way is tested end to end, like `install.sh`:** `docker compose up -d`, the setup link from the logs, the first login, a new terminal running Claude, a restart that keeps the password. GitHub runs it on every push, and after a release on the image it has just published.
+- The release page carries `install.sh` and `docker-compose.yml`.
+
+### Sandboxes for other people (`--guests`)
+- `guestctl move-domain --from OLD` moves every guest to a new `GUESTS_DOMAIN`: the old addresses redirect, no sandbox is restarted.
+- `guestctl address <guest> <name>` gives a guest a readable address (`sb-<name>.<domain>`) instead of a row of digits; the old one redirects.
+- `guestctl recreate` works for a guest with its own disk.
+
 ## v2.2.0 — Claude's usage next to the terminals
 
 ### Dashboard

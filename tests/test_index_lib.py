@@ -86,6 +86,8 @@ class FakeAPI:
         self.held = []
         self.renews = 0            # GET /login?renew=1 the page sent (sliding session)
         self.shell = None          # top-level "shell" of GET /api/library (None = absent)
+        self.first_run = False     # top-level "first_run": a new install, no registry yet
+        self.welcome_taken = False # POST welcome finds the registry already made
         self._n = 0
 
     def gets(self):
@@ -159,7 +161,7 @@ class FakeAPI:
             else:
                 rows = [s for s in self.sessions
                         if not s.get("trashed") and (with_arch or not s["archived"])]
-            out = {"max_active": 12, "sessions": rows}
+            out = {"max_active": 12, "first_run": self.first_run, "sessions": rows}
             if self.with_system:
                 out["_system"] = {"cpu_pct": 42, "ram_pct": 50,
                                   "ram_used_mb": 7000, "ram_total_mb": 16000}
@@ -175,6 +177,17 @@ class FakeAPI:
             self._n += 1
             sid = f"eeee000{self._n}"
             e = {"id": sid, "name": (body.get("name") or "").strip() or "Terminal 24.09 10:00",
+                 "cwd": "/home/ubuntu/pr", "created": 999, "last_used": 999,
+                 "archived": False, "active": False, "attached": False, "status": "off"}
+            self.sessions.append(e)
+            return self._json(route, e)
+        if path == "/api/library/welcome":
+            if self.welcome_taken:
+                self.first_run = False
+            if not self.first_run:
+                return self._json(route, {"id": None})
+            self.first_run = False
+            e = {"id": "ffff0001", "name": "Getting started",
                  "cwd": "/home/ubuntu/pr", "created": 999, "last_used": 999,
                  "archived": False, "active": False, "attached": False, "status": "off"}
             self.sessions.append(e)
@@ -269,7 +282,7 @@ def browser():
 
 
 def _open(browser, site, api, width=1440, height=900, mobile=False,
-          user_agent=None, init_script=None):
+          user_agent=None, init_script=None, wait_rows=True):
     kw = {"user_agent": user_agent} if user_agent else {}
     ctx = browser.new_context(viewport={"width": width, "height": height},
                               is_mobile=mobile, has_touch=mobile, **kw)
@@ -293,7 +306,8 @@ def _open(browser, site, api, width=1440, height=900, mobile=False,
                                  body="<html><body style='background:#000;color:#0f0'>"
                                       "ttyd stub</body></html>"))
     pg.goto(site)
-    pg.wait_for_selector(".card[data-sid]")
+    if wait_rows:
+        pg.wait_for_selector(".card[data-sid]")
     return ctx, pg
 
 
@@ -451,7 +465,8 @@ def test_click_opens_the_session_endpoint(page):
     page.wait_for_selector("#wrap iframe")
     src = page.get_attribute("#wrap iframe", "src")
     assert src == "/sess/?arg=cccc0003"
-    assert page.get_attribute("#tOpen", "href") == "/sess/?arg=cccc0003"
+    # «Open in tab» = this dashboard in solo mode, not the bare terminal (owner, 02.11.2026)
+    assert page.get_attribute("#tOpen", "href").endswith("?solo=cccc0003")
     assert page.is_visible("#topbar")
     assert page.inner_text("#tNum") == "cccc0003"
     assert "Old notes" in page.inner_text("#tInfo")
@@ -2457,7 +2472,7 @@ def test_open_terminal_follows_a_switch_and_not_back(page, api):
     old.update(name=old["name"] + " (earlier)", active=False, attached=False, status="off")
     _src_is(page, "eeee0009")
     assert page.inner_text("#tNum") == "eeee0009"
-    assert page.get_attribute("#tOpen", "href") == "/sess/?arg=eeee0009"
+    assert page.get_attribute("#tOpen", "href").endswith("?solo=eeee0009")
     assert "sel" in page.get_attribute(row("eeee0009"), "class")
     # opening the earlier conversation on purpose: the page does not jump back
     page.click(row("dddd0004") + " .proj")
@@ -4091,5 +4106,179 @@ def test_file_upload_error_is_shown(browser, site, tmp_path):
         pg.wait_for_function("() => (document.getElementById('_imgToast')||{}).textContent"
                              "?.includes('100 MB')")
         assert "big.iso" in pg.inner_text("#_imgToast")
+    finally:
+        ctx.close()
+
+
+# ── «Open in tab» = the terminal alone in a tab, WITH the dashboard's copy/paste ──
+# (owner, 02.11.2026: the button opened the bare /sess/ page — no copy, no paste, no
+# 📎 — because all of that lives in the dashboard around the iframe). Now the button
+# opens this same page with ?solo=<id>: no left column, the terminal fills the tab,
+# and it is opened through the same openFrame() as a click, so every helper is on.
+def _open_solo(browser, site, api, query, width=1440, height=900):
+    ctx = browser.new_context(viewport={"width": width, "height": height})
+    ctx.set_default_timeout(10000)
+    pg = ctx.new_page()
+    pg.route(re.compile(r"^https://fonts\.(googleapis|gstatic)\.com/"), lambda r: r.abort())
+    pg.route(re.compile(r"/api/library(/|\?|$)"), api.library)
+    pg.route(re.compile(r"/api/terminal-status(\?|$)"),
+             lambda r: r.fulfill(status=200, content_type="application/json", body="{}"))
+    pg.route(re.compile(r"/api/page-version"), lambda r: r.abort())
+    pg.route(re.compile(r"/sess/"),
+             lambda r: r.fulfill(status=200, content_type="text/html",
+                                 body="<html><body>ttyd stub</body></html>"))
+    pg.goto(site + query)
+    return ctx, pg
+
+
+def _iframe_src(pg):
+    return pg.evaluate("() => { const f = document.querySelector('#wrap iframe');"
+                       " return f ? f.getAttribute('src') : null; }")
+
+
+def test_open_in_tab_link_points_at_the_solo_dashboard_not_the_bare_terminal(page):
+    page.click(".card[data-sid='bbbb0002']")
+    page.wait_for_function("() => document.querySelector('#wrap iframe')")
+    href = page.get_attribute("#tOpen", "href")
+    assert href.endswith("?solo=bbbb0002"), href
+    assert "/sess/" not in href
+    assert page.get_attribute("#tOpen", "target") == "_blank"
+
+
+def test_solo_tab_shows_only_that_terminal_full_width_with_helpers(browser, site):
+    api = FakeAPI()
+    ctx, pg = _open_solo(browser, site, api, "?solo=cccc0003")
+    try:
+        pg.wait_for_function("() => { const f = document.querySelector('#wrap iframe');"
+                             " return f && f.getAttribute('src') === '/sess/?arg=cccc0003'; }")
+        assert pg.evaluate("() => document.body.classList.contains('solo')")
+        assert not pg.is_visible(".sidebar")
+        assert not pg.is_visible("#tOpen")             # already alone in its tab
+        assert pg.is_visible("#tPasteImg") and pg.is_visible("#tEsc")
+        w = pg.evaluate("() => document.getElementById('wrap').getBoundingClientRect().width")
+        assert w >= 1440 - 2, w
+        # the page title names the topic, so the tab is recognisable
+        pg.wait_for_function("() => document.title.includes('Old notes')")
+        # the URL keeps ?solo= so a reload of this tab opens the same terminal again
+        assert pg.url.endswith("?solo=cccc0003")
+    finally:
+        ctx.close()
+
+
+def test_solo_with_garbage_or_unknown_id_opens_nothing(browser, site):
+    for q in ("?solo=%3Cb%3E", "?solo=12345678"):
+        api = FakeAPI()
+        ctx, pg = _open_solo(browser, site, api, q)
+        try:
+            pg.wait_for_timeout(600)
+            assert _iframe_src(pg) is None, q
+        finally:
+            ctx.close()
+
+
+def test_task_board_open_in_tab_still_opens_the_board_itself(page):
+    page.click("#tasksBtn")
+    page.wait_for_function("() => { const f = document.querySelector('#wrap iframe');"
+                           " return f && (f.getAttribute('src') || '').startsWith('/tasks'); }")
+    href = page.get_attribute("#tOpen", "href")
+    assert "solo=" not in href and "/tasks" in href, href
+
+
+def test_pinned_rows_have_icons_and_terminal_rows_do_not(browser, site):
+    """Owner, 2026-11-02: Tasks, Server and cmd rows carry an icon before the
+    name, so they stand apart from ordinary terminals in the list."""
+    api = FakeAPI()
+    api.shell = dict(SHELL_ON)
+    ctx, pg = _open_server_ctx(browser, site, api)
+    try:
+        pg.click(TASKS_LINK)
+        pg.wait_for_selector("#list .tasks-row")
+        pg.click(SERVER_LINK)
+        pg.wait_for_selector("#list .server-row")
+        pg.wait_for_selector("#list .shell-row")
+        shot(pg, "index-lib-pinned-icons.png")
+        icons = []
+        for cls, name in (("tasks-row", "Tasks"), ("server-row", "Server"),
+                          ("shell-row", "Command line")):
+            proj = f"#list .{cls} .proj"
+            assert pg.inner_text(proj) == name, cls          # the name itself is unchanged
+            first = pg.evaluate(f"() => document.querySelector('{proj}').firstElementChild?.outerHTML || ''")
+            assert first.startswith("<svg") and 'class="row-ico"' in first, cls
+            assert 'aria-hidden="true"' in first, cls
+            box = pg.eval_on_selector(f"{proj} .row-ico", "e => e.getBoundingClientRect().toJSON()")
+            assert box["width"] >= 10 and box["height"] >= 10, cls
+            # the icon sits on the same line as the name, before it
+            assert pg.eval_on_selector(proj, "e => e.getBoundingClientRect().height") < 24, cls
+            icons.append(first)
+        assert len(set(icons)) == 3                           # three different icons
+        others = pg.query_selector_all(
+            "#list .card:not(.tasks-row):not(.server-row):not(.shell-row) .row-ico")
+        assert others == []
+        assert len(row_ids(pg)) == 4
+    finally:
+        ctx.close()
+
+
+def test_new_install_opens_tasks_server_and_one_terminal_on_screen(browser, site):
+    """Owner, 2026-11-02: on a new install's first visit the list already has Tasks
+    and Server, and one "Getting started" terminal is what the screen shows."""
+    api = FakeAPI()
+    api.sessions = []
+    api.first_run = True
+    ctx, pg = _open_server_ctx(browser, site, api)
+    try:
+        _src_is(pg, "ffff0001")                        # the terminal is on screen
+        pg.wait_for_selector("#list .tasks-row")
+        pg.wait_for_selector("#list .server-row")
+        shot(pg, "index-lib-first-run.png")
+        assert len(api.posts("/api/library/welcome")) == 1
+        assert pg.inner_text(row("ffff0001") + " .proj") == "Getting started"
+        assert "sel" in pg.get_attribute(row("ffff0001"), "class")
+        assert "sel" not in pg.get_attribute("#list .tasks-row", "class")
+        assert "sel" not in pg.get_attribute("#list .server-row", "class")
+        order = pg.evaluate("() => [...document.querySelectorAll('#list > .card')]"
+                            ".map(e => e.dataset.sid || e.className.split(' ')[1])")
+        assert order == ["tasks-row", "server-row", "ffff0001"]
+        assert pg.inner_text("#tNum") == "ffff0001"
+        # later polls, a reload: no second welcome; the rows stay (remembered per browser)
+        _after_next_poll(pg, api)
+        pg.reload()
+        pg.wait_for_selector(row("ffff0001"))
+        _after_next_poll(pg, api)
+        assert len(api.posts("/api/library/welcome")) == 1
+        assert pg.query_selector("#list .tasks-row") and pg.query_selector("#list .server-row")
+    finally:
+        ctx.close()
+
+
+def test_an_existing_install_gets_no_welcome(browser, site):
+    api = FakeAPI()                                    # first_run False: the usual case
+    ctx, pg = _open_server_ctx(browser, site, api)
+    try:
+        pg.wait_for_selector(row("aaaa0001"))
+        _after_next_poll(pg, api)
+        assert api.posts("/api/library/welcome") == []
+        assert pg.query_selector("#list .tasks-row") is None
+        assert pg.query_selector("#list .server-row") is None
+        assert pg.query_selector("#wrap iframe") is None
+    finally:
+        ctx.close()
+
+
+def test_welcome_taken_by_another_tab_changes_nothing_here(browser, site):
+    api = FakeAPI()
+    api.sessions = []
+    api.first_run = True
+    api.welcome_taken = True                           # the server answers "already done"
+    ctx, pg = _open(browser, site, api, wait_rows=False)
+    try:
+        for _ in range(50):
+            if api.posts("/api/library/welcome"):
+                break
+            pg.wait_for_timeout(100)
+        _after_next_poll(pg, api)
+        assert len(api.posts("/api/library/welcome")) == 1
+        assert pg.query_selector("#wrap iframe") is None
+        assert pg.query_selector("#list .tasks-row") is None
     finally:
         ctx.close()

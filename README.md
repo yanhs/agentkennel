@@ -4,7 +4,7 @@ A dozen Claude Code agents, kept and fed on your own server: open any of them fr
 browser tab or Telegram, close the tab, and they keep working.
 
 - **Real Claude Code terminals** — the actual `claude` TUI in tmux, not a chat wrapper.
-- **On your own VPS** — your server, your Claude subscription, open source (MIT).
+- **On your own VPS** — your server, your Claude subscription, open source (AGPL-3.0).
 - **Browser and Telegram, even from your phone** — type, paste, dictate, tap buttons.
 - **Keeps working when you close the tab** — and resumes the same conversation after a reboot.
 - **A shared task board** — agents log their work there and are nudged to keep going until
@@ -13,7 +13,7 @@ browser tab or Telegram, close the tab, and they keep working.
 
 <p>
   <a href="https://github.com/yanhs/agentkennel/actions/workflows/install.yml"><img alt="install.sh on fresh servers" src="https://github.com/yanhs/agentkennel/actions/workflows/install.yml/badge.svg"></a>
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg"></a>
+  <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg"></a>
   <img alt="Docker" src="https://img.shields.io/badge/docker-compose%20up-2496ED.svg">
 </p>
 
@@ -39,8 +39,8 @@ Or keep the agents inside a container:
 
 ```bash
 git clone https://github.com/yanhs/agentkennel.git && cd agentkennel
-docker compose up -d                           # → http://<your-vps-ip>:8765
-docker compose logs agentkennel | grep setup   # the one-time link that sets the password
+docker compose up -d --wait && docker compose logs agentkennel | grep setup
+# → the one-time link that sets the password: https://<your-vps-ip>:8765/login?setup=…
 ```
 
 > ⚠️ **What the agents may do.** AgentKennel starts Claude Code with
@@ -90,7 +90,7 @@ one-time setup link for the first password, services that outlive a terminal, sa
 | Back after a reboot | ✅ same conversations | restart `claude` | restart its server | ❌ resume each by hand |
 | Shared task board | ✅ | ❌ | TaskMaster, optional | ❌ |
 | Other agents (Codex, Cursor…) | ❌ Claude only | ❌ Claude only | ✅ | anything |
-| Price | free, MIT | included in Pro / Max / Team / Enterprise | free (AGPL); cloud from €7/mo | free |
+| Price | free (AGPL) | included in Pro / Max / Team / Enterprise | free (AGPL); cloud from €7/mo | free |
 
 Want one session from your own laptop? Use Remote Control. AgentKennel is for a dozen agents
 that live on a server around the clock. (Rather have no server at all? Claude Code on the
@@ -158,6 +158,8 @@ curl -fsSL https://raw.githubusercontent.com/yanhs/agentkennel/master/install.sh
 - **Update or repair:** run the same command again; running agents keep running.
   **Remove:** `~/agentkennel/install.sh --uninstall` keeps your terminals, board and password;
   add `--purge` to delete the folder too (only one the installer cloned itself).
+- **Forgot the password?** `~/agentkennel/install.sh --reset-password` prints a new one-time
+  link to set a new one; the old password and every signed-in browser stop working.
 
 ### Docker sandbox — agents stay inside a container
 
@@ -166,20 +168,30 @@ firewall. Docker-published ports bypass `ufw`.
 
 ```bash
 git clone https://github.com/yanhs/agentkennel.git && cd agentkennel
-docker compose up -d
-docker compose logs agentkennel | grep setup   # → /login?setup=<token>
+docker compose up -d --wait && docker compose logs agentkennel | grep setup
 ```
+
+`--wait` returns once the dashboard answers, and the log line is the whole link:
+`https://<your-vps-ip>:8765/login?setup=<token>`.
 
 `docker compose up -d` downloads the ready image of the latest release,
 `ghcr.io/yanhs/agentkennel` (amd64 and arm64), so nothing is built on your machine.
 `AGENTKENNEL_VERSION=2.2.0 docker compose up -d` pins a version;
 `docker compose up -d --build` builds your checkout instead.
 
-1. Open `http://<your-vps-ip>:8765/login?setup=<token>` and set the password.
+1. Open that link and set the password. The
+   certificate is one the container made for itself: the browser warns once, the
+   connection is encrypted.
 2. **＋ New**, then sign in to Claude once: it asks for a colour theme, then how to
    log in (subscription or API key). The login is kept in a volume.
-3. Want HTTPS? `./https.sh` (a free `<ip>.sslip.io` name, needs ports 80 and 443) or
-   `./https.sh your-domain.com`; `./https.sh --off` goes back.
+3. A trusted certificate, no warning: `./https.sh` (a free `<ip>.sslip.io` name, needs
+   ports 80 and 443) or `./https.sh your-domain.com`; `./https.sh --off` goes back.
+   Plain http behind a proxy of your own: `AGENTKENNEL_SITE=:8765 docker compose up -d`.
+
+**Forgot the password?** In the AgentKennel folder:
+`docker compose exec agentkennel python3 status_server.py --reset-password` prints a new
+one-time link (put your address in front); the old password and every signed-in browser
+stop working.
 
 Agents work in `/work`, a named volume that survives `docker compose down` and rebuilds; to
 use your own project, replace that line in `docker-compose.yml` with `./my-project:/work`.
@@ -206,7 +218,7 @@ delete a block and keep its mark line to opt out):
   anything to people. A yes covers that one action only.
 - A job that runs later (a timer, cron) reports its result, success and failure alike.
 - Test first: a code change starts with a failing test, a bug fix with one that reproduces it.
-- A link you should open goes alone on the last line, so chat apps don't glue a period to it.
+- Nothing is glued to a link (a space after it, no brackets), so chat apps don't break it.
 
 **The guards** are Claude Code hooks that run before every shell command. Each blocks with
 a message saying what it found and what to do instead, has a visible one-time override,
@@ -279,7 +291,12 @@ uninstalls. GitHub runs it on every push, plus `./install.sh --yes` on real Ubun
 ## 🤝 Contributing
 
 Issues and PRs are welcome. Plain Python and Bash, no build step: clone, run `pytest`, go.
+Before your first PR, read [CONTRIBUTING.md](CONTRIBUTING.md): it says how contributions are licensed.
 
 ## 📄 License
 
-[MIT](LICENSE) © yanhs
+[AGPL-3.0](LICENSE) © yanhs
+
+Use it, change it, run it on your own servers, for yourself or your company: free. If you run a
+changed copy as a service for other people, the AGPL asks you to offer them its source.
+Versions up to v2.2.4 were released under the MIT license and remain under it.

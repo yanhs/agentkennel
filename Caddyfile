@@ -6,6 +6,11 @@
 	email {$AGENTKENNEL_EMAIL:you@example.com}
 	# install.sh's per-mode options (self-signed / alternate port); nothing without it
 	import "{$AGENTKENNEL_CADDY_GLOBAL:/dev/null}"
+	# a proxy of your own on this machine or its private network (nginx in front, Docker's
+	# port forwarding) is believed when it says the browser came over https
+	servers {
+		trusted_proxies static private_ranges
+	}
 }
 
 {$AGENTKENNEL_SITE::8765} {

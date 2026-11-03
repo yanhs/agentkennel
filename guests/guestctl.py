@@ -93,7 +93,60 @@ def public_base_url() -> str:
 
 
 def dashboard_host(name: str) -> str:
-    return f"sb-{name}.{domain()}"
+    domain()  # a clear error without one
+    return guestenv.dashboard_host(name, _registry())
+
+
+ADDRESS_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+
+
+def check_address(name: str, address: str, reg: dict) -> str:
+    """A guest's own address name: DNS-safe and nobody else's name or address."""
+    if not ADDRESS_RE.match(address or ""):
+        raise SystemExit(f"address {address!r}: latin letters, digits and '-', up to 40")
+    for other, info in reg.items():
+        if other != name and address in (other, (info or {}).get("address")):
+            raise SystemExit(f"address {address!r} is {other}'s")
+    return address
+
+
+def set_address(name: str, address: str, ops) -> None:
+    """sb-<address>.<domain> for the guest; the old address sends everyone there (only
+    once the new one works). The sandbox keeps running."""
+    import copy
+    sys.path.insert(0, str(HERE / "sitegate"))
+    import sitegate  # noqa: E402
+
+    reg = _registry()
+    if name not in reg:
+        raise SystemExit(f"no guest {name}")
+    check_address(name, address, reg)
+    before = copy.deepcopy(reg)
+    old = dashboard_host(name)
+    if address == name:
+        reg[name].pop("address", None)
+    else:
+        reg[name]["address"] = address
+    _save_registry(reg)
+    new = dashboard_host(name)
+    if new == old or not ops.vhost_exists(old):
+        return
+    try:
+        _serve_new(ops, new, dashboard_vhost(name, reg[name]["port"]))
+    except Exception:
+        _save_registry(before)
+        raise
+    ops.write_vhost(old, sitegate.render_moved(old, new))
+    ops.reload()
+    print(f"https://{old} -> https://{new}")
+
+
+def cmd_address(a) -> int:
+    sys.path.insert(0, str(HERE / "sitegate"))
+    import sitegate  # noqa: E402
+
+    set_address(a.name, a.address, sitegate.RealOps())
+    return 0
 
 
 # The owner opens a guest's dashboard without the guest's password (decision 29.10.2026).
@@ -118,13 +171,37 @@ def owner_entry_location() -> str:
     )
 
 
-def dashboard_vhost(name: str, port: int) -> str:
-    """nginx for the guest's own AgentKennel dashboard (its password is AgentKennel's)."""
+def sandbox_origin(name: str) -> str:
+    """The address sbx-<name> was made for ("" without a container or the setting)."""
+    try:
+        env = _container_env(name)
+    except (subprocess.CalledProcessError, ValueError, OSError):
+        return ""
+    return envcompat.get("ORIGIN", env=env) or ""
+
+
+def dashboard_vhost(name: str, port: int, container_origin: str | None = None) -> str:
+    """nginx for the guest's own AgentKennel dashboard (its password is AgentKennel's).
+    A sandbox made for another address (the guests' domain moved, it wasn't recreated
+    since) takes writes only from that address: the browser's Origin is swapped for it."""
     sys.path.insert(0, str(HERE / "sitegate"))
     import sitegate  # noqa: E402
 
-    return sitegate.render_vhost(dashboard_host(name), "127.0.0.1", port, tls=True,
-                                 extra=owner_entry_location())
+    host = dashboard_host(name)
+    known = sandbox_origin(name) if container_origin is None else container_origin
+    here = f"https://{host}"
+    return sitegate.render_vhost(host, "127.0.0.1", port, tls=True,
+                                 extra=owner_entry_location(),
+                                 origin=(here, known) if known and known != here else None)
+
+
+def refresh_web(name: str, port: int) -> None:
+    """The dashboard's nginx written again for the container as it is now (after a recreate)."""
+    if not web_exists(name):
+        return
+    ops = _site_ops()
+    ops.write_vhost(dashboard_host(name), dashboard_vhost(name, port))
+    ops.reload()
 
 
 def sandbox_auth_secret(name: str) -> bytes:
@@ -503,8 +580,11 @@ def cmd_add(a) -> int:
 def _public_folder(public_key: str) -> Path:
     folder = Path(PUBLIC_ROOT) / public_key
     folder.mkdir(parents=True, exist_ok=True)
-    folder.chmod(0o755)
-    Path(PUBLIC_ROOT).chmod(0o711)  # nginx may enter, nobody may list the keys
+    # a guest with its own disk has this folder as a mount, owned by root: chmod only
+    # what isn't right yet
+    for path, mode in ((folder, 0o755), (Path(PUBLIC_ROOT), 0o711)):  # nginx may enter,
+        if path.stat().st_mode & 0o7777 != mode:                       # nobody may list keys
+            path.chmod(mode)
     return folder
 
 
@@ -551,6 +631,7 @@ def cmd_recreate(a) -> int:
     _wait_running(a.name)
     info.update(public_key=public_key, image=image, ip=ip)
     _save_registry(reg)
+    refresh_web(a.name, info["port"])
     print(f"recreated sbx-{a.name}: files -> {public_base_url()}/{public_key}/")
     return 0
 
@@ -583,6 +664,8 @@ def guests_report() -> list:
             **ts.usage_windows(g or ts.Guest(name, 0, 0, None, False), ledger),
             "url": f"https://{dashboard_host(name)}" if has_domain and web_exists(name) else None,
             "created": str(info.get("created") or ""),
+            # the panel counts the agents in it (status_server -> server_status)
+            "container": f"sbx-{name}",
         })
     return out
 
@@ -690,6 +773,77 @@ def cmd_files_web(a) -> int:
     ops.write_vhost(host, files_vhost())
     ops.reload()
     print(f"https://{host}/f/<guest>-<key>/<file>")
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# move-domain: the guests' addresses onto GUESTS_DOMAIN, no sandbox restarted
+# --------------------------------------------------------------------------- #
+def rules_on_new_domain(text: str, old: str, new: str) -> str:
+    """The agent's rules (CLAUDE.md) with the module's own addresses on the new domain:
+    the files link and the sites pattern; whatever else names `old` is the guest's."""
+    return text.replace(f"sbx.{old}/", f"sbx.{new}/").replace(f">.{old}", f">.{new}")
+
+
+def fix_rules_in_sandbox(name: str, old: str, new: str) -> None:
+    if container_state(name) != "running":
+        print(f"{name}: not running — its rules get the new domain on the next recreate")
+        return
+    md = "/root/.claude/CLAUDE.md"
+    r = _docker("exec", f"sbx-{name}", "cat", md, check=False)
+    out = rules_on_new_domain(r.stdout, old, new)
+    if r.returncode != 0 or out == r.stdout:
+        print(f"{name}: rules unchanged")
+        return
+    subprocess.run(["docker", "exec", "-i", f"sbx-{name}", "sh", "-c", f"cat > {md}"],
+                   input=out, text=True, capture_output=True, check=True)
+    print(f"{name}: rules -> {new}")
+
+
+def _serve_new(ops, host: str, final: str) -> None:
+    """DNS, a certificate, then the full config for a new address."""
+    sys.path.insert(0, str(HERE / "sitegate"))
+    import sitegate  # noqa: E402
+
+    ops.dns_create(host)
+    ops.write_vhost(host, sitegate.render_vhost(host, "127.0.0.1", 1, tls=False))
+    ops.reload()
+    ops.cert_issue(host)
+    ops.write_vhost(host, final)
+    ops.reload()
+
+
+def move_domain(old: str, ops, guests: dict, fix_rules) -> None:
+    """Every address the module served on `old` is served on GUESTS_DOMAIN; the old one
+    sends everyone there (only once the new one works). Sandboxes keep running."""
+    sys.path.insert(0, str(HERE / "sitegate"))
+    import sitegate  # noqa: E402
+
+    new = domain()
+    old = old.strip().strip(".").lower()
+    if not old or old == new:
+        raise SystemExit(f"move-domain: --from must be the old domain, not {new!r}")
+    pairs = []
+    if ops.vhost_exists(f"sbx.{old}"):
+        _serve_new(ops, files_host(), files_vhost())
+        pairs.append((f"sbx.{old}", files_host()))
+    for name, info in sorted(guests.items()):
+        was = f"sb-{guestenv.address_of(name, guests)}.{old}"
+        if ops.vhost_exists(was):
+            _serve_new(ops, dashboard_host(name), dashboard_vhost(name, info["port"]))
+            pairs.append((was, dashboard_host(name)))
+        fix_rules(name, old, new)
+    for was, now in pairs:
+        ops.write_vhost(was, sitegate.render_moved(was, now))
+        print(f"https://{was} -> https://{now}")
+    ops.reload()
+
+
+def cmd_move_domain(a) -> int:
+    sys.path.insert(0, str(HERE / "sitegate"))
+    import sitegate  # noqa: E402
+
+    move_domain(a.old, sitegate.RealOps(), _registry(), fix_rules_in_sandbox)
     return 0
 
 
@@ -903,11 +1057,17 @@ def main(argv=None) -> int:
     mv.add_argument("--gb", type=int, default=guest_disk.DEFAULT_GB)
     mv.add_argument("--image", help="recreate on this image too (one stop for the guest)")
     sub.add_parser("disk-watch")
+    ad = sub.add_parser("address")
+    ad.add_argument("name")
+    ad.add_argument("address", help="sb-<address>.<domain> instead of sb-<name>")
+    sub.add_parser("move-domain").add_argument("--from", dest="old", required=True,
+                                               help="the domain the guests were on")
     a = ap.parse_args(argv)
     return {"add": cmd_add, "list": cmd_list, "check": cmd_check, "limit": cmd_limit,
             "recreate": cmd_recreate, "web": cmd_web, "session": cmd_session, "doctor": cmd_doctor,
             "files-web": cmd_files_web, "image-tag": cmd_image_tag, "disk-move": cmd_disk_move,
-            "disk-watch": cmd_disk_watch}.get(a.cmd, cmd_simple)(a)
+            "disk-watch": cmd_disk_watch, "move-domain": cmd_move_domain,
+            "address": cmd_address}.get(a.cmd, cmd_simple)(a)
 
 
 if __name__ == "__main__":

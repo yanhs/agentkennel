@@ -510,6 +510,8 @@ HTTPS by default: a free Let's Encrypt certificate on https://<ip>.sslip.io when
   --guests           other people will work here too, each in their own sandbox
                      (also installs Docker); --no-guests: they won't. Without either
                      you're asked once (default: no) — a script never is
+  --reset-password   forgot the dashboard password: prints a new one-time link to set
+                     one; the old password and every signed-in browser stop working
   --uninstall        stop + remove the services (keeps terminals, board, password)
   --purge            with --uninstall: also delete ~/agentkennel and its data
   -h, --help         this help
@@ -522,7 +524,7 @@ Supported: Ubuntu 22.04 / 24.04, Debian 12 (x86_64, aarch64).
 EOF
 }
 
-YES=0 CHECK=0 UNINSTALL=0 PURGE=0 TELEGRAM=0 HTTPS=0 HTTPS_OFF=0 DOMAIN="" GUESTS_FLAG="" GUESTS=0
+YES=0 CHECK=0 UNINSTALL=0 RESET_PW=0 PURGE=0 TELEGRAM=0 HTTPS=0 HTTPS_OFF=0 DOMAIN="" GUESTS_FLAG="" GUESTS=0
 ARGS=("$@")
 parse_args() {
   while [ $# -gt 0 ]; do
@@ -530,6 +532,7 @@ parse_args() {
       -y|--yes) YES=1 ;;
       --check) CHECK=1 ;;
       --uninstall) UNINSTALL=1 ;;
+      --reset-password) RESET_PW=1 ;;
       --purge) PURGE=1 ;;
       --telegram) TELEGRAM=1 ;;
       --guests) GUESTS_FLAG=1 ;;
@@ -1114,6 +1117,20 @@ explain_mode() {
   esac
 }
 
+reset_password() {  # forgot the password: a new one-time link; the old password and sign-ins stop working
+  # the folder: this script's own clone (~/agentkennel/install.sh), else the install record /
+  # AGENTKENNEL_DIR / the default — DIR itself is only set later, by get_repo
+  local d link
+  d="${DIR:-}"; [ -n "$d" ] || d="$(self_dir)"; [ -n "$d" ] || d="$(install_dir)"
+  [ -f "$d/status_server.py" ] || die "no AgentKennel in $d (AGENTKENNEL_DIR says where it is)"
+  link="$(cd "$d" && AGENTKENNEL_PASSFILE="$d/.sessions/.dashpass" \
+    AGENTKENNEL_AUTH_SECRET="$d/.sessions/.agents_auth_secret" \
+    python3 status_server.py --reset-password)" || die "could not reset the password"
+  say "Password reset: the old one and every signed-in browser no longer work."
+  say "Set a new password at this one-time link (only it can — keep it private):"
+  say "  $(dashboard_url)$link"
+}
+
 setup_link() {  # the first-run link's path (/login?setup=…), empty once a password is set
   (cd "$DIR" && AGENTKENNEL_PASSFILE="$DIR/.sessions/.dashpass" \
     AGENTKENNEL_AUTH_SECRET="$DIR/.sessions/.agents_auth_secret" \
@@ -1203,6 +1220,7 @@ main() {
   say "OK: $OS on $ARCH, user $(id -un)"
   if [ "$CHECK" = 1 ]; then say "preflight ok — nothing was changed"; return 0; fi
   [ "$UNINSTALL" = 1 ] && { uninstall; return 0; }
+  [ "$RESET_PW" = 1 ] && { reset_password; return 0; }
   trap 'on_error $LINENO "$BASH_COMMAND"' ERR
 
   step "System packages (apt)"

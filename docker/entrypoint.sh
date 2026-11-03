@@ -37,9 +37,8 @@ fi
 if [ -s "$AGENTKENNEL_PASSFILE" ]; then
   echo "[agentkennel] dashboard password is set"
 else   # only this one-time link can set it (a stranger opening the port first can't)
-  echo "[agentkennel] no password yet — set it at the one-time setup link: your dashboard"
-  echo "[agentkennel] address (e.g. http://<your-vps-ip>:8765) followed by"
-  echo "[agentkennel]   $(python3 status_server.py --setup-link)"
+  # one line, address included: `docker compose logs agentkennel | grep setup` shows it
+  echo "[agentkennel] no password yet. Open this one-time setup link to set it: $(python3 status_server.py --setup-url)"
 fi
 
 # ~/.claude.json (claude's home-level config) is NOT inside the ~/.claude volume on its own —

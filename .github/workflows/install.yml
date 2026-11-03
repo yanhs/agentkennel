@@ -21,6 +21,13 @@ jobs:
           python3 -m pytest -q tests/test_install_guards.py tests/test_guard_kill.py
           tests/test_guard_email.py tests/test_guard_secrets.py
 
+  docker:
+    name: docker compose up -d (the checkout), setup link, login, new terminal, restart
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: tests/install/docker_e2e.sh build
+
   vm:
     name: install.sh on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

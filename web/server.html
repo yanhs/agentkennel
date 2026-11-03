@@ -166,6 +166,7 @@
     .dot.working { background: var(--amber); box-shadow: 0 0 6px rgba(251,191,36,.5); animation: pulse 2s ease-in-out infinite; }
     .dot.idle, .dot.running { background: var(--green); box-shadow: 0 0 4px rgba(74,222,128,.3); }
     .dot.stopped { background: var(--off); }
+    .dot.off { background: transparent; box-shadow: inset 0 0 0 1.5px var(--off); }
     .row.stopped .name, .row.stopped .what { color: var(--ghost); }
     .id { min-width: 0; }
     .nm { display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -1080,11 +1081,26 @@
     gRows.set(name, r);
     return r;
   }
-  function gFillRow(r, g, job) {
+  // the dot (01.11.2026): amber while an agent works, green while agents are loaded, grey
+  // when the sandbox runs with none (unloaded when idle), a hollow ring when it is off.
+  // `a` is the server's count of claude processes in the sandbox; without one, green = on.
+  const plural = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
+  function gAgents(on, a) {
+    if (!on) return ['off', 'Sandbox is off', null];
+    if (!a) return ['running', 'Sandbox is running', ''];
+    const n = a.agents || 0, w = a.working || 0;
+    if (w) return ['working', `${plural(n, 'agent')} loaded, ${w} working now`, `${plural(n, 'agent')} · ${w} working`];
+    if (n) return ['running', `${plural(n, 'agent')} loaded, waiting`, plural(n, 'agent')];
+    return ['unloaded', 'Sandbox is on, no agents loaded: idle ones are unloaded, a click on a terminal loads it again', 'no agents loaded'];
+  }
+  function gFillRow(r, g, job, a) {
     const on = g.enabled && g.state === 'running';
     r.dataset.on = on ? '1' : '0';
     r.dataset.state = g.state;
-    r.querySelector('.dot').className = 'dot ' + (on ? 'running' : 'stopped');
+    const [cls, tip, said] = gAgents(on, a);
+    const dot = r.querySelector('.dot');
+    dot.className = 'dot ' + cls;
+    dot.title = tip;
     const id = r.querySelector('.guest-id');
     let link = id.querySelector('a');
     const note = id.querySelector('.gnote');
@@ -1093,7 +1109,7 @@
       link.href = g.url;
       link.textContent = g.url.replace(/^https?:\/\//, '');
     } else if (link) link.remove();
-    note.textContent = on ? '' : g.state === 'missing' ? 'off · no container' : 'off';
+    note.textContent = on ? said : g.state === 'missing' ? 'off · no container' : 'off';
     // a 5-hour and a weekly limit, like the subscription's (30.10.2026); the bar is the fuller
     const five = g.five_hour || {}, week = g.seven_day || {};
     const p5 = gPct(five), pw = gPct(week), pct = Math.max(p5, pw);
@@ -1167,7 +1183,9 @@
       const spent = guests.reduce((a, g) => a + ((g.seven_day || {}).used || 0), 0);
       const on = guests.filter(g => g.enabled && g.state === 'running').length;
       sum.replaceChildren(el('b', null, String(guests.length)), document.createTextNode(guests.length === 1 ? ' guest' : ' guests'),
-        document.createTextNode(' · on '), el('b', null, String(on)), document.createTextNode(' · week '), el('b', null, fmtTok(spent)), document.createTextNode(' tokens'));
+        document.createTextNode(' · on '), el('b', null, String(on)),
+        ...(d.agents && Object.keys(d.agents).length ? [document.createTextNode(' · agents '), el('b', null, String(Object.values(d.agents).reduce((a, x) => a + (x.agents || 0), 0)))] : []),
+        document.createTextNode(' · week '), el('b', null, fmtTok(spent)), document.createTextNode(' tokens'));
     } else sum.textContent = d.configured ? 'on' : '';
     const empty = $('#gEmpty');
     empty.textContent = d.configured && Array.isArray(d.guests) && !guests.length
@@ -1180,7 +1198,7 @@
     guests.forEach((g, i) => {
       const r = gRow(g.name);
       seen.add(g.name);
-      gFillRow(r, g, (d.jobs || {})[g.name]);
+      gFillRow(r, g, (d.jobs || {})[g.name], d.agents ? d.agents[g.name] : null);
       if (list.children[i] !== r) list.insertBefore(r, list.children[i] || null);
     });
     for (const [n, r] of gRows) if (!seen.has(n)) { r.remove(); gRows.delete(n); gLimitOpen.delete(n); }

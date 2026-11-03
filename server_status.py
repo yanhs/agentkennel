@@ -317,6 +317,17 @@ def default_pm2_names():
     return res
 
 
+def default_kept_services():
+    """services_keeper's status.json: name -> {"state", "pid", "start_ticks", ...}."""
+    import services_keeper
+    try:
+        with open(services_keeper.default_dir() / "status.json") as f:
+            services = json.load(f).get("services")
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return services if isinstance(services, dict) else {}
+
+
 _lib_cache = {"key": None, "val": ({}, {})}
 
 
@@ -391,7 +402,7 @@ class Collector:
     def __init__(self, proc_root="/proc", interval=INTERVAL, history_len=HISTORY_LEN,
                  tmux_panes=None, docker_ps=None, units=None, pm2_names=None,
                  library_names=None, disk_path="/", clock=time.time, hz=None, page_kb=None,
-                 names_path=None, cgroup_root="/sys/fs/cgroup"):
+                 names_path=None, cgroup_root="/sys/fs/cgroup", kept_services=None):
         self.root = proc_root
         self.cgroup_root = cgroup_root     # a sandbox's own limits (cgroup v2), if it has any
         self._prev_cg_usage = None
@@ -405,6 +416,7 @@ class Collector:
         self.src_units = units or default_units
         self.src_pm2 = pm2_names or default_pm2_names
         self.src_lib = library_names or default_library_names
+        self.src_kept = kept_services or default_kept_services
         self.units_names, self.container_names = load_names(names_path)
         self._cache = {}                 # name -> (t, value)
         self._meta = {}                  # (pid, start, comm) -> {"argv", "cgroup"}
@@ -566,6 +578,16 @@ class Collector:
             snap["history"] = {"interval": self.interval, "points": list(self.history)}
             return snap
 
+    def container_agents(self):
+        """{container name: {"agents", "working"}} from the latest sample, {} before one:
+        the Guests block's dot (a guest's sandbox is the container sbx-<name>)."""
+        with self._lock:
+            snap = self.latest
+        if snap is None:
+            return {}
+        return {m["name"]: {"agents": m["agents"], "working": m["agents_working"]}
+                for g in snap["groups"] for m in g["members"] if m.get("kind") == "container"}
+
     def _host(self, dt):
         try:
             cpus, mem, load, uptime = self._read_host()
@@ -701,12 +723,35 @@ class Collector:
             key = "docker:" + info["name"]
             members.setdefault(key, self._container_member(key, info))
 
-        # 3. agents: top-most claude processes and everything under them
         def is_claude(p):
             if p.comm == "claude":
                 return True
             argv = self._meta_for(p)["argv"]
             return bool(argv) and os.path.basename(argv[0]) == "claude"
+
+        # the agents inside each container (a guest's sandbox): its top-most claude
+        # processes; one works when it and everything under it use WORKING_PCT of a core
+        for p in procs.values():
+            key = owner.get(p.pid)
+            if not (key or "").startswith("docker:") or not is_claude(p):
+                continue
+            anc, top, hops = procs.get(p.ppid), True, 0
+            while anc is not None and owner.get(anc.pid) == key and hops < 64:
+                if is_claude(anc):
+                    top = False
+                    break
+                anc, hops = procs.get(anc.ppid), hops + 1
+            if not top:
+                continue
+            cpu, stack = 0.0, [p.pid]
+            while stack:
+                pid = stack.pop()
+                cpu += procs[pid].cpu
+                stack.extend(k for k in kids.get(pid, ()) if k in procs)
+            members[key]["agents"] += 1
+            members[key]["agents_working"] += cpu >= WORKING_PCT
+
+        # 3. agents: top-most claude processes and everything under them
         for p in sorted(procs.values(), key=lambda p: p.start):
             if p.pid in owner or not is_claude(p):
                 continue
@@ -725,7 +770,25 @@ class Collector:
             members[key] = self._agent_member(key, p, procs, pane_of, by_sid, by_uuid,
                                               unit_of(p.pid))
 
-        # 4. systemd units (by cgroup)
+        # 4. services kept by services_keeper (a site, a bot, a tunnel): by their own name;
+        # a recorded pid counts only while it names the process the keeper started
+        for name, st in sorted(self._cached("kept", PM2_TTL, self.src_kept, {}).items()):
+            if not _clean(name):
+                continue
+            key = "svc:" + _clean(name)
+            pid = st.get("pid") if isinstance(st, dict) else None
+            p = procs.get(pid) if isinstance(pid, int) else None
+            live = (p is not None and pid not in owner
+                    and st.get("start_ticks") in (None, p.start))
+            if not live and isinstance(st, dict) and st.get("state") == "running":
+                continue
+            members[key] = {"id": key, "group": "apps", "kind": "service",
+                            "name": redact(_clean(name), 60),
+                            "what": "Service: runs without a terminal", "stopped": not live}
+            if live:
+                claim(pid, key)
+
+        # 5. systemd units (by cgroup)
         for p in procs.values():
             if p.pid in owner:
                 continue
@@ -750,7 +813,7 @@ class Collector:
                 m["stopped"] = True
                 members["unit:" + u] = m
 
-        # 5. PM2 apps: children of the PM2 daemon
+        # 6. PM2 apps: children of the PM2 daemon
         for god in procs.values():
             if not god.comm.startswith("PM2"):
                 continue
@@ -770,7 +833,7 @@ class Collector:
                                              "name": name, "what": f"PM2 app ({lab})"})
                 claim(cpid, key)
 
-        # 6. background jobs among the rest; everything else is "Other"
+        # 7. background jobs among the rest; everything else is "Other"
         def candidate(p):
             if p.pid in owner or p.pid == 1:
                 return False
@@ -816,6 +879,7 @@ class Collector:
         return {"id": key, "group": "apps", "kind": "container", "name": redact(info["name"], 60),
                 "what": what or (f"Docker container ({img})" if img else "Docker container"),
                 "detail": redact(info.get("status", ""), 60),
+                "agents": 0, "agents_working": 0,
                 "stopped": info.get("state") not in (None, "running", "restarting")}
 
     def _unit_member(self, key, unit, grp, info, fr):

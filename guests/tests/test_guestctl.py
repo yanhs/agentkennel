@@ -292,11 +292,12 @@ def test_list_json_shape(data, monkeypatch, capsys):
         {"name": "anna", "telegram_id": 111, "port": 18101, "state": "running", "enabled": True,
          "five_hour": {"used": 1000, "limit": 20_000_000, "resets_at": window_end},
          "seven_day": {"used": 1000, "limit": 140_000_000, "resets_at": next_monday()},
-         "url": "https://sb-anna.example.test", "created": "2026-10-27 08:54:00"},
+         "url": "https://sb-anna.example.test", "created": "2026-10-27 08:54:00",
+         "container": "sbx-anna"},
         {"name": "boris", "telegram_id": 222, "port": 18102, "state": "missing", "enabled": False,
          "five_hour": {"used": 0, "limit": 5_000, "resets_at": 0},
          "seven_day": {"used": 0, "limit": 35_000, "resets_at": next_monday()},
-         "url": None, "created": "2026-10-27 09:00:00"}]}
+         "url": None, "created": "2026-10-27 09:00:00", "container": "sbx-boris"}]}
 
 
 def test_list_line_shows_the_five_hours_and_the_week(data, monkeypatch, capsys):
@@ -603,3 +604,18 @@ def test_services_check_accepts_the_old_unit_names():
     assert up["ok"], up
     down = gc.check_services(lambda unit: "tgrelay" not in unit)
     assert not down["ok"] and "agentkennel-guest-tgrelay" in down["detail"]
+
+
+def test_public_folder_made_by_root_with_the_right_modes_is_left_alone(tmp_path, monkeypatch):
+    """A guest's public folder is a mount of its own disk, owned by root: a recreate must
+    not fail on chmod when the modes are already right."""
+    root = tmp_path / "public"
+    (root / "anna-key").mkdir(parents=True)
+    (root / "anna-key").chmod(0o755)
+    root.chmod(0o711)
+    monkeypatch.setattr(gc, "PUBLIC_ROOT", str(root))
+
+    def refuse(self, mode, **kw):
+        raise PermissionError(1, "Operation not permitted")
+    monkeypatch.setattr(gc.Path, "chmod", refuse)
+    assert gc._public_folder("anna-key") == root / "anna-key"

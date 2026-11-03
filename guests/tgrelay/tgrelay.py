@@ -87,12 +87,13 @@ def _file_ids(obj) -> set:
     return found
 
 
+# added to the sandbox's own menu, which is English: in its language, not GUESTS_LANG
 def web_command() -> Dict:
-    return {"command": "web", "description": _t("cmd_web")}
+    return {"command": "web", "description": texts.EN["cmd_web"]}
 
 
 def services_command() -> Dict:
-    return {"command": "services", "description": _t("cmd_services")}
+    return {"command": "services", "description": texts.EN["cmd_services"]}
 
 
 SERVICE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}$")   # the keeper's names
@@ -668,12 +669,16 @@ def _bot_token() -> str:
 
 
 def dashboard_info(name: str, data: Path, sites: Path) -> Optional[Dict]:
-    """sb-<name>.<domain> and its first password, once its web address has been opened."""
-    domain = guestenv.domain()
-    if not domain or not (Path(sites) / f"sb-{name}.{domain}.conf").exists():
+    """sb-<address>.<domain> and its first password, once its web address has been opened."""
+    try:
+        registry = json.loads((Path(data) / "sandboxes.json").read_text())
+    except (OSError, ValueError):
+        registry = {}
+    host = guestenv.dashboard_host(name, registry)
+    if not guestenv.domain() or not (Path(sites) / f"{host}.conf").exists():
         return None
     pw_file = Path(data) / f"{name}.dashboard-password"
-    return {"url": f"https://sb-{name}.{domain}",
+    return {"url": f"https://{host}",
             "password": pw_file.read_text().strip() if pw_file.exists() else None}
 
 

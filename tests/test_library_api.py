@@ -141,7 +141,7 @@ def test_get_empty_registry_no_tmux_server(api):
 def test_get_carries_system_stats_like_the_terminal_status(api):
     # the library page shows CPU/RAM from this same poll instead of a second one
     data = get(api)[1]
-    assert set(data) == {"max_active", "sessions", "_system", "shell"}
+    assert set(data) == {"max_active", "first_run", "sessions", "_system", "shell"}
     assert set(data["_system"]) == {"cpu_pct", "ram_used_mb", "ram_total_mb", "ram_pct"}
     assert data["_system"]["ram_total_mb"] > 0
 
@@ -1552,3 +1552,58 @@ def test_archive_refuses_a_trashed_terminal(api):
     assert library.find(L, "bbbb2222")["archived"] is False
     assert post(api, "untrash", {"id": "aaaa1111"})[1]["archived"] is True
     assert post(api, "untrash", {"id": "bbbb2222"})[1]["archived"] is False
+
+
+# ── first visit of a new install: one "Getting started" terminal ─────────────
+# Owner, 2026-11-02: a new install opens with Tasks + Server in the list and one
+# terminal on screen. "New" = the registry file does not exist yet: an existing
+# install always has one, even after every terminal was deleted.
+def test_first_run_is_reported_only_before_the_registry_exists(api):
+    assert not os.path.exists(api.lib)
+    code, data = get(api)
+    assert code == 200 and data["first_run"] is True
+    assert not os.path.exists(api.lib)               # reading never creates it
+    post(api, "new", {"name": "x"})
+    assert get(api)[1]["first_run"] is False
+
+
+def test_welcome_creates_one_getting_started_terminal_without_starting_it(api, monkeypatch):
+    monkeypatch.setenv("AGENTKENNEL_WORKDIR", "/srv/work")
+    code, e = post(api, "welcome")
+    assert code == 200
+    assert set(e) == ROW_KEYS and library.valid_id(e["id"])
+    assert e["name"] == "Getting started" and e["cwd"] == "/srv/work"
+    assert e["active"] is False and e["status"] == "off"
+    assert not _alive(api, "cs-" + e["id"])
+    code, data = get(api)
+    assert data["first_run"] is False
+    assert [s["id"] for s in data["sessions"]] == [e["id"]]
+
+
+def test_welcome_does_nothing_once_the_registry_exists(api):
+    code, first = post(api, "welcome")
+    assert code == 200 and first["id"]
+    code, again = post(api, "welcome")                 # a second tab, a reload
+    assert code == 200 and again == {"id": None}
+    assert len(library.load(api.lib)["sessions"]) == 1
+
+
+def test_welcome_never_refills_an_install_whose_terminals_were_all_deleted(api):
+    with library.update(api.lib):
+        pass                                           # the file exists, no terminals
+    assert get(api)[1]["first_run"] is False
+    code, r = post(api, "welcome")
+    assert code == 200 and r == {"id": None}
+    assert library.load(api.lib)["sessions"] == []
+
+
+def test_welcome_from_two_tabs_at_once_makes_one_terminal(api):
+    out = []
+    ts = [threading.Thread(target=lambda: out.append(post(api, "welcome"))) for _ in range(4)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert all(code == 200 for code, _ in out)
+    assert sum(1 for _, r in out if r.get("id")) == 1
+    assert len(library.load(api.lib)["sessions"]) == 1

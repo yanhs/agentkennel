@@ -79,16 +79,17 @@ def test_turnstile_refusals_follow_the_language(monkeypatch, tmp_path):
     use(monkeypatch, tmp_path, "ru")
     assert texts.t("gate_limit_5h", spent=5, limit=3, at="14:35") == \
         "Лимит на 5 часов исчерпан (5 из 3). Сбросится в 14:35 по Лос-Анджелесу."
-    assert texts.t("gate_limit_week", spent=5, limit=3) == \
-        "Недельный лимит исчерпан (5 из 3). Сбросится в понедельник в полночь по Лос-Анджелесу."
+    # the week resets with the owner's subscription (02.11.2026): the day and hour are said
+    assert texts.t("gate_limit_week", spent=5, limit=3, day=texts.t("weekdays").split()[2], at="11:00") == \
+        "Недельный лимит исчерпан (5 из 3). Сбросится в среду в 11:00 по Лос-Анджелесу."
     assert [texts.t(k) for k in ("gate_bad_pass", "gate_disabled", "gate_path", "gate_upstream")] \
         == ["Неверный пропуск.", "Доступ гостя выключен.", "Этот адрес закрыт.",
             "Сервер Claude недоступен."]
     use(monkeypatch, tmp_path, "en")
     five = texts.t("gate_limit_5h", spent=5, limit=3, at="14:35")
     assert "5-hour limit used up (5 of 3)" in five and "14:35" in five
-    week = texts.t("gate_limit_week", spent=5, limit=3)
-    assert "Weekly limit used up (5 of 3)" in week and "Monday" in week
+    week = texts.t("gate_limit_week", spent=5, limit=3, day=texts.t("weekdays").split()[2], at="11:00")
+    assert week == "Weekly limit used up (5 of 3). It resets on Wednesday at 11:00, Los Angeles time."
     assert "gate_limit" not in texts.EN          # no daily limit any more (30.10.2026)
     assert ts.texts is texts
 

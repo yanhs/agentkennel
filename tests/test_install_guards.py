@@ -24,7 +24,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSTALL = os.path.join(REPO, "hooks", "install_guards.py")
 HOOKS = os.path.join(REPO, "hooks")
 EXAMPLE = os.path.join(HOOKS, "settings.example.json")
-MAX_MD_LINES = 70
+# the default CLAUDE.md stays short enough to be read whole (70 until the web rule, 31.10)
+MAX_MD_LINES = 80
 
 
 def run(tmp_path, *args, env=None):
@@ -528,23 +529,68 @@ def test_installed_kill_guard_blocks_a_pattern_kill_that_hits_others(tmp_path):
 LINKS_MARK = "<!-- agentkennel-links -->"
 
 
-def test_a_new_claude_md_puts_links_on_the_last_line(tmp_path):
-    """28.10.2026, the owner: the link goes on the last line, as he has told his own agents
-    since 26.09 - Telegram and terminals glue the next character to the address, and the
-    link stops opening. Asked to make it every agent's rule, in the release and sandboxes."""
+# The block every version up to v2.2.5 wrote, word for word: an upgrade replaces it.
+OLD_LINKS_BLOCK = """{mark}
+## Links go last
+A link the person should open is the LAST line of your message, alone, with nothing after
+it: no period, bracket, quote or more text (chat apps glue the next character to the
+address and the link stops opening). Several links: one per line, all at the very end.
+"""
+
+
+def links_rule(text):
+    return " ".join(text.split(LINKS_MARK, 1)[1].split("<!--", 1)[0].split())
+
+
+def test_a_new_claude_md_says_nothing_touches_a_link(tmp_path):
+    """02.11.2026, the owner: all he ever asked is that nothing is glued to a link (a
+    bracket, a period): a space after it. "Links go last" (v2.0.3) was a misreading - a
+    link belongs where it is needed, in the sentence or the step."""
     md = tmp_path / "CLAUDE.md"
     r = run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
     assert r.returncode == 0, r.stderr
     text = md.read_text()
     assert text.count(LINKS_MARK) == 1
-    links = " ".join(text.split(LINKS_MARK, 1)[1].split())
-    for words in ("LAST line of your message", "nothing after it",
-                  "no period, bracket, quote or more text", "one per line"):
-        assert words in links, words
+    rule = links_rule(text)
+    for words in ("Nothing touches a link", "a space or a line break",
+                  "[text](url)", "where it is needed"):
+        assert words in rule, words
+    for wrong in ("LAST line", "at the very end", "goes last"):
+        assert wrong not in rule, wrong
     assert text.isascii() and len(text.splitlines()) < MAX_MD_LINES
     for mark in (TDD_MARK, SAFETY_MARK, "<!-- agentkennel-environment -->",
                  "<!-- agentkennel-services -->"):
         assert text.count(mark) == 1, mark
+
+
+@pytest.mark.parametrize("mark", [LINKS_MARK, "<!-- agentdeck-links -->"])
+def test_an_upgrade_replaces_the_old_links_last_block(tmp_path, mark):
+    md = tmp_path / "CLAUDE.md"
+    head = "# Working rules (AgentKennel)\n\n" + TDD_MARK + "\n## Test first\nkeep me\n\n"
+    tail = "\n## My own note\nkeep me too\n"
+    md.write_text(head + OLD_LINKS_BLOCK.format(mark=mark) + tail)
+    for _ in range(2):                                  # idempotent
+        assert run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services").returncode == 0
+    text = md.read_text()
+    assert "Links go last" not in text and "LAST line" not in text
+    assert text.count(mark) == 1 and "Nothing touches a link" in text
+    assert text.startswith(head) and "## My own note\nkeep me too\n" in text
+
+
+def test_an_edited_old_links_block_is_left_alone(tmp_path):
+    """A person who changed the block made it theirs: only the exact old text is replaced."""
+    md = tmp_path / "CLAUDE.md"
+    edited = OLD_LINKS_BLOCK.format(mark=LINKS_MARK).replace("Several links", "Two or more links")
+    md.write_text("# Working rules (AgentKennel)\n\n" + edited)
+    run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
+    assert "Two or more links" in md.read_text()
+
+
+def test_a_persons_own_claude_md_keeps_its_links_text(tmp_path):
+    md = tmp_path / "CLAUDE.md"
+    md.write_text("my own rules\n\n" + OLD_LINKS_BLOCK.format(mark=LINKS_MARK))
+    run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
+    assert "Links go last" in md.read_text()
 
 
 def test_a_claude_md_agentkennel_wrote_earlier_gets_the_links_rule_once(tmp_path):
@@ -588,8 +634,11 @@ def test_old_marks_count_as_present_and_no_block_is_added_twice(tmp_path, header
     for _ in range(2):
         r = run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
         assert r.returncode == 0, r.stderr
-    assert md.read_text() == before
-    assert not any(m in md.read_text() for m in NEW_MARKS)
+    after = md.read_text()
+    # only the blocks that came after the rename are added (the web rule, 31.10), once
+    assert after.startswith(before) and after[len(before):].startswith("<!-- agentkennel-web -->")
+    assert after.count("<!-- agentkennel-web -->") == 1
+    assert not any(m in after for m in NEW_MARKS)
 
 
 def test_an_old_mark_line_alone_still_opts_out(tmp_path):
@@ -600,3 +649,70 @@ def test_an_old_mark_line_alone_still_opts_out(tmp_path):
     text = md.read_text()
     assert "## Safety" not in text and "<!-- agentkennel-safety -->" not in text
     assert text.count("<!-- agentkennel-environment -->") == 1      # missing ones still come
+
+
+WEB_MARK = "<!-- agentkennel-web -->"
+
+
+def test_a_new_claude_md_builds_websites_with_nextjs(tmp_path):
+    """31.10.2026, the owner: sites are made on a modern stack - Next.js; the rest is the
+    agent's choice. Every AgentKennel and every guest sandbox gets it."""
+    md = tmp_path / "CLAUDE.md"
+    r = run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
+    assert r.returncode == 0, r.stderr
+    text = md.read_text()
+    assert text.count(WEB_MARK) == 1
+    web = " ".join(text.split(WEB_MARK, 1)[1].split())
+    for words in ("Next.js", "TypeScript", "Tailwind", "create-next-app", "rendered on the server",
+                  "existing site keeps its stack"):
+        assert words in web, words
+    assert text.isascii() and len(text.splitlines()) < MAX_MD_LINES
+
+
+OLD_WEB_BLOCK = """{mark}
+## Websites: Next.js
+A new website or web app is built with Next.js on TypeScript with Tailwind CSS
+(`npx create-next-app@latest`), not hand-written HTML and scripts or a server-side
+template engine. Pages people should find (a landing, articles) are rendered on the
+server, so search engines and link previews see them. An existing site keeps its stack
+unless the person asks to move it.
+"""
+
+
+def test_the_web_rule_says_one_header_on_every_page(tmp_path):
+    """02.11.2026, the owner: a site came out with one header on the landing and another on
+    the other pages (the menu changed on a click). Into the agents' rules, everywhere."""
+    md = tmp_path / "CLAUDE.md"
+    run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
+    text = md.read_text()
+    web = " ".join(text.split(WEB_MARK, 1)[1].split("<!--", 1)[0].split())
+    for words in ("one header, one menu and one footer", "every page, the landing included",
+                  "going from page to page"):
+        assert words in web, words
+    assert text.isascii() and len(text.splitlines()) < MAX_MD_LINES
+
+
+@pytest.mark.parametrize("mark", [WEB_MARK, "<!-- agentdeck-web -->"])
+def test_an_upgrade_replaces_the_old_web_block(tmp_path, mark):
+    md = tmp_path / "CLAUDE.md"
+    md.write_text("# Working rules (AgentKennel)\n\n" + OLD_WEB_BLOCK.format(mark=mark) + "\n## Mine\nkeep\n")
+    for _ in range(2):
+        run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
+    text = md.read_text()
+    assert "one header, one menu and one footer" in text and text.count(mark) == 1
+    assert "## Mine\nkeep\n" in text
+
+
+def test_a_claude_md_agentkennel_wrote_earlier_gets_the_web_rule_once(tmp_path):
+    md = tmp_path / "CLAUDE.md"
+    md.write_text("# Working rules (AgentKennel)\n\n" + LINKS_MARK + "\n## Links\n")
+    for _ in range(2):
+        run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
+    assert md.read_text().count(WEB_MARK) == 1
+
+
+def test_a_persons_own_claude_md_gets_no_web_rule(tmp_path):
+    md = tmp_path / "CLAUDE.md"
+    md.write_text("my own rules\n")
+    run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
+    assert WEB_MARK not in md.read_text()

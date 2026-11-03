@@ -85,8 +85,9 @@ EN = {
     "gate_disabled": "Guest access is turned off.",
     "gate_path": "This address is closed.",
     "gate_limit_5h": "5-hour limit used up ({spent} of {limit}). It resets at {at}, Los Angeles time.",
-    "gate_limit_week": "Weekly limit used up ({spent} of {limit}). It resets on Monday at midnight, "
+    "gate_limit_week": "Weekly limit used up ({spent} of {limit}). It resets on {day} at {at}, "
                        "Los Angeles time.",
+    "weekdays": "Monday Tuesday Wednesday Thursday Friday Saturday Sunday",
     "gate_upstream": "The Claude server is unreachable.",
     "spend_alert": "⚠️ Sandbox {guest}: ≈{hour_pct:.1f}% of the subscription week spent in the "
                    "last hour ({hour_m:.1f}M). Today in total ≈{today_pct:.1f}%.\n"
@@ -235,7 +236,8 @@ RU = {
     "gate_path": "Этот адрес закрыт.",
     "gate_limit_5h": "Лимит на 5 часов исчерпан ({spent} из {limit}). Сбросится в {at} по Лос-Анджелесу.",
     "gate_limit_week": "Недельный лимит исчерпан ({spent} из {limit}). "
-                       "Сбросится в понедельник в полночь по Лос-Анджелесу.",
+                       "Сбросится в {day} в {at} по Лос-Анджелесу.",
+    "weekdays": "понедельник вторник среду четверг пятницу субботу воскресенье",
     "gate_upstream": "Сервер Claude недоступен.",
     "spend_alert": "⚠️ Песочница {guest}: за последний час потрачено ≈{hour_pct:.1f}% "
                    "недели подписки ({hour_m:.1f} млн). Сегодня всего ≈{today_pct:.1f}%.\n"
