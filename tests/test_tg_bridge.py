@@ -867,7 +867,7 @@ def test_transcribe_voice_raises_on_failure(monkeypatch):
     assert "boom" in str(e.value)
 
 
-# --- on_file: save + public link; caption → also deliver to terminal -------
+# --- on_file: save + public link, and hand it to the current terminal -------
 
 def test_on_file_saves_and_replies_with_link(monkeypatch, tmp_path):
     import asyncio
@@ -938,6 +938,61 @@ def test_on_file_with_caption_delivers_path_to_terminal(monkeypatch, tmp_path):
     assert "check this log" in delivered["text"]             # caption forwarded
     assert "ffff0000_log.txt" in delivered["text"]            # local path included for the agent
     assert "https://files.example.com/tgfiles/ffff0000_log.txt" in delivered["text"]
+
+
+def _file_update(caption, sink):
+    class TGFile:
+        async def download_to_drive(self, dest): open(dest, "w").write("x")
+
+    class Photo:
+        file_size = 10
+        async def get_file(self): return TGFile()
+
+    class Msg:
+        def __init__(self):
+            self.document = None; self.photo = [Photo()]; self.video = None
+            self.audio = None; self.voice = None; self.caption = caption; self.chat_id = 999
+        async def reply_text(self, t, **k): sink.append(t); return None
+
+    class Upd:
+        def __init__(self): self.message = Msg(); self.effective_chat = type("C", (), {"id": 999})()
+    return Upd()
+
+
+def test_on_file_without_caption_still_reaches_the_terminal(monkeypatch, tmp_path):
+    # 2026-11-03: the owner sent a photo with no caption to «Safin»; the bot saved
+    # it and replied with the link, but the terminal never heard of it
+    import asyncio
+    monkeypatch.setattr(tb, "TGFILES_DIR", str(tmp_path))
+    monkeypatch.setattr(tb, "TGFILES_URL", "https://files.example.com/tgfiles")
+    monkeypatch.setattr(tb._uuid, "uuid4", lambda: type("U", (), {"hex": "c0ca07efaa"})())
+    monkeypatch.setattr(tb, "resolve_current", lambda c: "6")
+    delivered = []
+
+    async def fake_deliver(reply_to, chat_id, text):
+        delivered.append(text)
+    monkeypatch.setattr(tb, "_deliver_to_terminal", fake_deliver)
+    replies = []
+    asyncio.run(tb.on_file(_file_update(None, replies), None))
+    assert len(delivered) == 1
+    assert os.path.join(str(tmp_path), "c0ca07ef.jpg") in delivered[0]   # the agent can open it
+    assert "https://files.example.com/tgfiles/c0ca07ef.jpg" in delivered[0]
+    assert any("c0ca07ef.jpg" in r for r in replies)                     # the link is still sent
+
+
+def test_on_file_without_caption_and_no_terminal_only_links(monkeypatch, tmp_path):
+    # no terminal picked: the link is enough, no "pick a terminal" nag
+    import asyncio
+    monkeypatch.setattr(tb, "TGFILES_DIR", str(tmp_path))
+    monkeypatch.setattr(tb, "resolve_current", lambda c: None)
+    delivered = []
+
+    async def fake_deliver(reply_to, chat_id, text):
+        delivered.append(text)
+    monkeypatch.setattr(tb, "_deliver_to_terminal", fake_deliver)
+    replies = []
+    asyncio.run(tb.on_file(_file_update(None, replies), None))
+    assert delivered == [] and len(replies) == 1
 
 
 def test_on_file_rejects_oversize(monkeypatch):

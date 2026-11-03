@@ -2300,7 +2300,7 @@ def transcribe_voice(path: str) -> str:
 
 async def _deliver_to_terminal(reply_to, chat_id: int, text: str) -> None:
     """Type `text` into the current terminal and stream the agent's reply, posting
-    under `reply_to`. Shared by text, voice transcripts and captioned files.
+    under `reply_to`. Shared by text, voice transcripts and files.
 
     The per-session lock is held ONLY around the keystroke send (so two quick
     messages can't interleave keys); it is released BEFORE streaming, so a message
@@ -2368,9 +2368,11 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_file(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Owner sent a file (document/photo/video/audio) → save it and reply with a
-    link (public URL or local path). A caption means the file is meant for the agent, so
-    we also hand the local path + URL to the current terminal."""
+    """Owner sent a file (document/photo/video/audio) → save it, reply with a link
+    (public URL or local path) and hand the local path + URL to the current terminal,
+    with the caption as the words. No caption and no terminal picked: just the link.
+    (Until 2026-11-03 a file without a caption stopped at the link — the owner sent a
+    photo to «Safin» and the terminal never heard of it.)"""
     msg = update.message
     info = _media_info(msg)
     if not info:
@@ -2395,9 +2397,11 @@ async def on_file(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     _convo("FILE", f"{kind} {original} -> {dest}", f"url={url}")
     await msg.reply_text(f"📎 {url}")
     caption = (getattr(msg, "caption", None) or "").strip()
-    if caption:                                  # the agent is meant to act on this file
-        ref = f"{caption}\n\n📎 file: {dest}" + (f"\n{url}" if url != dest else "")
-        await _deliver_to_terminal(msg, update.effective_chat.id, ref)
+    if not caption and not resolve_current(update.effective_chat.id):
+        return
+    ref = f"📎 file: {dest}" + (f"\n{url}" if url != dest else "")
+    await _deliver_to_terminal(msg, update.effective_chat.id,
+                               f"{caption}\n\n{ref}" if caption else ref)
 
 
 async def on_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
