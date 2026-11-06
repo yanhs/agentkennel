@@ -109,8 +109,8 @@
   }
  ],
  "web_none": "Адрес в браузере для вас ещё не готов — спросите владельца.",
- "web_welcome": "Здравствуйте! Это ваша песочница с Claude.\n\nПишите задачи прямо сюда. Команды:\n/new — новый терминал, /list — ваши терминалы, /use — переключиться,\n/restart — перезапустить зависший терминал, /esc — прервать Claude,\n/services — что работает без терминала (Tailscale, сайт, бот),\n/web — адрес и пароль ещё раз.\n\nВ браузере: https://sb-anna.example.test\nПароль: pw-1\nПосле первого входа смените его на свой: https://sb-anna.example.test/change-password\n(если вы его уже сменили — действует ваш)\n\nФайлы агент присылает интернет-ссылками; сайт можно опубликовать как <сайт>-<ваше имя>.example.test.",
- "web_again": "В браузере: https://sb-anna.example.test\nПароль: pw-1\nПосле первого входа смените его на свой: https://sb-anna.example.test/change-password\n(если вы его уже сменили — действует ваш)",
+ "web_welcome": "Здравствуйте! Это ваша песочница с Claude.\n\nПишите задачи прямо сюда. Команды:\n/new — новый терминал, /list — ваши терминалы, /use — переключиться,\n/restart — перезапустить зависший терминал, /esc — прервать Claude,\n/services — что работает без терминала (Tailscale, сайт, бот),\n/web — адрес и пароль ещё раз, /newpassword — новый пароль.\n\nВ браузере: https://sb-anna.example.test\nПароль: pw-1\nПосле первого входа смените его на свой: https://sb-anna.example.test/change-password\nЗабыли пароль? /newpassword поставит новый и пришлёт его сюда.\n\nФайлы агент присылает интернет-ссылками; сайт можно опубликовать как <сайт>-<ваше имя>.example.test.",
+ "web_again": "В браузере: https://sb-anna.example.test\nПароль: pw-1\nПосле первого входа смените его на свой: https://sb-anna.example.test/change-password\nЗабыли пароль? /newpassword поставит новый и пришлёт его сюда.",
  "web_no_password": "В браузере: https://sb-anna.example.test",
  "buttons": {
   "inline_keyboard": [
@@ -169,7 +169,7 @@
   [
    "tell",
    5550001,
-   "Здравствуйте! Это ваша песочница с Claude.\n\nПишите задачи прямо сюда. Команды:\n/new — новый терминал, /list — ваши терминалы, /use — переключиться,\n/restart — перезапустить зависший терминал, /esc — прервать Claude,\n/services — что работает без терминала (Tailscale, сайт, бот),\n/web — адрес и пароль ещё раз.\n\nВ браузере: https://sb-masha.example.test\nПароль: pw-M\nПосле первого входа смените его на свой: https://sb-masha.example.test/change-password\n(если вы его уже сменили — действует ваш)\n\nФайлы агент присылает интернет-ссылками; сайт можно опубликовать как <сайт>-<ваше имя>.example.test."
+   "Здравствуйте! Это ваша песочница с Claude.\n\nПишите задачи прямо сюда. Команды:\n/new — новый терминал, /list — ваши терминалы, /use — переключиться,\n/restart — перезапустить зависший терминал, /esc — прервать Claude,\n/services — что работает без терминала (Tailscale, сайт, бот),\n/web — адрес и пароль ещё раз, /newpassword — новый пароль.\n\nВ браузере: https://sb-masha.example.test\nПароль: pw-M\nПосле первого входа смените его на свой: https://sb-masha.example.test/change-password\nЗабыли пароль? /newpassword поставит новый и пришлёт его сюда.\n\nФайлы агент присылает интернет-ссылками; сайт можно опубликовать как <сайт>-<ваше имя>.example.test."
   ]
  ],
  "invite_fail": [
@@ -382,7 +382,7 @@
   [
    "setMyCommands",
    {
-    "commands": "[{\"command\": \"list\", \"description\": \"x\"}, {\"command\": \"web\", \"description\": \"browser address and password\"}, {\"command\": \"services\", \"description\": \"what runs without a terminal\"}]",
+    "commands": "[{\"command\": \"list\", \"description\": \"x\"}, {\"command\": \"web\", \"description\": \"browser address and password\"}, {\"command\": \"newpassword\", \"description\": \"a new browser password\"}, {\"command\": \"services\", \"description\": \"what runs without a terminal\"}]",
     "scope": "{\"type\": \"chat\", \"chat_id\": 1001}"
    }
   ]

@@ -284,7 +284,7 @@ def test_web_is_added_to_the_menu_the_sandbox_sets(info_relay, tg):
     cmds = json.dumps([{"command": "list", "description": "terminals"}])
     info_relay.call("anna", "setMyCommands", {"commands": cmds})
     sent = json.loads(tg.calls[-1][1]["commands"])
-    assert [c["command"] for c in sent] == ["list", "web"]
+    assert [c["command"] for c in sent][:2] == ["list", "web"]
 
 
 # --------------------------------------------------------------------------- #
@@ -440,7 +440,7 @@ def test_services_is_added_to_the_menu(svc_relay, tg):
     cmds = json.dumps([{"command": "list", "description": "terminals"}])
     svc_relay.call("anna", "setMyCommands", {"commands": cmds})
     sent = json.loads(tg.calls[-1][1]["commands"])
-    assert [c["command"] for c in sent] == ["list", "web", "services"]
+    assert [c["command"] for c in sent] == ["list", "web", "newpassword", "services"]
 
 
 def test_welcome_mentions_services():
@@ -545,3 +545,72 @@ def test_menu_items_added_to_the_sandbox_menu_are_in_its_language(svc_relay, tg)
     svc_relay.call("anna", "setMyCommands", {"commands": cmds})
     sent = {c["command"]: c["description"] for c in json.loads(tg.calls[-1][1]["commands"])}
     assert sent["web"] == texts.EN["cmd_web"] and sent["services"] == texts.EN["cmd_services"]
+
+
+# ── /web changes nothing; /newpassword sets a new one (owner, 06.11.2026) ────
+def test_dashboard_info_asks_whose_password_is_in_force(tmp_path):
+    data, sites = tmp_path / "data", tmp_path / "sites"
+    data.mkdir(); sites.mkdir()
+    (sites / "sb-anna.example.test.conf").write_text("server {}")
+    (data / "anna.dashboard-password").write_text("pw-1\n")
+    seen = []
+
+    def own(name, d):
+        seen.append((name, d))
+        return None, True
+    assert tr.dashboard_info("anna", data, sites, status=own) == {
+        "url": "https://sb-anna.example.test", "password": None, "own": True}
+    assert seen == [("anna", data)]
+    assert tr.dashboard_info("anna", data, sites, status=lambda n, d: ("pw-1", False)) == {
+        "url": "https://sb-anna.example.test", "password": "pw-1"}
+
+
+def test_web_text_for_an_own_password_names_newpassword():
+    text = tr.web_text({"url": "https://sb-anna.example.test", "password": None, "own": True},
+                       welcome=False)
+    assert "https://sb-anna.example.test" in text
+    assert "свой" in text and "/newpassword" in text
+    assert "pw-" not in text                           # no password to show
+
+
+def test_web_text_with_the_bots_password_mentions_newpassword():
+    text = tr.web_text({"url": "https://sb-anna.example.test", "password": "pw-1"}, welcome=False)
+    assert "pw-1" in text and "/newpassword" in text
+    assert "действует ваш" not in text and "заменится" not in text
+
+
+RESET = {"anna": {"url": "https://sb-anna.example.test", "password": "pw-NEW-2", "changed": True}}
+
+
+def test_newpassword_sends_the_new_one(book, tg, passes):
+    resets = []
+    relay = tr.Relay(book, tg, info_for=INFO.get,
+                     reset_for=lambda name: (resets.append(name), RESET.get(name))[1])
+    relay.route(msg(ANNA, "/newpassword", 40))
+    assert relay.get_updates("anna", 0, 100, 0) == []    # answered here, not by the sandbox
+    assert resets == ["anna"]
+    (_, params, _), = _sent(tg)
+    assert params["chat_id"] == ANNA
+    assert "pw-NEW-2" in params["text"] and "прежний больше не действует" in params["text"]
+
+
+def test_web_never_resets(book, tg, passes):
+    resets = []
+    relay = tr.Relay(book, tg, info_for=INFO.get, reset_for=lambda n: resets.append(n))
+    relay.route(msg(ANNA, "/web", 41))
+    assert resets == []
+
+
+def test_a_failed_newpassword_says_so(book, tg, passes):
+    relay = tr.Relay(book, tg, info_for=INFO.get, reset_for=lambda name: None)
+    relay.route(msg(ANNA, "/newpassword", 42))
+    (_, params, _), = _sent(tg)
+    assert "Не получилось" in params["text"]
+    assert "pw-ANNA-1" not in params["text"]
+
+
+def test_newpassword_is_in_the_menu(info_relay, tg):
+    cmds = json.dumps([{"command": "list", "description": "terminals"}])
+    info_relay.call("anna", "setMyCommands", {"commands": cmds})
+    sent = json.loads(tg.calls[-1][1]["commands"])
+    assert [c["command"] for c in sent] == ["list", "web", "newpassword"]

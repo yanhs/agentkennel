@@ -5,6 +5,7 @@ All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 ## Unreleased
 
 ### Changed
+- **Guests: /web never sends a dead password; /newpassword sets a new one.** /web in the guest bot checks the password it hands out against the sandbox's own: while it is the one in force it is sent as before; when the guest set their own, /web says so instead of sending one that no longer works (only a hash is kept, so it can't be read back). /newpassword, new in the bot's menu, puts a new password in and sends it. /web itself never changes anything.
 - **A new install opens with something on screen.** On the first visit (no terminal registry yet) the dashboard makes one terminal, "Getting started", and shows it; the Tasks and Server rows are already in the list, one click away. An existing install never gets it, even after deleting every terminal. API: `GET /api/library` carries `first_run`; `POST /api/library/welcome` makes that terminal once (`{"id": null}` when the registry already exists).
 - **Tasks, Server and cmd rows have icons.** In the left list, the pinned Tasks, Server and Command line rows now show a small icon before the name (a checklist, the server gauge, a prompt), so they stand apart from ordinary terminals.
 

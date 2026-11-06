@@ -36,6 +36,7 @@ from typing import Dict, Optional, Tuple
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE.parent / "turnstile"))
+import dashpass  # noqa: E402  (/web: whose password is in force; /newpassword)
 import guestenv  # noqa: E402
 import invites as inv  # noqa: E402  (requests only; deciding is the owner's bot)
 import texts  # noqa: E402
@@ -92,6 +93,10 @@ def web_command() -> Dict:
     return {"command": "web", "description": texts.EN["cmd_web"]}
 
 
+def newpassword_command() -> Dict:
+    return {"command": "newpassword", "description": texts.EN["cmd_newpassword"]}
+
+
 def services_command() -> Dict:
     return {"command": "services", "description": texts.EN["cmd_services"]}
 
@@ -108,7 +113,7 @@ def _command(update: Dict) -> str:
 
 
 def _with_extras(commands, extras=None) -> list:
-    extras = (web_command(),) if extras is None else extras
+    extras = (web_command(), newpassword_command()) if extras is None else extras
     try:
         items = json.loads(commands) if isinstance(commands, str) else list(commands or [])
     except ValueError:
@@ -211,9 +216,13 @@ def web_text(info: Optional[Dict], welcome: bool, domain: Optional[str] = None) 
     if welcome:
         lines += _t("web_intro").split("\n")
     lines.append(_t("web_url", url=url))
-    if password:
-        lines += [_t("web_password", password=password), _t("web_change", url=url),
-                  _t("web_kept")]
+    if info.get("own"):                      # the guest's own: a hash can't be read back
+        lines.append(_t("web_own"))
+    elif password:
+        lines.append(_t("web_password", password=password))
+        if info.get("changed"):              # /newpassword
+            lines.append(_t("web_new"))
+        lines += [_t("web_change", url=url), _t("web_forgot")]
     if welcome:
         domain = domain or guestenv.domain() or _t("domain_placeholder")
         lines += ["", _t("web_sites", domain=domain)]
@@ -256,10 +265,12 @@ class Relay:
     def __init__(self, book: "ts.GuestBook", telegram, stranger_cooldown: float = 600,
                  log=lambda line: print(line, file=sys.stderr, flush=True),
                  info_for=lambda name: None, services=None, background: bool = True,
-                 settle: float = 3.5, invites: Optional[Invitations] = None) -> None:
+                 settle: float = 3.5, invites: Optional[Invitations] = None,
+                 reset_for=lambda name: None) -> None:
         self.book = book
         self.tg = telegram
         self.info_for = info_for  # name -> {"url", "password"} of the guest's dashboard
+        self.reset_for = reset_for  # /newpassword: name -> the same with a NEW password, or None
         self.services = services  # .status(guest) / .act(guest, action, svc); None = off
         self._background = background  # /services talks to a sandbox: not on the poll loop
         self._settle = settle          # after an action: the keeper acts on its next tick
@@ -301,6 +312,10 @@ class Relay:
         if command in ("/start", "/web"):  # answered here: the guest's own address
             self._tell_web(guest, welcome=(command == "/start"))
             return guest.name
+        if command == "/newpassword":      # the one command that changes the password
+            info = self.reset_for(guest.name)
+            self._send_web(guest, web_text(info, False) if info else _t("web_reset_failed"))
+            return guest.name
         if self.services is not None:
             if command == "/services":
                 self._later(self._show_services, guest)
@@ -319,7 +334,9 @@ class Relay:
         return guest.name
 
     def _tell_web(self, guest: "ts.Guest", welcome: bool) -> None:
-        text = web_text(self.info_for(guest.name), welcome)
+        self._send_web(guest, web_text(self.info_for(guest.name), welcome))
+
+    def _send_web(self, guest: "ts.Guest", text: str) -> None:
         try:
             self.tg.call("sendMessage", {"chat_id": guest.telegram_id, "text": text})
         except Exception as exc:
@@ -411,7 +428,8 @@ class Relay:
             scoped = dict(params)
             scoped["scope"] = json.dumps({"type": "chat", "chat_id": tid})
             if method == "setMyCommands":
-                extras = (web_command(),) + ((services_command(),) if self.services else ())
+                extras = ((web_command(), newpassword_command())
+                          + ((services_command(),) if self.services else ()))
                 scoped["commands"] = json.dumps(_with_extras(params.get("commands"), extras),
                                                 ensure_ascii=False)
             return self.tg.call(method, scoped)
@@ -668,8 +686,10 @@ def _bot_token() -> str:
     return token
 
 
-def dashboard_info(name: str, data: Path, sites: Path) -> Optional[Dict]:
-    """sb-<address>.<domain> and its first password, once its web address has been opened."""
+def dashboard_info(name: str, data: Path, sites: Path, status=None) -> Optional[Dict]:
+    """sb-<address>.<domain> and its password, once its web address has been opened.
+    status(name, data) -> (the bot's password if in force, whether the guest set their
+    own) — guests/dashpass.status; without it, the bot's copy as it is."""
     try:
         registry = json.loads((Path(data) / "sandboxes.json").read_text())
     except (OSError, ValueError):
@@ -677,6 +697,12 @@ def dashboard_info(name: str, data: Path, sites: Path) -> Optional[Dict]:
     host = guestenv.dashboard_host(name, registry)
     if not guestenv.domain() or not (Path(sites) / f"{host}.conf").exists():
         return None
+    if status is not None:
+        password, own = status(name, Path(data))
+        info = {"url": f"https://{host}", "password": password}
+        if own:
+            info["own"] = True
+        return info
     pw_file = Path(data) / f"{name}.dashboard-password"
     return {"url": f"https://{host}",
             "password": pw_file.read_text().strip() if pw_file.exists() else None}
@@ -687,8 +713,15 @@ def main() -> int:
     book = ts.GuestBook(data / "guests.json")
     api = TelegramAPI(_bot_token(), log=lambda line: print(line, file=sys.stderr, flush=True))
 
+    sites = HERE.parent / "nginx" / "sites"
+
     def info_for(name: str) -> Optional[Dict]:
-        return dashboard_info(name, data, HERE.parent / "nginx" / "sites")
+        return dashboard_info(name, data, sites, status=dashpass.status)
+
+    def reset_for(name: str) -> Optional[Dict]:
+        info = dashboard_info(name, data, sites)      # the address; None = not opened yet
+        new = dashpass.reset(name, data) if info else None
+        return {"url": info["url"], "password": new, "changed": True} if new else None
 
     def keeper_base(name: str) -> Optional[str]:
         try:
@@ -703,7 +736,7 @@ def main() -> int:
     if owner and owner.isdigit():
         invites = Invitations(inv.RequestBook(data / "requests.json"), int(owner))
     relay = Relay(book, api, info_for=info_for, services=KeeperClient(keeper_base),
-                  invites=invites)
+                  invites=invites, reset_for=reset_for)
     bind = os.environ.get("TGRELAY_BIND", "127.0.0.1")
     port = int(os.environ.get("TGRELAY_PORT", "8792"))
     server = make_server(bind, port, relay)

@@ -22,6 +22,7 @@ EN = {
     # -- the guest bot ---------------------------------------------------------------- #
     "stranger": "This is a private bot. The owner gives access.",
     "cmd_web": "browser address and password",
+    "cmd_newpassword": "a new browser password",
     "cmd_services": "what runs without a terminal",
     "ago_min": "{m} min",
     "ago_h_min": "{h} h {m} min",
@@ -54,11 +55,14 @@ EN = {
                  "/new — a new terminal, /list — your terminals, /use — switch,\n"
                  "/restart — restart a stuck terminal, /esc — interrupt Claude,\n"
                  "/services — what runs without a terminal (Tailscale, a site, a bot),\n"
-                 "/web — the address and password again.\n",
+                 "/web — the address and password again, /newpassword — a new password.\n",
     "web_url": "In the browser: {url}",
     "web_password": "Password: {password}",
     "web_change": "After the first login, change it to your own: {url}/change-password",
-    "web_kept": "(if you have changed it already, yours is the one that works)",
+    "web_forgot": "Forgot it? /newpassword sets a new one and sends it here.",
+    "web_own": "Password: you set your own, and it is the one that works. Forgot it? /newpassword sets a new one and sends it here.",
+    "web_new": "(a new one: the previous password no longer works)",
+    "web_reset_failed": "Could not set a new password. Try again in a minute; if it still fails, write to the owner.",
     "web_sites": "The agent sends you files as internet links; you can publish a site "
                  "as <site>-<your name>.{domain}.",
     "domain_placeholder": "<domain>",
@@ -174,6 +178,7 @@ EN = {
 RU = {
     "stranger": "Это закрытый бот. Доступ выдаёт владелец.",
     "cmd_web": "адрес в браузере и пароль",
+    "cmd_newpassword": "новый пароль для браузера",
     "cmd_services": "что работает без терминала",
     "ago_min": "{m} мин",
     "ago_h_min": "{h} ч {m} мин",
@@ -206,11 +211,14 @@ RU = {
                  "/new — новый терминал, /list — ваши терминалы, /use — переключиться,\n"
                  "/restart — перезапустить зависший терминал, /esc — прервать Claude,\n"
                  "/services — что работает без терминала (Tailscale, сайт, бот),\n"
-                 "/web — адрес и пароль ещё раз.\n",
+                 "/web — адрес и пароль ещё раз, /newpassword — новый пароль.\n",
     "web_url": "В браузере: {url}",
     "web_password": "Пароль: {password}",
     "web_change": "После первого входа смените его на свой: {url}/change-password",
-    "web_kept": "(если вы его уже сменили — действует ваш)",
+    "web_forgot": "Забыли пароль? /newpassword поставит новый и пришлёт его сюда.",
+    "web_own": "Пароль: вы поставили свой, действует он. Забыли? /newpassword поставит новый и пришлёт его сюда.",
+    "web_new": "(новый: прежний больше не действует)",
+    "web_reset_failed": "Не получилось поставить новый пароль. Попробуйте через минуту; если снова не выйдет — напишите владельцу.",
     "web_sites": "Файлы агент присылает интернет-ссылками; сайт можно опубликовать "
                  "как <сайт>-<ваше имя>.{domain}.",
     "domain_placeholder": "<домен>",
