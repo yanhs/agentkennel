@@ -2,7 +2,7 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
-## Unreleased
+## v2.3.0 — a new install opens with a terminal; "Open in tab" copies and pastes; guests always get a working password
 
 ### Changed
 - **Guests: /web never sends a dead password; /newpassword sets a new one.** /web in the guest bot checks the password it hands out against the sandbox's own: while it is the one in force it is sent as before; when the guest set their own, /web says so instead of sending one that no longer works (only a hash is kept, so it can't be read back). /newpassword, new in the bot's menu, puts a new password in and sends it. /web itself never changes anything.
