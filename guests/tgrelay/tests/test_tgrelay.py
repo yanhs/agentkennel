@@ -614,3 +614,117 @@ def test_newpassword_is_in_the_menu(info_relay, tg):
     info_relay.call("anna", "setMyCommands", {"commands": cmds})
     sent = json.loads(tg.calls[-1][1]["commands"])
     assert [c["command"] for c in sent] == ["list", "web", "newpassword"]
+
+
+# ── a guest without web access: no /web, no /newpassword, not even in the menu
+#    (owner, 07.11.2026: Vlad comes back "limited, without web access") ─────────────
+@pytest.fixture
+def noweb_relay(book, tg, passes):
+    book.set_web("anna", False)
+    return tr.Relay(book, tg, info_for=INFO.get,
+                    reset_for=lambda name: pytest.fail("no /newpassword without web"))
+
+
+def test_the_guest_book_keeps_web_on_unless_turned_off(book, passes):
+    assert book.get("boris").web is True
+    book.set_web("boris", False)
+    assert book.get("boris").web is False
+    book.set_web("boris", True)
+    assert book.get("boris").web is True
+
+
+def test_no_web_menu_has_neither_web_nor_newpassword(noweb_relay, tg):
+    cmds = json.dumps([{"command": "list", "description": "terminals"},
+                       {"command": "web", "description": "sneaked in"}])
+    noweb_relay.call("anna", "setMyCommands", {"commands": cmds})
+    sent = json.loads(tg.calls[-1][1]["commands"])
+    assert [c["command"] for c in sent] == ["list"]
+
+
+def test_no_web_start_greets_without_address_password_or_web_commands(noweb_relay, tg):
+    noweb_relay.route(msg(ANNA, "/start", 60))
+    (_, params, _), = _sent(tg)
+    text = params["text"]
+    assert params["chat_id"] == ANNA
+    assert "/new" in text                                   # the welcome is still there
+    for gone in ("https://sb-anna", "pw-ANNA-1", "/web", "/newpassword", "change-password",
+                 "Пароль"):
+        assert gone not in text, gone
+
+
+@pytest.mark.parametrize("cmd", ["/web", "/newpassword"])
+def test_no_web_commands_are_not_answered_by_the_bot(noweb_relay, tg, cmd):
+    """Not a command of this guest's at all: nothing about an address, the text goes on
+    to the sandbox like any other."""
+    noweb_relay.route(msg(ANNA, cmd, 61))
+    assert _sent(tg) == []
+    assert [u["message"]["text"] for u in noweb_relay.get_updates("anna", 0, 100, 0)] == [cmd]
+
+
+def test_the_other_guests_keep_web(noweb_relay, tg):
+    noweb_relay.route(msg(BORIS, "/web", 62))
+    (_, params, _), = _sent(tg)
+    assert params["chat_id"] == BORIS                       # INFO has none: "not ready"
+
+
+class MenuTelegram(FakeTelegram):
+    """getMyCommands answers with what was set for that chat."""
+
+    def __init__(self, menus):
+        super().__init__()
+        self.menus = menus                                  # chat id -> [command names]
+
+    def call(self, method, params, files=None):
+        if method == "getMyCommands":
+            self.calls.append((method, dict(params), {}))
+            chat = json.loads(params["scope"])["chat_id"]
+            return {"ok": True, "result": [{"command": c, "description": c}
+                                           for c in self.menus.get(chat, [])]}
+        if method == "setMyCommands":
+            chat = json.loads(params["scope"])["chat_id"]
+            self.menus[chat] = [c["command"] for c in json.loads(params["commands"])]
+        return super().call(method, params, files)
+
+
+def test_turning_web_off_takes_it_out_of_a_menu_already_shown(book, passes):
+    """The sandbox set its menu long ago; the owner turns web off now: the menu loses
+    /web and /newpassword without waiting for the sandbox to set it again."""
+    tg = MenuTelegram({ANNA: ["list", "web", "newpassword", "services"],
+                       BORIS: ["list", "web", "newpassword"]})
+    relay = tr.Relay(book, tg)
+    relay.sync_menus()
+    assert tg.menus == {ANNA: ["list", "web", "newpassword", "services"],
+                        BORIS: ["list", "web", "newpassword"]}      # nothing to change
+    book.set_web("anna", False)
+    relay.sync_menus()
+    assert tg.menus[ANNA] == ["list", "services"]
+    assert tg.menus[BORIS] == ["list", "web", "newpassword"]
+    calls = len(tg.calls)
+    relay.sync_menus()                                       # already in step: no calls
+    assert len(tg.calls) == calls
+
+
+def test_turning_web_back_on_puts_it_back(book, passes):
+    tg = MenuTelegram({ANNA: ["list", "services"]})
+    book.set_web("anna", False)
+    relay = tr.Relay(book, tg)
+    relay.sync_menus()
+    book.set_web("anna", True)
+    relay.sync_menus()
+    assert tg.menus[ANNA] == ["list", "services", "web", "newpassword"]
+
+
+def test_a_menu_never_set_is_left_alone(book, passes):
+    tg = MenuTelegram({})
+    book.set_web("anna", False)
+    tr.Relay(book, tg).sync_menus()
+    assert [c for c in tg.calls if c[0] == "setMyCommands"] == []
+
+
+def test_a_disabled_guest_without_web_loses_it_from_the_menu_too(book, passes):
+    """Vlad is off now and comes back without web: the menu is clean before he does."""
+    tg = MenuTelegram({ANNA: ["list", "web", "newpassword"]})
+    book.set_enabled("anna", False)
+    book.set_web("anna", False)
+    tr.Relay(book, tg).sync_menus()
+    assert tg.menus[ANNA] == ["list"]

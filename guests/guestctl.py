@@ -273,6 +273,7 @@ def cmd_web(a) -> int:
     info = _registry().get(a.name)
     if not info:
         raise SystemExit(f"no guest {a.name}")
+    ts.GuestBook(DATA / "guests.json").set_web(a.name, True)   # the owner opens it again
     host = dashboard_host(a.name)
     ops = sitegate.RealOps()
     ops.dns_create(host)
@@ -733,6 +734,10 @@ def cmd_simple(a) -> int:
     elif a.cmd == "start":
         book.set_enabled(a.name, True)
         _docker("start", f"sbx-{a.name}")
+    elif a.cmd == "web-off":             # the bot and the agent stay, the sandbox runs on
+        if web_exists(a.name):
+            take_down_web(a.name)
+        book.set_web(a.name, False)
     elif a.cmd == "remove":
         if web_exists(a.name):           # before the port is freed for someone else
             take_down_web(a.name)
@@ -1044,7 +1049,7 @@ def main(argv=None) -> int:
     sub.add_parser("doctor").add_argument("--json", action="store_true")
     sub.add_parser("files-web")
     sub.add_parser("image-tag")
-    for c in ("check", "stop", "start", "remove"):
+    for c in ("check", "stop", "start", "remove", "web-off"):
         sub.add_parser(c).add_argument("name")
     sub.add_parser("web").add_argument("name")
     sub.add_parser("session").add_argument("name")

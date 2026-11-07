@@ -83,6 +83,7 @@ class Guest:
     telegram_id: Optional[int]
     enabled: bool
     unlimited_until: float = 0.0   # unix time; until then both limits are lifted
+    web: bool = True               # terminals in the browser (sb-<name>), /web, /newpassword
 
     def limit_lifted(self, now: Optional[float] = None) -> bool:
         return self.unlimited_until > (time.time() if now is None else now)
@@ -161,6 +162,7 @@ class GuestBook:
             telegram_id=rec.get("telegram_id"),
             enabled=bool(rec.get("enabled", True)),
             unlimited_until=float(rec.get("unlimited_until") or 0),
+            web=bool(rec.get("web", True)),
         )
 
     def lookup(self, secret: str) -> Optional[Guest]:
@@ -195,6 +197,11 @@ class GuestBook:
 
     def set_enabled(self, name: str, enabled: bool) -> None:
         self._update(name, enabled=bool(enabled))
+
+    def set_web(self, name: str, web: bool) -> None:
+        """Off: the guest keeps the bot and the agent, but no terminals in the browser and
+        no /web or /newpassword (owner, 07.11.2026)."""
+        self._update(name, web=bool(web))
 
     def set_limit(self, name: str, week_limit: int, five_hour_limit: Optional[int] = None) -> None:
         """Set the weekly limit; the 5 hours get a seventh of it unless given apart."""

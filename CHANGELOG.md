@@ -2,6 +2,11 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## Unreleased
+
+### Guests
+- **A guest without web access.** `guestctl web-off <name>` takes the guest's terminals in the browser (sb-<name>) down and keeps them down: the bot and the agent go on working, the sandbox and its sites keep running. The bot's menu loses /web and /newpassword (a menu already shown is updated within half a minute, no sandbox restart), /start greets without an address or password, and /web typed by hand gets no answer about an address. `guestctl start` doesn't bring web back; `guestctl web <name>` does.
+
 ## v2.3.0 — a new install opens with a terminal; "Open in tab" copies and pastes; guests always get a working password
 
 ### Changed

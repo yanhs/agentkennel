@@ -56,6 +56,11 @@ EN = {
                  "/restart — restart a stuck terminal, /esc — interrupt Claude,\n"
                  "/services — what runs without a terminal (Tailscale, a site, a bot),\n"
                  "/web — the address and password again, /newpassword — a new password.\n",
+    "web_intro_noweb": "Hello! This is your sandbox with Claude.\n\n"
+                       "Write your tasks right here. Commands:\n"
+                       "/new — a new terminal, /list — your terminals, /use — switch,\n"
+                       "/restart — restart a stuck terminal, /esc — interrupt Claude,\n"
+                       "/services — what runs without a terminal (Tailscale, a site, a bot).\n",
     "web_url": "In the browser: {url}",
     "web_password": "Password: {password}",
     "web_change": "After the first login, change it to your own: {url}/change-password",
@@ -212,6 +217,11 @@ RU = {
                  "/restart — перезапустить зависший терминал, /esc — прервать Claude,\n"
                  "/services — что работает без терминала (Tailscale, сайт, бот),\n"
                  "/web — адрес и пароль ещё раз, /newpassword — новый пароль.\n",
+    "web_intro_noweb": "Здравствуйте! Это ваша песочница с Claude.\n\n"
+                       "Пишите задачи прямо сюда. Команды:\n"
+                       "/new — новый терминал, /list — ваши терминалы, /use — переключиться,\n"
+                       "/restart — перезапустить зависший терминал, /esc — прервать Claude,\n"
+                       "/services — что работает без терминала (Tailscale, сайт, бот).\n",
     "web_url": "В браузере: {url}",
     "web_password": "Пароль: {password}",
     "web_change": "После первого входа смените его на свой: {url}/change-password",

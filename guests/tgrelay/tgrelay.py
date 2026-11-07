@@ -207,6 +207,23 @@ class KeeperClient:
             return False
 
 
+def noweb_text(domain: Optional[str] = None) -> str:
+    """/start for a guest without web access: no address, no password, no web commands."""
+    domain = domain or guestenv.domain() or _t("domain_placeholder")
+    return "\n".join(_t("web_intro_noweb").split("\n") + ["", _t("web_sites", domain=domain)])
+
+
+WEB_COMMANDS = ("web", "newpassword")
+
+
+def _menu_for(commands, web: bool, extras=()) -> list:
+    """The menu a guest gets: with /web and /newpassword only when they have web."""
+    items = [c for c in _with_extras(commands, ()) if web
+             or not (isinstance(c, dict) and c.get("command") in WEB_COMMANDS)]
+    return _with_extras(items, ((web_command(), newpassword_command()) if web else ())
+                        + tuple(extras))
+
+
 def web_text(info: Optional[Dict], welcome: bool, domain: Optional[str] = None) -> str:
     """What /start and /web tell a guest (GUESTS_LANG)."""
     if not info:
@@ -283,6 +300,7 @@ class Relay:
         self._files: Dict[str, set] = {}
         self._paths: Dict[str, str] = {}
         self._strangers: Dict[int, float] = {}
+        self._menu_web: Dict[str, bool] = {}   # sync_menus: the web state each menu shows
 
     # -- incoming ---------------------------------------------------------- #
     def _guest_by_tid(self, tid: int) -> Optional["ts.Guest"]:
@@ -309,10 +327,13 @@ class Relay:
             self.log(f"DROP disabled guest={guest.name} update={update.get('update_id')}")
             return None
         command = _command(update)
-        if command in ("/start", "/web"):  # answered here: the guest's own address
+        if command == "/start" and not guest.web:
+            self._send_web(guest, noweb_text())
+            return guest.name
+        if command in ("/start", "/web") and guest.web:  # answered here: the guest's address
             self._tell_web(guest, welcome=(command == "/start"))
             return guest.name
-        if command == "/newpassword":      # the one command that changes the password
+        if command == "/newpassword" and guest.web:  # the one command that changes the password
             info = self.reset_for(guest.name)
             self._send_web(guest, web_text(info, False) if info else _t("web_reset_failed"))
             return guest.name
@@ -332,6 +353,30 @@ class Relay:
             self._files.setdefault(guest.name, set()).update(_file_ids(update))
             self._cond.notify_all()
         return guest.name
+
+    def sync_menus(self) -> None:
+        """A menu already shown follows the guest's web switch (on or off since the
+        sandbox last set it), the sandbox doesn't have to set it again. Only what changed
+        is asked; a menu never set is left alone."""
+        for name in self.book.names():
+            guest = self.book.get(name)
+            if guest is None or guest.telegram_id is None:
+                continue
+            if self._menu_web.get(name) == guest.web:
+                continue
+            scope = json.dumps({"type": "chat", "chat_id": guest.telegram_id})
+            r = self.tg.call("getMyCommands", {"scope": scope})
+            if not r.get("ok"):
+                continue                                 # tried again next time
+            items = r.get("result") or []
+            want = _menu_for(items, guest.web) if items else items
+            if want != items:
+                r = self.tg.call("setMyCommands", {
+                    "scope": scope, "commands": json.dumps(want, ensure_ascii=False)})
+                if not r.get("ok"):
+                    continue
+                self.log(f"MENU guest={name} web={'on' if guest.web else 'off'}")
+            self._menu_web[name] = guest.web
 
     def _tell_web(self, guest: "ts.Guest", welcome: bool) -> None:
         self._send_web(guest, web_text(self.info_for(guest.name), welcome))
@@ -428,10 +473,10 @@ class Relay:
             scoped = dict(params)
             scoped["scope"] = json.dumps({"type": "chat", "chat_id": tid})
             if method == "setMyCommands":
-                extras = ((web_command(), newpassword_command())
-                          + ((services_command(),) if self.services else ()))
-                scoped["commands"] = json.dumps(_with_extras(params.get("commands"), extras),
-                                                ensure_ascii=False)
+                extras = (services_command(),) if self.services else ()
+                scoped["commands"] = json.dumps(
+                    _menu_for(params.get("commands"), guest.web, extras), ensure_ascii=False)
+                self._menu_web[guest_name] = guest.web
             return self.tg.call(method, scoped)
         if method in CHAT_METHODS:
             if "chat_id" not in params:
@@ -741,6 +786,16 @@ def main() -> int:
     port = int(os.environ.get("TGRELAY_PORT", "8792"))
     server = make_server(bind, port, relay)
     threading.Thread(target=poll_forever, args=(relay, api), daemon=True).start()
+
+    def menus_forever() -> None:          # web on/off reaches menus already shown
+        while True:
+            try:
+                relay.sync_menus()
+            except Exception as exc:      # noqa: BLE001  (a Telegram hiccup: next round)
+                print(f"MENU-SYNC-FAILED {exc!r}", file=sys.stderr, flush=True)
+            time.sleep(30)
+
+    threading.Thread(target=menus_forever, daemon=True).start()
     print(f"tgrelay on {bind}:{port}, guests: {', '.join(book.names()) or '-'}, "
           f"invitations: {'on' if invites else 'off'}",
           file=sys.stderr, flush=True)

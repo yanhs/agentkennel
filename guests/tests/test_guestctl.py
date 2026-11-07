@@ -4,6 +4,8 @@ resource limits, turnstile addresses, and no host folders inside."""
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import guestctl as gc  # noqa: E402
 
@@ -619,3 +621,49 @@ def test_public_folder_made_by_root_with_the_right_modes_is_left_alone(tmp_path,
         raise PermissionError(1, "Operation not permitted")
     monkeypatch.setattr(gc.Path, "chmod", refuse)
     assert gc._public_folder("anna-key") == root / "anna-key"
+
+
+# --------------------------------------------------------------------------- #
+# web-off: the guest keeps the bot and the agent, but no terminals in the browser
+# (owner, 07.11.2026)
+# --------------------------------------------------------------------------- #
+def _book_with_anna(monkeypatch, tmp_path):
+    book = gc.ts.GuestBook(tmp_path / "guests.json")
+    book.add("anna", week_limit=10, telegram_id=1001)
+    monkeypatch.setattr(gc, "DATA", tmp_path)
+    return book
+
+
+def test_web_off_takes_the_address_down_and_remembers(monkeypatch, tmp_path):
+    book = _book_with_anna(monkeypatch, tmp_path)
+    downs, docker = [], []
+    monkeypatch.setattr(gc, "web_exists", lambda name: True)
+    monkeypatch.setattr(gc, "take_down_web", lambda name, ops=None, delay=90: downs.append(name))
+    monkeypatch.setattr(gc, "_docker", lambda *a, **k: docker.append(a))
+    gc.cmd_simple(type("A", (), {"cmd": "web-off", "name": "anna"})())
+    assert downs == ["anna"]
+    assert book.get("anna").web is False
+    assert book.get("anna").enabled is True                  # the bot and agent stay
+    assert docker == []                                      # the sandbox keeps running
+
+
+def test_web_off_without_an_address_still_remembers(monkeypatch, tmp_path):
+    book = _book_with_anna(monkeypatch, tmp_path)
+    monkeypatch.setattr(gc, "web_exists", lambda name: False)
+    monkeypatch.setattr(gc, "take_down_web", lambda *a, **k: pytest.fail("nothing to take down"))
+    gc.cmd_simple(type("A", (), {"cmd": "web-off", "name": "anna"})())
+    assert book.get("anna").web is False
+
+
+def test_start_does_not_bring_web_back(monkeypatch, tmp_path):
+    book = _book_with_anna(monkeypatch, tmp_path)
+    book.set_web("anna", False)
+    book.set_enabled("anna", False)
+    monkeypatch.setattr(gc, "_docker", lambda *a, **k: None)
+    gc.cmd_simple(type("A", (), {"cmd": "start", "name": "anna"})())
+    assert book.get("anna").enabled is True and book.get("anna").web is False
+
+
+def test_web_off_is_a_command():
+    import inspect
+    assert '"web-off"' in inspect.getsource(gc.main)
