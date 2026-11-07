@@ -210,7 +210,7 @@ class KeeperClient:
 def noweb_text(domain: Optional[str] = None) -> str:
     """/start for a guest without web access: no address, no password, no web commands."""
     domain = domain or guestenv.domain() or _t("domain_placeholder")
-    return "\n".join(_t("web_intro_noweb").split("\n") + ["", _t("web_sites", domain=domain)])
+    return _t("web_intro_noweb") + "\n" + _t("web_sites", domain=domain)   # intro ends in \n
 
 
 WEB_COMMANDS = ("web", "newpassword")

@@ -650,6 +650,7 @@ def test_no_web_start_greets_without_address_password_or_web_commands(noweb_rela
     for gone in ("https://sb-anna", "pw-ANNA-1", "/web", "/newpassword", "change-password",
                  "Пароль"):
         assert gone not in text, gone
+    assert "\n\n\n" not in text                               # one blank line, not two
 
 
 @pytest.mark.parametrize("cmd", ["/web", "/newpassword"])
