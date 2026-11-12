@@ -11,7 +11,7 @@ browser tab or Telegram, close the tab, and they keep working.
   the task is closed.
 - **Full control of the server, or a Docker sandbox** — your choice at install time.
 - **Other people too, each in their own sandbox** — friends or clients get an agent of
-  their own on your Claude subscription, with 5-hour and weekly limits. For each person you
+  their own, with 5-hour and weekly limits. For each person you
   choose: terminals in the browser or Telegram only, and what their agent may do (one site,
   which folders, which actions). Needs the script install. [Guests](#-guests-other-people-on-your-server)
 
@@ -260,9 +260,8 @@ notes are transcribed locally (not in the Docker image). Full setup and every co
 
 An optional multi-user mode, off until you set it up. Each guest gets their own
 AgentKennel in a Docker sandbox (their own terminals, files and sites) and talks to their
-agent through one shared Telegram bot. Guests can't see each other or your server. All of
-them run on your Claude subscription: each has a 5-hour and a weekly limit, and you are told
-when someone burns through your week too fast.
+agent through one shared Telegram bot. Guests can't see each other or your server. Each
+has a 5-hour and a weekly limit, and you are told when someone uses too much too fast.
 
 - **You decide who gets in.** Someone writes `/start` to the guest bot; your own bot asks
   "Let them in?"; on yes the sandbox is made and they get their address and password.

@@ -1,21 +1,20 @@
 # AgentKennel guests
 
-An optional module: other people work on your server, each in a sandbox of their own, on
-your Claude subscription with a 5-hour and a weekly limit, through one shared Telegram bot. Off until
-you set it up.
+An optional module: other people work on your server, each in a sandbox of their own, with
+a 5-hour and a weekly limit, through one shared Telegram bot. Off until you set it up.
 
 - **A sandbox per person.** Each guest gets their own AgentKennel in a Docker container
   (image `agentkennel-guest:<version>`): own terminals, files and services, a dashboard at
   `https://sb-<name>.<domain>` with its own password. Guests can't see each other or your
   server: the `sbx` network lets a sandbox reach the internet and the three gates below,
   nothing else on the host or in private ranges.
-- **Your subscription, a 5-hour and a weekly limit.** The Claude turnstile holds your
-  login; a sandbox only has a personal pass. The turnstile counts every guest's usage and
-  stops them at either limit, like the subscription's own: the 5-hour window opens with
-  the first request and lasts 5 hours, the week resets when your subscription's week does
+- **A 5-hour and a weekly limit.** A sandbox has only a personal pass to the Claude
+  turnstile. The turnstile counts every guest's usage and
+  stops them at either limit: the 5-hour window opens with
+  the first request and lasts 5 hours, the week resets with the Claude week
   (the turnstile reads it from Anthropic's replies; Monday midnight, Los Angeles time, until
   it has seen one) (default 140M weighted tokens a week, a seventh of it — 20M — per 5 hours). It
-  tells you if a guest burns more than 1% of your week in an hour.
+  tells you if a guest uses more than 1% of the week in an hour.
 - **One bot for everyone.** The Telegram turnstile holds the real bot token and gives each
   sandbox a Bot API of its own: a guest's agent writes only to that guest's chat.
 - **You decide in your own bot.** Someone new writes `/start` to the guest bot; it only
