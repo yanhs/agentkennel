@@ -17,6 +17,7 @@ from __future__ import annotations
 import base64
 import json
 import math
+import re
 import shutil
 import subprocess
 import sys
@@ -341,6 +342,16 @@ def main() -> int:
         ms.check_english(pg, "beat3")
 
         # beat 4 — the Server tab: who uses the CPU
+        def _json(body):
+            return lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+        def _guests(route):
+            if route.request.method == "POST":
+                path = route.request.url.split("?")[0]
+                return _json({"folders": ms.ALEX_FOLDERS} if path.endswith("/folders") else {"ok": True})(route)
+            return _json(ms.guests_payload())(route)
+        pg.route(re.compile(r"/api/services(/|\?|$)"), lambda r: _json(ms.services_payload())(r))
+        pg.route(re.compile(r"/api/guests(/|\?|$)"), _guests)
         caption(pg, "What is using your server")
         x, y = cursor_to(pg, film, "#serverBtn", steps=8)
         ring(pg, film, x, y)
@@ -348,17 +359,42 @@ def main() -> int:
         pg.wait_for_selector("#list .server-row.sel")
         sfr = pg.frame_locator("#wrap iframe")
         sfr.locator(".row[data-id]").first.wait_for()
+        sfr.locator('#guests .guest[data-name="alex"]').wait_for()
+        srv = next(f for f in pg.frames if "server" in f.url)
         hide_cursor(pg)
         ms.settle(pg)
-        film.shot(pg, 1.4)
+        film.shot(pg, 1.2)
+
+        def scroll_to(sel: str, off: int, n: int = 7) -> None:
+            target = srv.evaluate("([s, off]) => document.querySelector(s).getBoundingClientRect().top + scrollY - off",
+                                  [sel, off])
+            start = srv.evaluate("() => scrollY")
+            for k in range(1, n + 1):
+                srv.evaluate("y => window.scrollTo(0, y)", start + (target - start) * k / n)
+                film.shot(pg, STEP)
+
+        scroll_to('.row[data-id="agent:41822"]', 120)
         sfr.locator('.row[data-id="agent:41822"] .main').click()
-        srv = next(f for f in pg.frames if "server" in f.url)
-        for k in range(1, 7):                         # scroll the agents into view
-            srv.evaluate("y => window.scrollTo(0, y)", 40 * k)
-            film.shot(pg, STEP)
         pg.wait_for_timeout(300)
-        film.shot(pg, 2.2)
+        film.shot(pg, 2.0)
         ms.check_english(pg, "beat4")
+
+        # beat 7 — on the same page: other people, each in a sandbox; one guest's rules
+        caption(pg, "Other people too, each in a sandbox", "· web or Telegram only")
+        scroll_to("#guests", 20)
+        film.shot(pg, 1.6)
+        rules = '#guests .guest[data-name="alex"] button[data-act="rules"]'
+        x, y = cursor_to(pg, film, rules, steps=9, frame=sfr)
+        ring(pg, film, x, y)
+        sfr.locator(rules).click()
+        sfr.locator('#guests .grules input[data-folder="/work/old-drafts"]').wait_for()
+        hide_cursor(pg)
+        caption(pg, "You choose what their agent may do")
+        pg.wait_for_timeout(200)
+        film.shot(pg, 1.0)
+        scroll_to('#guests .guest[data-name="alex"]', 60, n=6)   # the form in view, alex's row on top
+        film.shot(pg, 2.6)
+        ms.check_english(pg, "beat7")
         ctx.close()
         ms.PROBLEMS.extend(f"desktop: pageerror {e}" for e in errs)
 
@@ -368,6 +404,39 @@ def main() -> int:
         stage.set_content(STAGE_HTML % {"w": W, "h": H})
         stage.evaluate("() => document.fonts.ready")
         overlay(stage)
+
+        TW, TH = 420, 760
+        # beat 8 — the rules at work: the agent declines, you are told
+        guest_msgs, owner_msgs = ms.tg_rules_msgs()
+        pages = []
+        for title, sub in (("Deck guests", "Alex's chat with the guest bot"), ("AgentKennel", "your own bot")):
+            c = b.new_context(viewport={"width": TW, "height": TH}, device_scale_factor=ms.SCALE)
+            pp = c.new_page()
+            pp.set_content(ms.tg_frame([], "11:24", title=title, sub=sub))
+            pp.add_style_tag(content=TG_EXTRA_CSS)
+            pages.append((c, pp))
+        (gc, gp), (oc, op) = pages
+        GK = 0.62
+        gw, gh = int(TW * GK), int(TH * GK)
+        side = ("<b>Their agent sticks<br>to the job</b>A guest asks for something else: the agent "
+                "declines politely.<ul><li>the rules ride with every request</li>"
+                "<li>strange or illegal? you hear about it</li></ul>")
+        caption(stage, "The agent keeps to its job", "· you are told")
+
+        def rules_frame(n_guest: int, n_owner: int, dur: float) -> None:
+            for pp, msgs, n in ((gp, guest_msgs, n_guest), (op, owner_msgs, n_owner)):
+                pp.evaluate("h => { document.querySelector('.chat').innerHTML = h; }", "".join(msgs[:n]))
+            gp.wait_for_timeout(120)
+            stage_show(stage, [(data_url(gp.screenshot()), gw, gh), (data_url(op.screenshot()), gw, gh)], side)
+            film.shot(stage, dur)
+
+        rules_frame(2, 0, 1.4)
+        rules_frame(3, 0, 1.0)
+        rules_frame(4, 0, 1.3)
+        rules_frame(4, 1, 3.2)
+        ms.check_english(gp, "beat8-guest")
+        ms.check_english(op, "beat8-owner")
+        gc.close(); oc.close()
 
         # beat 5 — the dashboard on a phone: the agent keeps going, you type the next step
         PW, PH, K = 390, 740, 0.86
@@ -403,7 +472,6 @@ def main() -> int:
         ms.PROBLEMS.extend(f"mobile: pageerror {e}" for e in merrs)
 
         # beat 6 — Telegram: pick a terminal, its screen arrives
-        TW, TH = 420, 760
         tctx = b.new_context(viewport={"width": TW, "height": TH}, device_scale_factor=ms.SCALE)
         tpg = tctx.new_page()
         tpg.set_content(ms.tg_html())
@@ -436,66 +504,7 @@ def main() -> int:
         ms.check_english(tpg, "beat6-screen")
         tctx.close()
 
-        # beat 7 — other people, each in a sandbox: Web switches, one guest's rules
-        gctx, gpg, gerrs = ms.open_server_page(b, base, width=W, height=H, guests=ms.guests_payload)
-        gpg.wait_for_selector('#guests .guest[data-name="alex"]')
-        gpg.evaluate("() => window.scrollTo(0, document.querySelector('#guests').getBoundingClientRect().top + scrollY - 24)")
-        ms.settle(gpg)
-        overlay(gpg)
-        caption(gpg, "Other people too, each in a sandbox", "· web or Telegram only")
-        film.shot(gpg, 1.8)
-        x, y = cursor_to(gpg, film, '#guests .guest[data-name="alex"] button[data-act="rules"]', steps=9)
-        ring(gpg, film, x, y)
-        gpg.click('#guests .guest[data-name="alex"] button[data-act="rules"]')
-        gpg.wait_for_selector('#guests .grules input[data-folder="/work/old-drafts"]')
-        hide_cursor(gpg)
-        caption(gpg, "You choose what their agent may do")
-        gpg.wait_for_timeout(200)
-        film.shot(gpg, 1.2)
-        # bring the form into view, alex's row (Web off, Rules) still on top
-        target = gpg.evaluate("() => document.querySelector('#guests .guest[data-name=\"alex\"]')"
-                              ".getBoundingClientRect().top + scrollY - 70")
-        start = gpg.evaluate("() => scrollY")
-        for k in range(1, 7):
-            gpg.evaluate("y => window.scrollTo(0, y)", start + (target - start) * k / 6)
-            film.shot(gpg, STEP)
-        film.shot(gpg, 2.6)
-        ms.check_english(gpg, "beat7")
-        gctx.close()
-        ms.PROBLEMS.extend(f"guests: pageerror {e}" for e in gerrs)
-
-        # beat 8 — the rules at work: the agent declines, you are told
-        guest_msgs, owner_msgs = ms.tg_rules_msgs()
-        pages = []
-        for title, sub in (("Deck guests", "Alex's chat with the guest bot"), ("AgentKennel", "your own bot")):
-            c = b.new_context(viewport={"width": TW, "height": TH}, device_scale_factor=ms.SCALE)
-            pp = c.new_page()
-            pp.set_content(ms.tg_frame([], "11:24", title=title, sub=sub))
-            pp.add_style_tag(content=TG_EXTRA_CSS)
-            pages.append((c, pp))
-        (gc, gp), (oc, op) = pages
-        GK = 0.62
-        gw, gh = int(TW * GK), int(TH * GK)
-        side = ("<b>Their agent sticks<br>to the job</b>A guest asks for something else: the agent "
-                "declines politely.<ul><li>the rules ride with every request</li>"
-                "<li>strange or illegal? you hear about it</li></ul>")
-        caption(stage, "The agent keeps to its job", "· you are told")
-
-        def rules_frame(n_guest: int, n_owner: int, dur: float) -> None:
-            for pp, msgs, n in ((gp, guest_msgs, n_guest), (op, owner_msgs, n_owner)):
-                pp.evaluate("h => { document.querySelector('.chat').innerHTML = h; }", "".join(msgs[:n]))
-            gp.wait_for_timeout(120)
-            stage_show(stage, [(data_url(gp.screenshot()), gw, gh), (data_url(op.screenshot()), gw, gh)], side)
-            film.shot(stage, dur)
-
-        rules_frame(2, 0, 1.4)
-        rules_frame(3, 0, 1.0)
-        rules_frame(4, 0, 1.3)
-        rules_frame(4, 1, 3.2)
-        ms.check_english(gp, "beat8-guest")
-        ms.check_english(op, "beat8-owner")
         ms.check_english(stage, "stage")
-        gc.close(); oc.close()
         sctx.close()
         b.close()
 
