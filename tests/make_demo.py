@@ -434,8 +434,68 @@ def main() -> int:
         tg_frame(3, 0.8, hit=2)
         tg_frame(4, 3.2, hit=2)
         ms.check_english(tpg, "beat6-screen")
-        ms.check_english(stage, "stage")
         tctx.close()
+
+        # beat 7 — other people, each in a sandbox: Web switches, one guest's rules
+        gctx, gpg, gerrs = ms.open_server_page(b, base, width=W, height=H, guests=ms.guests_payload)
+        gpg.wait_for_selector('#guests .guest[data-name="alex"]')
+        gpg.evaluate("() => window.scrollTo(0, document.querySelector('#guests').getBoundingClientRect().top + scrollY - 24)")
+        ms.settle(gpg)
+        overlay(gpg)
+        caption(gpg, "Other people too, each in a sandbox", "· web or Telegram only")
+        film.shot(gpg, 1.8)
+        x, y = cursor_to(gpg, film, '#guests .guest[data-name="alex"] button[data-act="rules"]', steps=9)
+        ring(gpg, film, x, y)
+        gpg.click('#guests .guest[data-name="alex"] button[data-act="rules"]')
+        gpg.wait_for_selector('#guests .grules input[data-folder="/work/old-drafts"]')
+        hide_cursor(gpg)
+        caption(gpg, "You choose what their agent may do")
+        gpg.wait_for_timeout(200)
+        film.shot(gpg, 1.2)
+        # bring the form into view, alex's row (Web off, Rules) still on top
+        target = gpg.evaluate("() => document.querySelector('#guests .guest[data-name=\"alex\"]')"
+                              ".getBoundingClientRect().top + scrollY - 70")
+        start = gpg.evaluate("() => scrollY")
+        for k in range(1, 7):
+            gpg.evaluate("y => window.scrollTo(0, y)", start + (target - start) * k / 6)
+            film.shot(gpg, STEP)
+        film.shot(gpg, 2.6)
+        ms.check_english(gpg, "beat7")
+        gctx.close()
+        ms.PROBLEMS.extend(f"guests: pageerror {e}" for e in gerrs)
+
+        # beat 8 — the rules at work: the agent declines, you are told
+        guest_msgs, owner_msgs = ms.tg_rules_msgs()
+        pages = []
+        for title, sub in (("Deck guests", "Alex's chat with the guest bot"), ("AgentKennel", "your own bot")):
+            c = b.new_context(viewport={"width": TW, "height": TH}, device_scale_factor=ms.SCALE)
+            pp = c.new_page()
+            pp.set_content(ms.tg_frame([], "11:24", title=title, sub=sub))
+            pp.add_style_tag(content=TG_EXTRA_CSS)
+            pages.append((c, pp))
+        (gc, gp), (oc, op) = pages
+        GK = 0.62
+        gw, gh = int(TW * GK), int(TH * GK)
+        side = ("<b>Their agent sticks<br>to the job</b>A guest asks for something else: the agent "
+                "declines politely.<ul><li>the rules ride with every request</li>"
+                "<li>strange or illegal? you hear about it</li></ul>")
+        caption(stage, "The agent keeps to its job", "· you are told")
+
+        def rules_frame(n_guest: int, n_owner: int, dur: float) -> None:
+            for pp, msgs, n in ((gp, guest_msgs, n_guest), (op, owner_msgs, n_owner)):
+                pp.evaluate("h => { document.querySelector('.chat').innerHTML = h; }", "".join(msgs[:n]))
+            gp.wait_for_timeout(120)
+            stage_show(stage, [(data_url(gp.screenshot()), gw, gh), (data_url(op.screenshot()), gw, gh)], side)
+            film.shot(stage, dur)
+
+        rules_frame(2, 0, 1.4)
+        rules_frame(3, 0, 1.0)
+        rules_frame(4, 0, 1.3)
+        rules_frame(4, 1, 3.2)
+        ms.check_english(gp, "beat8-guest")
+        ms.check_english(op, "beat8-owner")
+        ms.check_english(stage, "stage")
+        gc.close(); oc.close()
         sctx.close()
         b.close()
 

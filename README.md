@@ -21,7 +21,7 @@ browser tab or Telegram, close the tab, and they keep working.
   <img alt="Docker" src="https://img.shields.io/badge/docker-compose%20up-2496ED.svg">
 </p>
 
-![AgentKennel: many Claude Code agents in one dashboard, a task board per terminal, what uses your server, from your phone and from Telegram](docs/demo.gif)
+![AgentKennel: many Claude Code agents in one dashboard, a task board per terminal, what uses your server, from your phone and from Telegram; other people in their own sandboxes, their agent kept to one job](docs/demo.gif)
 
 <sub>demo data</sub>
 

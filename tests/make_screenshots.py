@@ -695,9 +695,10 @@ def tg_invite_htmls():
             tg_frame(owner, "10:04", title="AgentKennel", sub="your own bot"))
 
 
-def tg_rules_htmls():
-    """Rules at work, both sides: alex asks his agent for something off its job and it
-    declines; YOUR OWN bot gets the turnstile's real flag_owner text (GUESTS_LANG=en)."""
+def tg_rules_msgs():
+    """Rules at work, both sides: alex asks their agent for something off its job and it
+    declines; YOUR OWN bot gets the turnstile's real flag_owner text (GUESTS_LANG=en).
+    (guest messages, owner messages) — also the demo's guests beat."""
     os.environ["GUESTS_LANG"] = "en"
     sys.path.insert(0, str(ROOT / "guests"))
     import texts
@@ -710,6 +711,11 @@ def tg_rules_htmls():
              inc("I can't help with finding someone's address. I only work on the bakery's "
                  "website, bakery.example.com: a page, the menu or the prices.", "11:24")]
     owner = [inc(texts.t("flag_owner", name="alex", text=ask), "11:24")]
+    return guest, owner
+
+
+def tg_rules_htmls():
+    guest, owner = tg_rules_msgs()
     return (tg_frame(guest, "11:24", title="Deck guests", sub="Alex's chat with the guest bot"),
             tg_frame(owner, "11:24", title="AgentKennel", sub="your own bot"))
 
