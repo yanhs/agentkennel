@@ -395,22 +395,31 @@ SERVICE_LOG = [
 ]
 
 
+# alex: web off, the agent kept to one site (the Rules form, guests-rules.png)
+ALEX_RULES = {"on": True,
+              "work": "The bakery's website, bakery.example.com: its pages, menu, photos and prices.",
+              "folders": ["/work/bakery-site"],
+              "actions": {"edit": True, "restart": True, "packages": True, "publish": False, "services": False},
+              "flag": True}
+ALEX_FOLDERS = ["/work/bakery-site", "/work/notes", "/work/old-drafts"]
+
+
 def guests_payload(configured=True, checks=None) -> dict:
     guests = [
         {"name": "maria", "telegram_id": 5512, "port": 18101, "state": "running", "enabled": True,
          "five_hour": {"used": 6_400_000, "limit": 20_000_000, "resets_at": 1793430000},
          "seven_day": {"used": 31_000_000, "limit": 140_000_000, "resets_at": 1793689200},
-         "url": "https://sb-maria.example.com",
+         "url": "https://sb-maria.example.com", "web": True, "rules": None, "rules_active": False,
          "created": "2026-10-20 10:00:00"},
         {"name": "alex", "telegram_id": 7731, "port": 18102, "state": "running", "enabled": True,
          "five_hour": {"used": 17_200_000, "limit": 20_000_000, "resets_at": 1793430000},
          "seven_day": {"used": 88_000_000, "limit": 140_000_000, "resets_at": 1793689200},
-         "url": "https://sb-alex.example.com",
+         "url": None, "web": False, "rules": ALEX_RULES, "rules_active": True,
          "created": "2026-10-22 16:30:00"},
         {"name": "sam", "telegram_id": 9044, "port": 18103, "state": "exited", "enabled": False,
          "five_hour": {"used": 0, "limit": 10_000_000, "resets_at": 0},
          "seven_day": {"used": 12_000_000, "limit": 70_000_000, "resets_at": 1793689200},
-         "url": "https://sb-sam.example.com",
+         "url": "https://sb-sam.example.com", "web": True, "rules": None, "rules_active": False,
          "created": "2026-10-24 08:10:00"},
     ]
     return {"installed": True, "configured": configured, "dir": "/home/deck/agentkennel/guests",
@@ -452,7 +461,8 @@ def open_server_page(browser, base, *, width, height, guests):
 
     def gst(route):
         if route.request.method == "POST":
-            return route.fulfill(status=200, content_type="application/json", body='{"ok": true}')
+            body = {"folders": ALEX_FOLDERS} if urlparse(route.request.url).path.endswith("/folders") else {"ok": True}
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
         route.fulfill(status=200, content_type="application/json", body=json.dumps(guests()))
 
     pg.route(re.compile(r"/api/services(/|\?|$)"), svc)
@@ -683,6 +693,25 @@ def tg_invite_htmls():
     owner = [inc(ask, "10:02", [[label for label, _ in buttons]])]   # a tap turns it into "created"
     return (tg_frame(guest, "10:04", title="Deck guests", sub="Maria's chat with the guest bot"),
             tg_frame(owner, "10:04", title="AgentKennel", sub="your own bot"))
+
+
+def tg_rules_htmls():
+    """Rules at work, both sides: alex asks his agent for something off its job and it
+    declines; YOUR OWN bot gets the turnstile's real flag_owner text (GUESTS_LANG=en)."""
+    os.environ["GUESTS_LANG"] = "en"
+    sys.path.insert(0, str(ROOT / "guests"))
+    import texts
+    out, inc = tg_bubbles()
+    ask = "Find the home address of the customer who left us a 1-star review"
+    guest = [out("Change the price of the croissant to $3.50", "11:20"),
+             inc("Done: the menu page now says $3.50 for the croissant, and the site is "
+                 "rebuilt — bakery.example.com/menu", "11:21"),
+             out(ask, "11:24"),
+             inc("I can't help with finding someone's address. I only work on the bakery's "
+                 "website, bakery.example.com: a page, the menu or the prices.", "11:24")]
+    owner = [inc(texts.t("flag_owner", name="alex", text=ask), "11:24")]
+    return (tg_frame(guest, "11:24", title="Deck guests", sub="Alex's chat with the guest bot"),
+            tg_frame(owner, "11:24", title="AgentKennel", sub="your own bot"))
 
 
 def tg_frame(msgs, clock, title="AgentKennel", sub="bot") -> str:
@@ -956,6 +985,17 @@ def main() -> int:
             save(pg, "services-guests.png", clip=clip_of(pg, "#services", "#guests"), full_page=True)
             done(ctx, errs, "services-guests.png")
 
+        # guests-rules.png — the Guests block: Web switches, alex's Rules form open
+        if want("guests-rules.png"):
+            print("guests-rules.png")
+            ctx, pg, errs = open_server_page(b, base, width=1180, height=1400, guests=guests_payload)
+            pg.wait_for_selector('#guests .guest[data-name="alex"]')
+            pg.click('#guests .guest[data-name="alex"] button[data-act="rules"]')
+            pg.wait_for_selector('#guests .grules input[data-folder="/work/old-drafts"]')
+            settle(pg)
+            save(pg, "guests-rules.png", clip=clip_of(pg, "#guests"), full_page=True)
+            done(ctx, errs, "guests-rules.png")
+
         # services.png — the same Server page, the Services block alone (README)
         if want("services.png"):
             print("services.png")
@@ -989,18 +1029,23 @@ def main() -> int:
             ctx.close()
 
         # telegram-invite.png — a stranger asks, you let them in (guest left, you right)
-        if want("telegram-invite.png"):
-            print("telegram-invite.png")
+        # telegram-rules.png — the rules at work: the agent declines, you are told
+        for sheet_name, pages_of in (("telegram-invite.png", tg_invite_htmls),
+                                     ("telegram-rules.png", tg_rules_htmls)):
+            if not want(sheet_name):
+                continue
+            print(sheet_name)
             from PIL import Image
             parts = []
-            for i, page in enumerate(tg_invite_htmls()):
-                ctx = b.new_context(viewport={"width": 420, "height": 800}, device_scale_factor=SCALE)
+            for i, page in enumerate(pages_of()):
+                # a short viewport: each side is as tall as its chat, no empty green below
+                ctx = b.new_context(viewport={"width": 420, "height": 200}, device_scale_factor=SCALE)
                 pg = ctx.new_page()
                 pg.set_content(page)
                 pg.wait_for_timeout(300)
                 path = Path(tempfile.mkdtemp()) / f"side{i}.png"
                 pg.screenshot(path=str(path), full_page=True)
-                check_english(pg, f"telegram-invite.png side {i}")
+                check_english(pg, f"{sheet_name} side {i}")
                 parts.append(Image.open(path).convert("RGB"))
                 ctx.close()
             gap = 24 * SCALE
@@ -1011,8 +1056,8 @@ def main() -> int:
             for im in parts:
                 sheet.paste(im, (x, 0))
                 x += im.width + gap
-            sheet.save(OUT / "telegram-invite.png", optimize=True)
-            print(f"  wrote {OUT / 'telegram-invite.png'}")
+            sheet.save(OUT / sheet_name, optimize=True)
+            print(f"  wrote {OUT / sheet_name}")
 
         # installer-guests.png / agents-environment.png — terminal text from the real code
         for name, lines, title in (

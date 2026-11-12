@@ -10,6 +10,10 @@ browser tab or Telegram, close the tab, and they keep working.
 - **A shared task board** — agents log their work there and are nudged to keep going until
   the task is closed.
 - **Full control of the server, or a Docker sandbox** — your choice at install time.
+- **Other people too, each in their own sandbox** — friends or clients get an agent of
+  their own on your Claude subscription, with 5-hour and weekly limits. For each person you
+  choose: terminals in the browser or Telegram only, and what their agent may do (one site,
+  which folders, which actions). Needs the script install. [Guests](#-guests-other-people-on-your-server)
 
 <p>
   <a href="https://github.com/yanhs/agentkennel/actions/workflows/install.yml"><img alt="install.sh on fresh servers" src="https://github.com/yanhs/agentkennel/actions/workflows/install.yml/badge.svg"></a>
@@ -51,8 +55,9 @@ docker compose up -d --wait && docker compose logs agentkennel | grep setup
 > touch the host. [Safety](#-safety-what-agents-never-do-without-you) lists what they never
 > do without you.
 
-**Latest: v2.1.1** — your own names on the Server page; v2.1.0: the internal names follow the new name; since 2.0: 📎 File uploads, a
-one-time setup link for the first password, services that outlive a terminal, safety guards
+**Latest: v2.4.0** — guests: web access on or off and the agent's rules, on the Server page;
+v2.3.0: a new install opens with a terminal; since 2.0: 📎 File uploads, a one-time setup
+link for the first password, services that outlive a terminal, safety guards
 → [CHANGELOG](CHANGELOG.md)
 
 ## Why AgentKennel
@@ -197,7 +202,8 @@ Agents work in `/work`, a named volume that survives `docker compose down` and r
 use your own project, replace that line in `docker-compose.yml` with `./my-project:/work`.
 The price of the sandbox: agents can't manage the host, a site they start inside isn't
 reachable from outside, `apt` installs vanish when the container is re-created, and there
-is no systemd.
+is no systemd. No [guests](#-guests-other-people-on-your-server) either: their sandboxes
+are containers on the host, so they need the script install.
 
 Upgrading from AgentDeck: run the installer again; it moves the services to the new names and keeps your terminals, board and password.
 
@@ -249,6 +255,45 @@ example with [@userinfobot](https://t.me/userinfobot)), then in the dashboard op
 one back, `/services` lists your services. Plain text is typed into the terminal; voice
 notes are transcribed locally (not in the Docker image). Full setup and every command:
 [docs/telegram.md](docs/telegram.md).
+
+## 👥 Guests: other people on your server
+
+An optional multi-user mode, off until you set it up. Each guest gets their own
+AgentKennel in a Docker sandbox (their own terminals, files and sites) and talks to their
+agent through one shared Telegram bot. Guests can't see each other or your server. All of
+them run on your Claude subscription: each has a 5-hour and a weekly limit, and you are told
+when someone burns through your week too fast.
+
+- **You decide who gets in.** Someone writes `/start` to the guest bot; your own bot asks
+  "Let them in?"; on yes the sandbox is made and they get their address and password.
+- **Web on or off.** The **Web** switch on the Server page: on, their terminals open in
+  the browser at `https://sb-<name>.<your-domain>`; off, Telegram only, and the bot and the
+  agent keep working.
+- **What their agent may do.** With web off, **Rules** keeps the agent to one job: the
+  work in your words, the folders it may change, and the actions it may take (edit the
+  files, rebuild and restart, install packages, publish new sites, set up other services).
+  The rules are added on your server to every Claude request of that guest, so nothing
+  inside the sandbox can leave them out. The agent politely declines anything else, and you
+  can be told in Telegram when someone asks for something strange or illegal.
+- **You can look in.** **Open** next to a guest opens their dashboard, signed in as you.
+
+| The Server page: Web switches, one guest's rules | The rules at work: the agent declines, you are told |
+|---|---|
+| ![The Guests block on the Server page: a Web switch per guest; alex is Telegram only, and their Rules form keeps the agent to the bakery's website](docs/screenshots/guests-rules.png) | ![Telegram: alex asks their agent for a stranger's home address, the agent declines; your own bot gets a message about it](docs/screenshots/telegram-rules.png) |
+
+<p align="center">
+  <img src="docs/screenshots/telegram-invite.png" width="560" alt="Telegram: Maria writes /start to the guest bot; your own bot asks Let them in?; on yes they get their address and password">
+</p>
+
+**Set up with the script install, not the Docker image:** add `--guests` (it also installs
+Docker), then **Server → Guests → Set up guests** (a Telegram bot for guests, a domain); it
+ends with one command, `sudo ~/agentkennel/guests/install.sh`.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yanhs/agentkennel/master/install.sh | bash -s -- --guests
+```
+
+Every setting and command: [guests/README.md](guests/README.md).
 
 ## 📸 Screenshots
 

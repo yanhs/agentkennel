@@ -33,6 +33,21 @@ you set it up.
   (one minute, one use, only on that guest's address): the guest's nginx sends the one
   path `/_owner-entry` to your panel, everything else goes to the sandbox. Pages made
   before this get that path the first time you press Open.
+- **Web on or off.** The **Web** switch next to a guest (or `guestctl web-off <name>` /
+  `guestctl web <name>`). Off takes their terminals in the browser down and keeps them down:
+  the bot and the agent go on working, the sandbox and its sites keep running. The bot's
+  menu loses /web and /newpassword, and /start greets without an address or password.
+- **The agent's rules.** With web off, **Rules** next to a guest keeps their agent to one
+  job: the work in your words, the folders it may change, and what it may do (edit the
+  work's files, rebuild and restart, install packages, publish new sites, set up other
+  services). The turnstile adds the rules to every Claude request of that guest, so nothing
+  inside the sandbox can leave them out; the agent declines anything else politely. A new
+  site is refused by the site gate itself when publishing isn't allowed. "Tell me when they
+  ask for something strange or illegal" sends you a Telegram message (at most 5 an hour).
+  The folders rule is the agent's, not the file system's: a read-only /work would break a
+  site's own publish script. While web is on, the rules don't apply.
+
+![The Guests block on the Server page: a Web switch per guest, one guest Telegram only with the Rules form open](../docs/screenshots/guests-rules.png)
 
 ## Set up
 
@@ -65,6 +80,9 @@ your user may use, systemd, and — for web addresses — nginx and certbot.
 ```
 python3 guests/guestctl.py add <name> --tg <telegram id> [--limit N]   new sandbox
 python3 guests/guestctl.py web <name>              https://sb-<name>.<domain> (DNS, certificate)
+python3 guests/guestctl.py web-off <name>          Telegram only: the browser terminals go down
+python3 guests/guestctl.py rules <name> '<json>'   the agent's rules (while web is off)
+python3 guests/guestctl.py folders <name>          folders in the sandbox's /work (for the rules)
 python3 guests/guestctl.py session <name>          your login to their dashboard (the panel's Open)
 python3 guests/guestctl.py list [--json]           guests, state, 5-hour and weekly use and limits
 python3 guests/guestctl.py limit <name> <tokens>   the weekly limit (5 hours: a seventh)
