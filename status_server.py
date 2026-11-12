@@ -562,11 +562,13 @@ def tg_render(msg=""):
       '<label for="n" style="margin-top:18px">Notifications bot <span style="color:#6e7681">(optional, a second bot)</span></label>'
       '<p class="sub" style="margin:0 0 6px">Guests\' spending, strange requests and published sites go there, '
       'so they don\'t get lost among your agents. Empty: they come to the bot above.</p>'
-      '<input id="n" name="notify_token" value="__NOTIFY__" placeholder="123456:ABC-DEF...">'
-      '<button type="submit" name="action" value="notify" style="margin-top:8px;background:#30363d">Save notifications bot</button>'
+      '<input id="n" name="notify_token" form="tgn" value="__NOTIFY__" placeholder="123456:ABC-DEF...">'
+      '<button type="submit" form="tgn" name="action" value="notify" style="margin-top:8px;background:#30363d">Save notifications bot</button>'
       '__MSG__'
       '<p style="text-align:center;margin-top:14px"><a href="/">&larr; back to dashboard</a></p>'
-      '</form></body></html>')
+      '</form>'
+      # a form of its own: Enter in the notifications field must not press "Save & start"
+      '<form id="tgn" method="POST" action="/telegram"></form></body></html>')
     cfg = tg_load()
     if tg_systemd_active():
         # managed outside this page: no Save&start / Stop (a second bridge on the

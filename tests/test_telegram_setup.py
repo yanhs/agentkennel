@@ -9,6 +9,7 @@ actually spawning the bridge or talking to Telegram.
 from __future__ import annotations
 
 import importlib
+import re
 import os
 import sys
 from pathlib import Path
@@ -193,3 +194,14 @@ def test_starting_the_main_bot_keeps_the_notifications_bot(tmp_path, monkeypatch
     monkeypatch.setattr(mod, "tg_start", lambda *a: True)
     mod.tg_action("start", "1:MAIN", "777")
     assert mod.tg_load()["notify_token"] == "2:NOTE" and mod.tg_load()["token"] == "1:MAIN"
+
+
+def test_enter_in_the_notifications_field_doesnt_restart_the_main_bot(tmp_path, monkeypatch):
+    """Enter submits a form with its first button: the field and its button belong to a
+    form of their own, or Enter there would press "Save & start"."""
+    mod = _load()
+    _conf(mod, tmp_path, monkeypatch, token="1:MAIN", owner="777", enabled=True)
+    html = mod.tg_render()
+    assert re.search(r'<form[^>]*id="tgn"[^>]*action="/telegram"', html)
+    assert re.search(r'<input[^>]*name="notify_token"[^>]*form="tgn"', html)
+    assert re.search(r'<button[^>]*form="tgn"[^>]*value="notify"', html)
