@@ -56,9 +56,8 @@ docker compose up -d --wait && docker compose logs agentkennel | grep setup
 > do without you.
 
 **Latest: v2.5.0** — a second Telegram bot just for notifications; v2.4.0: guests' web
-access on or off and the agent's rules, on the Server page; v2.3.0: a new install opens with a terminal; since 2.0: 📎 File uploads, a one-time setup
-link for the first password, services that outlive a terminal, safety guards
-→ [CHANGELOG](CHANGELOG.md)
+access on or off and their agent's rules, on the Server page; v2.3.0: a new install opens
+with a terminal → [CHANGELOG](CHANGELOG.md)
 
 ## Why AgentKennel
 
@@ -76,6 +75,8 @@ link for the first password, services that outlive a terminal, safety guards
   resume on click. The **Server** tab shows which agent or build uses the CPU and memory.
 - **Services that outlive a terminal.** A tunnel, a site's server or a bot goes into
   `.services/<name>.sh`; the keeper starts it, restarts it after a crash and keeps its log.
+- **Room for other people.** Give someone their own agent in a Docker sandbox on your
+  server, with limits; keep it to one job if you like. See [Guests](#-guests-other-people-on-your-server).
 - **Your subscription, your box.** The official Claude Code CLI with your Claude
   subscription (or an API key). AgentKennel itself sends no telemetry (Claude Code talks
   to Anthropic, as always).
@@ -128,6 +129,8 @@ web runs in Anthropic's cloud.)
   click a terminal's code to see only its tasks.
 - **Server page.** CPU and memory over 15 minutes, split into agents, sites and apps,
   background jobs and the system; each row expands into its processes.
+- **Guests.** Other people in sandboxes of their own: a **Web** switch and **Rules** for
+  each, on the Server page ([more](#-guests-other-people-on-your-server)).
 - **Agents know where they run.** Their `~/.claude/CLAUDE.md` says the dashboard and
   Telegram are two windows into the same terminals. A CLAUDE.md of yours is never touched.
 - **Works on a phone.** Swipe to scroll, press and hold to select; a key bar has Ctrl+C,
@@ -252,10 +255,10 @@ example with [@userinfobot](https://t.me/userinfobot)), then in the dashboard op
 **⋯ → Telegram**, paste both and press **Save & start**. The bot answers only you.
 
 `/use` picks a terminal, `/list` shows them all, `/new <name>` starts one, `/archive` brings
-one back, `/services` lists your services. Optional: a second bot just for notifications
-(guests' spending, strange requests, published sites), on the same page. Plain text is typed into the terminal; voice
-notes are transcribed locally (not in the Docker image). Full setup and every command:
-[docs/telegram.md](docs/telegram.md).
+one back, `/services` lists your services. Plain text is typed into the terminal; voice
+notes are transcribed locally (not in the Docker image). Optional: a second bot just for
+notifications (guests' spending, strange requests, published sites), on the same page.
+Full setup and every command: [docs/telegram.md](docs/telegram.md).
 
 ## 👥 Guests: other people on your server
 
@@ -316,6 +319,7 @@ Every setting and command: [guests/README.md](guests/README.md).
 - [Architecture](docs/architecture.md) — how the pieces fit, and the project layout
 - [Configuration](docs/configuration.md) — every setting and where it lives
 - [Telegram](docs/telegram.md) — bot setup, commands, the `.env` route
+- [Guests](guests/README.md) — other people in sandboxes: setup, limits, the Web switch, rules, commands
 - [Advanced: manual setup behind your own nginx](docs/manual-setup.md) — run the pieces yourself
 - [Upgrading from numbered slots](docs/upgrading-from-slots.md) — for v1.3.0 and earlier
 - [AGENTS.md](AGENTS.md) — an example set of operating rules for agents
