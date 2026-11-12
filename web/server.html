@@ -1142,8 +1142,8 @@
       link.textContent = g.url.replace(/^https?:\/\//, '');
     } else if (link) link.remove();
     const noWeb = g.web === false;
-    note.textContent = (noWeb ? 'Telegram only' + (g.rules_active ? ' · rules on' : '') + ' · ' : '')
-      + (on ? said : g.state === 'missing' ? 'off · no container' : 'off');
+    note.textContent = [noWeb && 'Telegram only', noWeb && g.rules_active && 'rules on',
+      on ? said : g.state === 'missing' ? 'off · no container' : 'off'].filter(Boolean).join(' · ');
     // a 5-hour and a weekly limit, like the subscription's (30.10.2026); the bar is the fuller
     const five = g.five_hour || {}, week = g.seven_day || {};
     const p5 = gPct(five), pw = gPct(week), pct = Math.max(p5, pw);

@@ -447,6 +447,17 @@ def test_turning_web_off_asks_then_does_it(page, fake):
     assert not btn(page, "masha", "rules").is_disabled()
 
 
+def test_telegram_only_note_has_no_dangling_dot(page, fake):
+    """Web off with nothing known about the agents: "Telegram only", not "Telegram only · "."""
+    fake.agents = None                  # the collector hasn't counted the agents yet
+    fake.guests[0].update(web=False, url=None)
+    page.wait_for_function(
+        "() => (document.querySelector('#guests .guest[data-name=\"masha\"] .gnote') || {}).textContent"
+        " && document.querySelector('#guests .guest[data-name=\"masha\"] .gnote').textContent.includes('Telegram')")
+    text = note(page, "masha").strip()
+    assert text.startswith("Telegram only") and not text.endswith("·"), text
+
+
 def test_turning_web_on_asks_too(page, fake):
     fake.guests[0].update(web=False, url=None)
     page.wait_for_function(
