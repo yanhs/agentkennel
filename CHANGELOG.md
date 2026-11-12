@@ -2,6 +2,11 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## Unreleased
+
+### Telegram
+- **A second bot for notifications.** On the Telegram page (**⋯ → Telegram**), an optional **Notifications bot**: warnings about guests (spending, a strange or illegal request, a site published) go there instead of the chat with your agents. The bot writes to you once when you save it, and is saved only if that worked (a new bot can't write to you before you press Start in it). An empty field sends them to the main bot again. "Let them in?" stays in the main bot. Works when the bridge is a systemd service too; `GUESTS_NOTIFY_CMD` still wins.
+
 ## v2.4.0 — guests: web on/off and the agent's rules on the Server page
 
 ### Guests

@@ -96,6 +96,26 @@ def test_notify_goes_to_the_admins_own_bot(tmp_path):
     assert posts == [("https://api.telegram.org/bot9:ADMIN/sendMessage", {"chat_id": "42", "text": "hi"})]
 
 
+def test_notify_goes_to_the_notifications_bot_when_there_is_one(tmp_path):
+    """12.11.2026: the Telegram page's second bot takes the warnings; the chat with the
+    agents stays clean."""
+    conf = tmp_path / "telegram.json"
+    conf.write_text(json.dumps({"enabled": True, "token": "9:ADMIN", "owner": 42, "notify_token": "8:NOTE"}))
+    posts = []
+    ge.notify_owner("hi", settings={"GUEST_BOT_TOKEN": "1:T", "OWNER_TG_ID": "42"},
+                    run=Runner(), post=lambda url, data, timeout: posts.append((url, data)),
+                    admin_conf=conf)
+    assert posts == [("https://api.telegram.org/bot8:NOTE/sendMessage", {"chat_id": "42", "text": "hi"})]
+
+
+def test_the_owners_command_still_wins_over_the_notifications_bot(tmp_path):
+    conf = tmp_path / "telegram.json"
+    conf.write_text(json.dumps({"enabled": True, "token": "9:ADMIN", "owner": 42, "notify_token": "8:NOTE"}))
+    run = Runner()
+    ge.notify_owner("hi", settings={"GUESTS_NOTIFY_CMD": 'tg "$1"', "OWNER_TG_ID": "42"}, run=run,
+                    post=lambda *a, **k: pytest.fail("the command was set"), admin_conf=conf)
+
+
 def test_notify_not_through_a_bot_of_someone_else(tmp_path):
     conf = tmp_path / "telegram.json"
     conf.write_text(json.dumps({"enabled": True, "token": "9:ADMIN", "owner": 7}))

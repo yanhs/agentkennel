@@ -117,3 +117,79 @@ def test_autostart_skips_when_systemd_bridge_is_active(tmp_path, monkeypatch):
     mod.tg_save({"token": "T", "owner": "1", "enabled": True})
     monkeypatch.setattr(mod, "tg_start", lambda *a: pytest.fail("must not start a second bridge"))
     mod.tg_autostart()
+
+
+# ── a second bot for notifications (owner 12.11.2026) ─────────────────────────
+# Warnings (a guest's spending, a strange request, a site published) can go to a bot of
+# their own, so they don't get lost in the chat with the agents. "Let them in?" stays in
+# the main bot: its buttons are answered there.
+
+def _conf(mod, tmp_path, monkeypatch, **cfg):
+    monkeypatch.setattr(mod, "TG_CONF", str(tmp_path / "telegram.json"))
+    monkeypatch.setattr(mod, "TG_PID", str(tmp_path / "tg.pid"))
+    if cfg:
+        mod.tg_save(cfg)
+
+
+def test_render_has_the_notifications_bot_field(tmp_path, monkeypatch):
+    mod = _load()
+    _conf(mod, tmp_path, monkeypatch, token="1:MAIN", owner="777", enabled=True, notify_token="2:NOTE")
+    html = mod.tg_render()
+    assert 'name="notify_token"' in html and "2:NOTE" in html
+    assert 'value="notify"' in html
+
+
+def test_the_notifications_field_stays_when_systemd_runs_the_bridge(tmp_path, monkeypatch):
+    mod = _load()
+    _conf(mod, tmp_path, monkeypatch, token="1:MAIN", owner="777", enabled=True)
+    monkeypatch.setattr(mod, "tg_systemd_active", lambda: True)
+    html = mod.tg_render()
+    assert 'name="notify_token"' in html and 'value="notify"' in html
+
+
+def test_saving_the_notifications_bot_sends_a_test_and_keeps_the_rest(tmp_path, monkeypatch):
+    mod = _load()
+    _conf(mod, tmp_path, monkeypatch, token="1:MAIN", owner="777", enabled=True)
+    sent = []
+    monkeypatch.setattr(mod, "tg_send", lambda token, chat, text: (sent.append((token, chat, text)), (True, ""))[1])
+    msg = mod.tg_notify_action("2:NOTE")
+    assert sent and sent[0][:2] == ("2:NOTE", "777")
+    assert mod.tg_load() == {"token": "1:MAIN", "owner": "777", "enabled": True, "notify_token": "2:NOTE"}
+    assert "notifications" in msg.lower()
+
+
+def test_a_bot_that_cant_write_to_you_is_not_saved(tmp_path, monkeypatch):
+    mod = _load()
+    _conf(mod, tmp_path, monkeypatch, token="1:MAIN", owner="777", enabled=True)
+    monkeypatch.setattr(mod, "tg_send", lambda *a: (False, "Forbidden: bot can't initiate conversation with a user"))
+    msg = mod.tg_notify_action("2:NOTE")
+    assert "notify_token" not in mod.tg_load()
+    assert "Start" in msg and "initiate" in msg
+
+
+def test_notifications_bot_needs_the_main_one_first_and_must_differ(tmp_path, monkeypatch):
+    mod = _load()
+    _conf(mod, tmp_path, monkeypatch)
+    monkeypatch.setattr(mod, "tg_send", lambda *a: pytest.fail("nothing to send to"))
+    assert "main bot" in mod.tg_notify_action("2:NOTE").lower()
+    mod.tg_save({"token": "1:MAIN", "owner": "777", "enabled": True})
+    assert "second bot" in mod.tg_notify_action("1:MAIN").lower()
+    assert "token" in mod.tg_notify_action("not a token").lower()
+    assert mod.tg_load() == {"token": "1:MAIN", "owner": "777", "enabled": True}
+
+
+def test_an_empty_field_sends_notifications_to_the_main_bot_again(tmp_path, monkeypatch):
+    mod = _load()
+    _conf(mod, tmp_path, monkeypatch, token="1:MAIN", owner="777", enabled=True, notify_token="2:NOTE")
+    monkeypatch.setattr(mod, "tg_send", lambda *a: pytest.fail("nothing to test"))
+    msg = mod.tg_notify_action("")
+    assert "notify_token" not in mod.tg_load()
+    assert "main bot" in msg.lower()
+
+
+def test_starting_the_main_bot_keeps_the_notifications_bot(tmp_path, monkeypatch):
+    mod = _load()
+    _conf(mod, tmp_path, monkeypatch, token="1:OLD", owner="777", enabled=False, notify_token="2:NOTE")
+    monkeypatch.setattr(mod, "tg_start", lambda *a: True)
+    mod.tg_action("start", "1:MAIN", "777")
+    assert mod.tg_load()["notify_token"] == "2:NOTE" and mod.tg_load()["token"] == "1:MAIN"

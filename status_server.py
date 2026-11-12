@@ -19,6 +19,7 @@ import secrets
 import unicodedata
 import glob
 import urllib.error
+import urllib.parse
 import urllib.request
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
@@ -493,10 +494,57 @@ def tg_action(action, token, owner):
         return "Bot stopped."
     if not token or not owner:
         return "Enter both the bot token and your Telegram user id."
-    tg_save({"token": token, "owner": owner, "enabled": True})
+    tg_save({**tg_load(), "token": token, "owner": owner, "enabled": True})   # keeps notify_token
     return ("Bot started — open Telegram and message it."
             if tg_start(token, owner)
             else "Could not start the bot — check the container logs.")
+
+
+TG_TOKEN_RE = re.compile(r"^\d+:[A-Za-z0-9_-]+$")
+TG_NOTIFY_TEST = ("🔔 AgentKennel's notifications will come here: guests' spending, strange "
+                  "requests, published sites. Your agents stay in the main bot.")
+
+
+def tg_send(token, chat, text):
+    """One sendMessage: (ok, Telegram's description when it refused)."""
+    req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage",
+                                 data=urllib.parse.urlencode({"chat_id": chat, "text": text}).encode())
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return bool(json.loads(resp.read() or b"{}").get("ok")), ""
+    except urllib.error.HTTPError as e:
+        try:
+            return False, json.loads(e.read() or b"{}").get("description") or f"HTTP {e.code}"
+        except ValueError:
+            return False, f"HTTP {e.code}"
+    except (OSError, ValueError) as e:
+        return False, str(e)
+
+
+def tg_notify_action(notify_token):
+    """The second bot, for notifications (owner 12.11.2026): warnings go there, the chat
+    with the agents stays clean. Saved only after it has written to you once; empty =
+    notifications go to the main bot again. Works with a systemd bridge too: the bridge
+    doesn't use it, guests/guestenv.notify_owner does."""
+    cfg = tg_load()
+    notify_token = (notify_token or "").strip()
+    if not notify_token:
+        cfg.pop("notify_token", None)
+        tg_save(cfg)
+        return "Notifications go to your main bot again."
+    if not (cfg.get("token") and cfg.get("owner")):
+        return "Set up your main bot first: the notifications bot writes to the same Telegram id."
+    if not TG_TOKEN_RE.match(notify_token):
+        return "That doesn't look like a bot token (123456:ABC-DEF…, from @BotFather)."
+    if notify_token == cfg.get("token"):
+        return "That is your main bot. Make a second bot in @BotFather for notifications."
+    ok, why = tg_send(notify_token, cfg["owner"], TG_NOTIFY_TEST)
+    if not ok:
+        return (f"Not saved: Telegram refused ({why}). If the bot is new, open it in Telegram, "
+                "press Start, then save again.")
+    cfg["notify_token"] = notify_token
+    tg_save(cfg)
+    return "Notifications bot saved: it has just written to you."
 
 
 def tg_render(msg=""):
@@ -511,6 +559,11 @@ def tg_render(msg=""):
       '<input id="o" name="owner" value="__OWNER__" placeholder="123456789" inputmode="numeric">'
       '<button type="submit" name="action" value="start">Save &amp; start</button>'
       '<button type="submit" name="action" value="stop" style="margin-top:8px;background:#30363d">Stop</button>'
+      '<label for="n" style="margin-top:18px">Notifications bot <span style="color:#6e7681">(optional, a second bot)</span></label>'
+      '<p class="sub" style="margin:0 0 6px">Guests\' spending, strange requests and published sites go there, '
+      'so they don\'t get lost among your agents. Empty: they come to the bot above.</p>'
+      '<input id="n" name="notify_token" value="__NOTIFY__" placeholder="123456:ABC-DEF...">'
+      '<button type="submit" name="action" value="notify" style="margin-top:8px;background:#30363d">Save notifications bot</button>'
       '__MSG__'
       '<p style="text-align:center;margin-top:14px"><a href="/">&larr; back to dashboard</a></p>'
       '</form></body></html>')
@@ -531,6 +584,7 @@ def tg_render(msg=""):
     return (page.replace("__STATUS__", "Status: " + status)
             .replace("__TOKEN__", (cfg.get("token") or "").replace('"', ""))
             .replace("__OWNER__", str(cfg.get("owner") or ""))
+            .replace("__NOTIFY__", (cfg.get("notify_token") or "").replace('"', ""))
             .replace("__MSG__", f'<p class="ok">{msg}</p>' if msg else ''))
 
 
@@ -2242,7 +2296,11 @@ class Handler(BaseHTTPRequestHandler):
         token = form.get("token", [""])[0].strip()
         owner = form.get("owner", [""])[0].strip()
         action = form.get("action", ["start"])[0]
-        out = tg_render(tg_action(action, token, owner)).encode("utf-8")
+        if action == "notify":
+            msg = tg_notify_action(form.get("notify_token", [""])[0])
+        else:
+            msg = tg_action(action, token, owner)
+        out = tg_render(msg).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(out)))

@@ -126,7 +126,8 @@ def notify_owner(text: str, settings: Optional[Mapping[str, str]] = None,
                  run: Callable = subprocess.run, post: Callable = _post,
                  admin_conf: Optional[Path] = None) -> None:
     """Tell the owner: GUESTS_NOTIFY_CMD if set, else the owner's own bot (AgentKennel's
-    Telegram page, when its owner is OWNER_TG_ID), else the guest bot -> OWNER_TG_ID.
+    Telegram page, when its owner is OWNER_TG_ID; its notifications bot when one is set
+    there), else the guest bot -> OWNER_TG_ID.
     Raises when it could not (the callers log it; a guest's request never waits on it)."""
     s = load() if settings is None else settings
     cmd = s.get("GUESTS_NOTIFY_CMD")
@@ -138,7 +139,8 @@ def notify_owner(text: str, settings: Optional[Mapping[str, str]] = None,
     token, owner = s.get("GUEST_BOT_TOKEN"), s.get("OWNER_TG_ID")
     admin = _admin_bot(admin_conf)
     if owner and admin and str(admin.get("owner")) == str(owner):
-        token = admin["token"]          # the admin's own bot (decision 27.10.2026)
+        # the admin's own bot (decision 27.10.2026), or its notifications bot (12.11.2026)
+        token = admin.get("notify_token") or admin["token"]
     if not (token and owner):
         raise RuntimeError("nowhere to send: set GUEST_BOT_TOKEN + OWNER_TG_ID "
                            "(or GUESTS_NOTIFY_CMD) in guests/.env")

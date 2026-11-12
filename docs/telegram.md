@@ -25,6 +25,15 @@ numeric Telegram user id, so messages or button taps from anyone else are ignore
 If the bridge already runs as a systemd service (below), the Telegram page shows it as
 running and never starts a second copy.
 
+**A second bot for notifications (optional).** Warnings (a guest's spending, a guest
+asking for something strange or illegal, a site a guest published) can go to a bot of
+their own, so they don't get lost among your agents. Make one more bot in @BotFather, open
+it and press **Start**, then paste its token under **Notifications bot** on the same page
+and press **Save notifications bot**: it writes to you once to check, and only then is
+saved. Empty the field to send them to the main bot again. "Let them in?" for a new guest
+stays in the main bot (its buttons are answered there). This works with a systemd bridge
+too. `GUESTS_NOTIFY_CMD` in `guests/.env`, if set, still wins.
+
 **Docker:** the image has no `faster-whisper` or `ffmpeg`, so voice notes get an error
 reply; text and files work. Files you send are saved in `/work/tg-uploads` and the reply
 gives that path.

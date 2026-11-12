@@ -21,7 +21,8 @@ a 5-hour and a weekly limit, through one shared Telegram bot. Off until you set 
   records the request (it is open to everyone, so it can't create anything). Your own
   AgentKennel bot — the one on the dashboard's Telegram page — asks you "… Let them in?"
   with buttons; on "yes" the sandbox is made and the person gets the address and password
-  through the guest bot. Spend warnings come to your bot too.
+  through the guest bot. Spend warnings come to your bot too, or to a second bot just for
+  notifications (the Telegram page, [docs/telegram.md](../docs/telegram.md)).
 - **Files and sites.** A guest's agent hands out files as links (`https://sbx.<domain>/f/…`)
   and can publish a site from the sandbox as `https://<site>-<guest>.<domain>` (at most 3;
   you are told about each).
