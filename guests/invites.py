@@ -190,11 +190,14 @@ class Desk:
             return None
         return _t("invite_creating", who=who(rec))
 
-    def _tell(self, tid: int, text: str) -> None:
+    def _tell(self, tid: int, text: str) -> Optional[str]:
+        """None when sent; otherwise what went wrong (the decision stands either way)."""
         try:
             self.tell_guest(tid, text)
+            return None
         except Exception as exc:  # the decision stands even if the message is lost
             self.log(f"INVITE-TELL-FAILED tg={tid} {exc!r}")
+            return repr(exc)
 
     def decide(self, action: str, tid: str) -> Tuple[str, Optional[Buttons]]:
         """A button: (the admin message's new text, its buttons or None). Blocking —
@@ -222,10 +225,37 @@ class Desk:
             self._tell(int(tid), _t("invite_failed"))
             return (_t("invite_create_failed", name=name, who=who(rec), err=err[-300:]),
                     self.buttons(tid))
-        sys.path.insert(0, str(HERE / "tgrelay"))
-        import tgrelay  # the welcome text is the guest bot's own /start answer
-        self._tell(int(tid), tgrelay.web_text(self.info_for(name), welcome=True))
+        try:   # the welcome text is the guest bot's own /start answer
+            err = self._tell(int(tid), fresh_tgrelay().web_text(self.info_for(name),
+                                                                welcome=True))
+        except Exception as exc:  # the sandbox is made: say so, and what didn't go
+            self.log(f"INVITE-WELCOME-FAILED tg={tid} {exc!r}")
+            err = repr(exc)
+        if err:
+            return _t("invite_created_no_welcome", who=who(rec), name=name,
+                      err=err[-200:]), None
         return _t("invite_created", who=who(rec), name=name), None
+
+
+def fresh_tgrelay():
+    """tgrelay and the texts it reads, as they are on disk now. The admin's bot runs for
+    weeks; `texts` loaded at its start and tgrelay loaded later must not disagree
+    (12.11.2026: KeyError 'web_forgot', the welcome never went)."""
+    import importlib
+    import importlib.util
+    path = HERE / "texts.py"
+    mod = sys.modules.get("texts")
+    if (mod is not None and getattr(mod, "__spec__", None) is not None
+            and Path(getattr(mod, "__file__", "") or "").resolve() == path.resolve()):
+        importlib.reload(mod)            # in place: `from texts import t` sees it too
+    else:
+        spec = importlib.util.spec_from_file_location("texts", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sys.modules["texts"] = mod
+    sys.path.insert(0, str(HERE / "tgrelay"))
+    import tgrelay
+    return importlib.reload(tgrelay)
 
 
 def guest_bot_sender(token: str, base: str = "https://api.telegram.org"):
@@ -251,9 +281,7 @@ def desk_for_admin(owner_id: int, log=lambda line: print(line, file=sys.stderr, 
     data = Path(os.environ.get("TURNSTILE_DATA") or HERE / "turnstile" / "data")
 
     def info_for(name: str) -> Optional[Dict]:
-        sys.path.insert(0, str(HERE / "tgrelay"))
-        import tgrelay
-        return tgrelay.dashboard_info(name, data, HERE / "nginx" / "sites")
+        return fresh_tgrelay().dashboard_info(name, data, HERE / "nginx" / "sites")
 
     def taken() -> set:
         names = set()

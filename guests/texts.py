@@ -85,6 +85,9 @@ EN = {
     "invite_rejected": "✖ Refused: {who}.",
     "invite_creating": "⏳ Creating a sandbox for {who}…",
     "invite_created": "✅ {who} — sandbox \"{name}\" created, address and password sent.",
+    "invite_created_no_welcome": "✅ {who} — sandbox \"{name}\" created, but the address and "
+                                 "password did not go ({err}). They get them by sending /start "
+                                 "to the guest bot.",
     "invite_create_failed": "🚨 Couldn't create sandbox \"{name}\" for {who}: {err}\n"
                             "You can press again.",
     "btn_allow": "✅ Let in",
@@ -245,6 +248,9 @@ RU = {
     "invite_rejected": "✖ Отказано: {who}.",
     "invite_creating": "⏳ Создаю песочницу для {who}…",
     "invite_created": "✅ {who} — песочница «{name}» создана, адрес и пароль отправлены.",
+    "invite_created_no_welcome": "✅ {who} — песочница «{name}» создана, но адрес и пароль "
+                                 "не ушли ({err}). Человек получит их, написав /start "
+                                 "в гостевой бот.",
     "invite_create_failed": "🚨 Не вышло создать песочницу «{name}» для {who}: {err}\n"
                             "Можно нажать ещё раз.",
     "btn_allow": "✅ Пустить",

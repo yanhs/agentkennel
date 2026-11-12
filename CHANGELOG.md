@@ -5,6 +5,7 @@ All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 ## Unreleased
 
 ### Guests
+- **A person let in always gets the address and password.** The admin's bot runs for weeks; the guest texts it had loaded at its start could be older than the guest bot code it loads at the first "yes", and the welcome failed on a missing line (12.11.2026: the sandbox was made, nothing was sent, the admin was told nothing). The welcome now always uses the texts as they are on disk, and if it still can't be sent, the admin's message says so and that /start in the guest bot gives the address.
 - **A guest without web access.** `guestctl web-off <name>` takes the guest's terminals in the browser (sb-<name>) down and keeps them down: the bot and the agent go on working, the sandbox and its sites keep running. The bot's menu loses /web and /newpassword (a menu already shown is updated within half a minute, no sandbox restart), /start greets without an address or password, and /web typed by hand gets no answer about an address. `guestctl start` doesn't bring web back; `guestctl web <name>` does.
 
 ## v2.3.0 — a new install opens with a terminal; "Open in tab" copies and pastes; guests always get a working password

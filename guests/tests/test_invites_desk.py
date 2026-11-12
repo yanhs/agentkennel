@@ -190,3 +190,40 @@ def test_the_guest_bot_cannot_create_sandboxes():
     """The open bot holds no way to run guestctl: provisioning lives only here."""
     src = (GUESTS / "tgrelay" / "tgrelay.py").read_text()
     assert "guestctl" not in src and "Provisioner" not in src and "ginv:" not in src
+
+
+# ── 12.11.2026: Tosha let in, no welcome. The admin's bot had run since before a texts
+#    update: its `texts` in memory was old, tgrelay (imported at the first approval) new,
+#    web_text asked for a key old texts lacked — KeyError, the welcome never went and the
+#    admin was told nothing. ────────────────────────────────────────────────────────────
+def test_a_long_running_bot_with_old_texts_still_sends_the_welcome(book, monkeypatch):
+    import types
+    import texts
+    stale = types.ModuleType("texts")                    # what the bot loaded weeks ago
+    stale.__file__ = texts.__file__
+    stale.EN = {k: v for k, v in texts.EN.items() if k != "web_forgot"}
+    stale.RU = {k: v for k, v in texts.RU.items() if k != "web_forgot"}
+    stale.t = lambda key, **kw: (stale.EN[key]).format(**kw)
+    monkeypatch.setitem(sys.modules, "texts", stale)
+    monkeypatch.delitem(sys.modules, "tgrelay", raising=False)
+    told, prov = [], FakeProv()
+    d = desk(book, prov, told=told)
+    book.ask(IVAN, "Ivan", "ivan_k", now=1)
+    text, _ = d.decide("ok", str(IVAN))
+    [(tid, welcome)] = told
+    assert tid == IVAN and "pw-123" in welcome and "/newpassword" in welcome
+    assert '"ivan-k" created' in text
+
+
+def test_a_welcome_that_fails_is_said_to_the_admin(book):
+    def boom(tid, text):
+        raise RuntimeError("telegram is down")
+    d = invites.Desk(book, provisioner=FakeProv(), tell_guest=boom,
+                     info_for=lambda name: {"url": f"https://sb-{name}.example.com",
+                                            "password": "pw-123"},
+                     taken=lambda: set())
+    book.ask(MASHA, "Masha", "masha_k", now=1)
+    text, buttons = d.decide("ok", str(MASHA))
+    assert '"masha-k" created' in text
+    assert "telegram is down" in text and "/start" in text       # what to do about it
+    assert book.get(MASHA)["state"] == "approved"
