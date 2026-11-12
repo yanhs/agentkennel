@@ -240,6 +240,8 @@ class Gate:
         host = host_for(site, guest, self.sandboxes())
         with self._lock:
             reg = self._load()
+            if host not in reg and ts.rules_active(g) and not g.rules["actions"].get("publish"):
+                raise GateError(_t("site_rules_no_publish"))   # owner's rules, 12.11.2026
             if host in reg:
                 if reg[host]["guest"] != guest:
                     raise GateError(_t("site_taken"))

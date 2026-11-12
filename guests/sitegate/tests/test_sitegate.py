@@ -163,6 +163,29 @@ class TestPublish:
         with pytest.raises(sg.GateError):
             gate.publish("anna", "test", 3000)
 
+    # owner, 12.11.2026: a guest kept to one job publishes no new sites unless allowed
+    RULES = {"on": True, "work": "the website", "actions": {"publish": False}}
+
+    def test_a_guest_whose_rules_forbid_it_cannot_publish_a_new_site(self, gate, book, ops):
+        book.set_web("anna", False)
+        book.set_rules("anna", self.RULES)
+        with pytest.raises(sg.GateError):
+            gate.publish("anna", "test", 3000)
+        assert ops.log == []                               # no DNS, no vhost, nothing
+
+    def test_a_site_published_before_the_rules_can_still_be_moved(self, gate, book):
+        gate.publish("anna", "test", 3000)
+        book.set_web("anna", False)
+        book.set_rules("anna", self.RULES)
+        assert gate.publish("anna", "test", 3001)["port"] == 3001
+
+    def test_rules_allowing_publishing_or_web_on_dont_stop_it(self, gate, book):
+        book.set_rules("anna", self.RULES)                  # web on: rules not applied
+        gate.publish("anna", "one", 3000)
+        book.set_web("anna", False)
+        book.set_rules("anna", dict(self.RULES, actions={"publish": True}))
+        gate.publish("anna", "two", 3001)
+
     def test_guest_without_sandbox_ip_cannot_publish(self, tmp_path, book, ops, passes):
         g = sg.Gate(book, ops, tmp_path / "s.json", ip_of=lambda name: None)
         with pytest.raises(sg.GateError):
