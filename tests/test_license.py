@@ -36,6 +36,10 @@ def test_contributing_says_how_contributions_are_licensed():
 
 
 def test_changelog_says_when_it_changed():
+    """The v2.2.5 entry says the license changed and that releases up to v2.2.4 stay MIT.
+    (Was: within 4000 characters of the newest release — it fell out of that window once
+    newer releases piled up, v2.3.0.)"""
     log = (ROOT / "CHANGELOG.md").read_text()
-    top = log[log.index("\n## v"):][:4000]
-    assert SPDX in top and "v2.2.4" in top
+    start = log.index("\n## v2.2.5")
+    entry = log[start:log.index("\n## v", start + 1)]
+    assert SPDX in entry and "v2.2.4" in entry
