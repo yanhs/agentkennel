@@ -55,8 +55,8 @@ docker compose up -d --wait && docker compose logs agentkennel | grep setup
 > touch the host. [Safety](#-safety-what-agents-never-do-without-you) lists what they never
 > do without you.
 
-**Latest: v2.4.0** — guests: web access on or off and the agent's rules, on the Server page;
-v2.3.0: a new install opens with a terminal; since 2.0: 📎 File uploads, a one-time setup
+**Latest: v2.5.0** — a second Telegram bot just for notifications; v2.4.0: guests' web
+access on or off and the agent's rules, on the Server page; v2.3.0: a new install opens with a terminal; since 2.0: 📎 File uploads, a one-time setup
 link for the first password, services that outlive a terminal, safety guards
 → [CHANGELOG](CHANGELOG.md)
 
@@ -252,7 +252,8 @@ example with [@userinfobot](https://t.me/userinfobot)), then in the dashboard op
 **⋯ → Telegram**, paste both and press **Save & start**. The bot answers only you.
 
 `/use` picks a terminal, `/list` shows them all, `/new <name>` starts one, `/archive` brings
-one back, `/services` lists your services. Plain text is typed into the terminal; voice
+one back, `/services` lists your services. Optional: a second bot just for notifications
+(guests' spending, strange requests, published sites), on the same page. Plain text is typed into the terminal; voice
 notes are transcribed locally (not in the Docker image). Full setup and every command:
 [docs/telegram.md](docs/telegram.md).
 
