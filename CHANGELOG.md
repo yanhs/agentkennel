@@ -2,7 +2,7 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
-## Unreleased
+## v2.4.0 — guests: web on/off and the agent's rules on the Server page
 
 ### Guests
 - **Web on/off and the agent's rules, on the Server page.** Each guest has a **Web** switch: off takes their terminals in the browser down (the bot and the agent stay), on brings them back. With web off, **Rules** keeps the guest's agent to one job: the work in your words, the folders it may change, what it may do (edit, rebuild and restart, install packages, publish new sites, set up other services). The turnstile puts these rules into every Claude request of that guest, so nothing inside the sandbox can leave them out; the agent politely declines anything else. Publishing a new site is refused by the site gate itself when not allowed. "Tell me when they ask for something strange or illegal" sends you a Telegram message (at most 5 an hour). The folders rule is the agent's, not the file system's: a read-only /work would break a site's own publish script. Design: docs/superpowers/specs/2026-11-12-guest-rules-design.md. CLI: `guestctl rules <name> '<json>'`, `guestctl folders <name>`.
