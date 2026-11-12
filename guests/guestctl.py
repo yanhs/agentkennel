@@ -665,6 +665,9 @@ def guests_report() -> list:
             **ts.usage_windows(g or ts.Guest(name, 0, 0, None, False), ledger),
             "url": f"https://{dashboard_host(name)}" if has_domain and web_exists(name) else None,
             "created": str(info.get("created") or ""),
+            "web": bool(g.web) if g else True,             # off: guestctl web-off
+            "rules": dict(g.rules) if g else {},           # what its agent may do
+            "rules_active": bool(g and ts.rules_active(g)),
             # the panel counts the agents in it (status_server -> server_status)
             "container": f"sbx-{name}",
         })
@@ -682,6 +685,32 @@ def cmd_list(a) -> int:
                  on=_t("ts_on") if r["enabled"] else _t("ts_off"),
                  five_used=r["five_hour"]["used"], five_limit=r["five_hour"]["limit"],
                  week_used=r["seven_day"]["used"], week_limit=r["seven_day"]["limit"]))
+    return 0
+
+
+def cmd_rules(a) -> int:
+    """guestctl rules <name> '<json>': what the guest's agent may do (owner, 12.11.2026);
+    the turnstile applies them while web access is off."""
+    try:
+        rules = json.loads(a.rules)
+    except ValueError:
+        raise SystemExit("rules: not JSON")
+    try:
+        ts.GuestBook(DATA / "guests.json").set_rules(a.name, rules)
+    except KeyError:
+        raise SystemExit(f"no guest {a.name}")
+    except ValueError as exc:
+        raise SystemExit(str(exc))
+    print(json.dumps({"ok": True}))
+    return 0
+
+
+def cmd_folders(a) -> int:
+    """The sandbox's folders in /work, for the Rules form (JSON)."""
+    r = _docker("exec", f"sbx-{a.name}", "find", "/work", "-mindepth", "1", "-maxdepth", "1",
+                "-type", "d", "-not", "-name", ".*", "-printf", "%f\\n", check=False)
+    names = sorted(n for n in (r.stdout or "").split("\n") if n.strip()) if r.returncode == 0 else []
+    print(json.dumps({"folders": [f"/work/{n}" for n in names]}))
     return 0
 
 
@@ -1052,6 +1081,10 @@ def main(argv=None) -> int:
     for c in ("check", "stop", "start", "remove", "web-off"):
         sub.add_parser(c).add_argument("name")
     sub.add_parser("web").add_argument("name")
+    rl = sub.add_parser("rules")
+    rl.add_argument("name")
+    rl.add_argument("rules")
+    sub.add_parser("folders").add_argument("name")
     sub.add_parser("session").add_argument("name")
     rec = sub.add_parser("recreate")
     rec.add_argument("name")
@@ -1069,7 +1102,7 @@ def main(argv=None) -> int:
                                                help="the domain the guests were on")
     a = ap.parse_args(argv)
     return {"add": cmd_add, "list": cmd_list, "check": cmd_check, "limit": cmd_limit,
-            "recreate": cmd_recreate, "web": cmd_web, "session": cmd_session, "doctor": cmd_doctor,
+            "recreate": cmd_recreate, "web": cmd_web, "rules": cmd_rules, "folders": cmd_folders, "session": cmd_session, "doctor": cmd_doctor,
             "files-web": cmd_files_web, "image-tag": cmd_image_tag, "disk-move": cmd_disk_move,
             "disk-watch": cmd_disk_watch, "move-domain": cmd_move_domain,
             "address": cmd_address}.get(a.cmd, cmd_simple)(a)

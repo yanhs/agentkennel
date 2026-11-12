@@ -295,11 +295,12 @@ def test_list_json_shape(data, monkeypatch, capsys):
          "five_hour": {"used": 1000, "limit": 20_000_000, "resets_at": window_end},
          "seven_day": {"used": 1000, "limit": 140_000_000, "resets_at": next_monday()},
          "url": "https://sb-anna.example.test", "created": "2026-10-27 08:54:00",
-         "container": "sbx-anna"},
+         "web": True, "rules": {}, "rules_active": False, "container": "sbx-anna"},
         {"name": "boris", "telegram_id": 222, "port": 18102, "state": "missing", "enabled": False,
          "five_hour": {"used": 0, "limit": 5_000, "resets_at": 0},
          "seven_day": {"used": 0, "limit": 35_000, "resets_at": next_monday()},
-         "url": None, "created": "2026-10-27 09:00:00", "container": "sbx-boris"}]}
+         "url": None, "created": "2026-10-27 09:00:00",
+         "web": True, "rules": {}, "rules_active": False, "container": "sbx-boris"}]}
 
 
 def test_list_line_shows_the_five_hours_and_the_week(data, monkeypatch, capsys):
@@ -667,3 +668,52 @@ def test_start_does_not_bring_web_back(monkeypatch, tmp_path):
 def test_web_off_is_a_command():
     import inspect
     assert '"web-off"' in inspect.getsource(gc.main)
+
+
+# --------------------------------------------------------------------------- #
+# rules: what a guest's agent may do (owner, 12.11.2026), set from the Server page
+# --------------------------------------------------------------------------- #
+SITE_RULES = {"on": True, "work": "The website angelsrepair.com", "folders": ["/work/angels-help"],
+              "actions": {"edit": True, "publish": False}, "flag": True}
+
+
+def test_rules_are_set_and_listed(monkeypatch, tmp_path, capsys):
+    import json as _json
+    book = _book_with_anna(monkeypatch, tmp_path)
+    gc.cmd_rules(type("A", (), {"name": "anna", "rules": _json.dumps(SITE_RULES)})())
+    assert book.get("anna").rules["work"] == "The website angelsrepair.com"
+    monkeypatch.setattr(gc, "_registry", lambda: {"anna": {"port": 18101}})
+    monkeypatch.setattr(gc, "container_state", lambda name: "running")
+    monkeypatch.setattr(gc, "web_exists", lambda name: False)
+    book.set_web("anna", False)
+    [row] = gc.guests_report()
+    assert row["web"] is False and row["rules"]["on"] is True and row["rules_active"] is True
+
+
+def test_bad_rules_say_why(monkeypatch, tmp_path):
+    _book_with_anna(monkeypatch, tmp_path)
+    with pytest.raises(SystemExit) as e:
+        gc.cmd_rules(type("A", (), {"name": "anna", "rules": '{"on": true, "folders": ["/etc"]}'})())
+    assert "rules" in str(e.value)
+    with pytest.raises(SystemExit):
+        gc.cmd_rules(type("A", (), {"name": "anna", "rules": "not json"})())
+
+
+def test_folders_lists_the_sandboxs_work_folders(monkeypatch, capsys):
+    calls = []
+
+    class R:
+        returncode, stdout = 0, "angels-help\nangels-help-live\npublic\n"
+
+    monkeypatch.setattr(gc, "_docker", lambda *a, **k: calls.append(a) or R())
+    gc.cmd_folders(type("A", (), {"name": "anna"})())
+    import json as _json
+    assert _json.loads(capsys.readouterr().out) == {
+        "folders": ["/work/angels-help", "/work/angels-help-live", "/work/public"]}
+    assert calls[0][:2] == ("exec", "sbx-anna")
+
+
+def test_rules_and_folders_are_commands():
+    import inspect
+    src = inspect.getsource(gc.main)
+    assert '"rules"' in src and '"folders"' in src
