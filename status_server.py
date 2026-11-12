@@ -1296,7 +1296,7 @@ def svc_post(route):
 GUESTS_ROUTE = "/api/guests"
 GUESTS_LIST_TTL = 10
 GUEST_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
-GUESTS_ACTIONS = ("stop", "start", "remove", "limit")
+GUESTS_ACTIONS = ("stop", "start", "remove", "limit", "web", "web-off")   # jobs
 # Open (decision 29.10.2026): the owner signs in to a guest's dashboard without the guest's
 # password. POST /api/guests/open gets a login signed by `guestctl.py session` and returns a
 # one-time link to https://sb-<name>.<domain>/_owner-entry; the guest's nginx sends that one
@@ -1525,6 +1525,39 @@ class GuestsPanel:
             self._list()                          # the list shows the result at once
         self._spawn(work)
         return {"ok": True}
+
+    def _guest_name(self, body):
+        name = body.get("name")
+        if not isinstance(name, str) or not GUEST_NAME_RE.match(name):
+            raise LibError(400, "bad guest name")
+        if not self.state()["configured"]:
+            raise LibError(409, "the guests module is not set up")
+        return name
+
+    def rules(self, body):
+        """POST /api/guests/rules {name, rules}: what the guest's agent may do while its web
+        access is off (owner, 12.11.2026). guestctl checks them; its refusal is said."""
+        name = self._guest_name(body)
+        rules = body.get("rules")
+        if not isinstance(rules, dict):
+            raise LibError(400, "rules: an object")
+        code, out, err = self.run("rules", name, json.dumps(rules, ensure_ascii=False), timeout=30)
+        if code != 0:
+            raise LibError(400, (err or out).strip()[-300:] or "rules not saved")
+        self._spawn(self._list)
+        return {"ok": True}
+
+    def folders(self, body):
+        """POST /api/guests/folders {name}: the sandbox's folders in /work (Rules form)."""
+        name = self._guest_name(body)
+        code, out, _ = self.run("folders", name, timeout=30)
+        try:
+            folders = json.loads(out).get("folders") if code == 0 else None
+        except ValueError:
+            folders = None
+        if not isinstance(folders, list):
+            raise LibError(502, "the sandbox's folders could not be read")
+        return {"folders": [f for f in folders if isinstance(f, str)]}
 
     def open(self, body):
         """A one-time link that opens the guest's dashboard signed in as the owner."""
@@ -2028,6 +2061,10 @@ class Handler(BaseHTTPRequestHandler):
                     data = GUESTS.setup(body)
                 elif what == "open":
                     data = GUESTS.open(body)
+                elif what == "rules":
+                    data = GUESTS.rules(body)
+                elif what == "folders":
+                    data = GUESTS.folders(body)
                 else:
                     data = GUESTS.act(what, body)
             else:

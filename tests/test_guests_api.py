@@ -55,8 +55,12 @@ if cmd == "list":
 elif cmd == "doctor":
     print(json.dumps({"checks": behave.get("checks", [])}))
 elif cmd in behave.get("fail", []):
-    print("docker: no such container", file=sys.stderr)
+    print(behave.get("why", "docker: no such container"), file=sys.stderr)
     sys.exit(1)
+elif cmd == "folders":
+    print(json.dumps({"folders": behave.get("folders", [])}))
+elif cmd == "rules":
+    print(json.dumps({"ok": True}))
 elif cmd == "session":
     print(json.dumps(behave.get("session", {"host": "sb-%s.example.com" % sys.argv[2],
                                             "cookie": "agents_session=owner.1900000000." + "ab" * 32,
@@ -480,3 +484,42 @@ def test_open_needs_json_and_same_origin(g):
     listed(g)
     assert post(g.base, "/api/guests/open", {"name": "masha"}, origin="https://evil.example")[0] == 403
     assert post(g.base, "/api/guests/open", {"name": "masha"}, ctype="text/plain")[0] == 415
+
+
+# ── web on/off and the agent's rules (owner, 12.11.2026) ─────────────────────────────
+@pytest.mark.parametrize("action", ["web", "web-off"])
+def test_web_on_and_off_are_background_jobs(g, action):
+    configure(g)
+    assert post(g.base, f"/api/guests/{action}", {"name": "masha"}) == (200, {"ok": True})
+    assert until(lambda: [action, "masha"] in g.calls())
+
+
+RULES = {"on": True, "work": "The website", "folders": ["/work/site"],
+         "actions": {"edit": True, "publish": False}, "flag": True}
+
+
+def test_rules_are_saved_through_guestctl_at_once(g):
+    configure(g)
+    assert post(g.base, "/api/guests/rules", {"name": "masha", "rules": RULES}) == (200, {"ok": True})
+    [call] = [c for c in g.calls() if c[0] == "rules"]
+    assert call[1] == "masha" and json.loads(call[2]) == RULES
+
+
+def test_rules_guestctl_refuses_say_why(g):
+    configure(g)
+    g.behave(fail=["rules"], why="rules: '/etc' is not a folder under /work")
+    code, d = post(g.base, "/api/guests/rules", {"name": "masha", "rules": RULES})
+    assert code == 400 and "not a folder under /work" in d["error"]
+
+
+@pytest.mark.parametrize("rules", [None, "on", [1, 2]])
+def test_rules_must_be_an_object(g, rules):
+    configure(g)
+    assert post(g.base, "/api/guests/rules", {"name": "masha", "rules": rules})[0] == 400
+
+
+def test_folders_come_from_the_sandbox(g):
+    configure(g)
+    g.behave(folders=["/work/angels-help", "/work/public"])
+    assert post(g.base, "/api/guests/folders", {"name": "masha"}) == (
+        200, {"folders": ["/work/angels-help", "/work/public"]})
