@@ -48,6 +48,7 @@ class FakeGuests:
         self.jobs = {}
         self.posts = []
         self.open_error = None
+        self.rules_error = None
         self.env = ({"bot_token_set": True, "owner_id": "42", "domain": "example.com"}
                     if configured else {"bot_token_set": False, "owner_id": "", "domain": ""})
 
@@ -68,6 +69,16 @@ class FakeGuests:
                                for c in CHECKS_BAD]
                 self.env = {"bot_token_set": True, "owner_id": body.get("owner_id", ""),
                             "domain": body.get("domain", "")}
+            elif what == "folders":
+                return route.fulfill(status=200, content_type="application/json",
+                                     body=json.dumps({"folders": ["/work/angels-help", "/work/public"]}))
+            elif what == "rules":
+                if self.rules_error:
+                    return route.fulfill(status=400, content_type="application/json",
+                                         body=json.dumps({"error": self.rules_error}))
+                g = next(x for x in self.guests if x["name"] == body["name"])
+                g["rules"] = body["rules"]
+                g["rules_active"] = bool(body["rules"].get("on")) and not g.get("web", True)
             elif what == "open":
                 if self.open_error:
                     return route.fulfill(status=409, content_type="application/json",
@@ -82,6 +93,11 @@ class FakeGuests:
                     g.update(state="running", enabled=True)
                 elif what == "remove":
                     self.guests.remove(g)
+                elif what == "web":
+                    g.update(web=True, url=f"https://sb-{g['name']}.example.com", rules_active=False)
+                elif what == "web-off":
+                    g.update(web=False, url=None,
+                             rules_active=bool((g.get("rules") or {}).get("on")))
                 elif what == "limit":            # guestctl: the week; 5 hours = a seventh
                     g["seven_day"]["limit"] = body["limit"]
                     g["five_hour"]["limit"] = round(body["limit"] / 7)
@@ -230,8 +246,8 @@ def test_the_numbers_behind_the_percents_are_in_the_title(page):
 def test_buttons_match_the_state(page):
     guest_rows(page)
     # Open only where there is a running dashboard with an address of its own
-    assert acts(page, "masha") == ["open", "limit", "stop", "remove"]
-    assert acts(page, "petya") == ["limit", "start", "remove"]
+    assert acts(page, "masha") == ["open", "web", "rules", "limit", "stop", "remove"]
+    assert acts(page, "petya") == ["web", "rules", "limit", "start", "remove"]
 
 
 def test_spend_column_lines_up(page):
@@ -403,3 +419,132 @@ def test_phone_wizard(browser, site):  # noqa: F811
     assert pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
     shot(pg, "server-guests-wizard-phone.png")
     ctx.close()
+
+
+# ── web on/off and the agent's rules (owner, 12.11.2026) ─────────────────────────────
+def btn(pg, name, act):
+    return pg.query_selector(f'#guests .guest[data-name="{name}"] button[data-act="{act}"]')
+
+
+def test_web_is_a_switch_and_rules_wait_for_it_off(page):
+    guest_rows(page)
+    web, rules = btn(page, "masha", "web"), btn(page, "masha", "rules")
+    assert web.get_attribute("aria-pressed") == "true"
+    assert rules.is_disabled() and "web" in rules.get_attribute("title").lower()
+
+
+def test_turning_web_off_asks_then_does_it(page, fake):
+    guest_rows(page)
+    seen = []
+    page.once("dialog", lambda d: (seen.append(d.message), d.accept()))
+    btn(page, "masha", "web").click()
+    page.wait_for_function(
+        "() => document.querySelector('#guests .guest[data-name=\"masha\"] button[data-act=\"web\"]')"
+        ".getAttribute('aria-pressed') === 'false'")
+    assert "masha" in seen[0] and "bot" in seen[0].lower()
+    assert fake.posts[-1][:2] == ("/api/guests/web-off", {"name": "masha"})
+    assert "Telegram only" in note(page, "masha")
+    assert not btn(page, "masha", "rules").is_disabled()
+
+
+def test_turning_web_on_asks_too(page, fake):
+    fake.guests[0].update(web=False, url=None)
+    page.wait_for_function(
+        "() => (document.querySelector('#guests .guest[data-name=\"masha\"] button[data-act=\"web\"]') || {})"
+        ".getAttribute && document.querySelector('#guests .guest[data-name=\"masha\"] button[data-act=\"web\"]')"
+        ".getAttribute('aria-pressed') === 'false'")
+    page.once("dialog", lambda d: d.accept())
+    btn(page, "masha", "web").click()
+    page.wait_for_timeout(400)
+    assert fake.posts[-1][:2] == ("/api/guests/web", {"name": "masha"})
+
+
+def open_rules(page, fake):
+    fake.guests[0].update(web=False, url=None)
+    page.wait_for_function(
+        "() => { const b = document.querySelector('#guests .guest[data-name=\"masha\"] button[data-act=\"rules\"]');"
+        " return b && !b.disabled; }")
+    btn(page, "masha", "rules").click()
+    return page.wait_for_selector('#guests .guest[data-name="masha"] .grules')
+
+
+def test_rules_keep_the_agent_to_one_job(page, fake):
+    guest_rows(page)
+    box = open_rules(page, fake)
+    page.wait_for_selector('#guests .grules input[data-folder="/work/angels-help"]')
+    text = box.inner_text()
+    for words in ("Anything in its sandbox", "Only this work", "Publish new sites",
+                  "strange or illegal"):
+        assert words in text, words
+    box.query_selector('input[name="grmode-masha"][value="only"]').check()
+    box.query_selector("textarea").fill("The website angelsrepair.com")
+    box.query_selector('input[data-folder="/work/angels-help"]').check()
+    box.query_selector("button.grules-save").click()
+    page.wait_for_selector('#guests .guest[data-name="masha"] .grules', state="detached")
+    path, body, _ = fake.posts[-1]
+    assert path == "/api/guests/rules"
+    assert body == {"name": "masha", "rules": {
+        "on": True, "work": "The website angelsrepair.com", "folders": ["/work/angels-help"],
+        "actions": {"edit": True, "restart": True, "packages": True,
+                    "publish": False, "services": False},
+        "flag": True}}
+    page.wait_for_function(
+        "() => document.querySelector('#guests .guest[data-name=\"masha\"] .gnote').textContent.includes('rules')")
+
+
+def test_rules_form_desktop_screenshot(page, fake):
+    guest_rows(page)
+    open_rules(page, fake)
+    page.wait_for_selector('#guests .grules input[data-folder="/work/angels-help"]')
+    shot(page, "guests-rules-desktop.png")
+
+
+def test_rules_open_as_they_were_saved(page, fake):
+    fake.guests[0]["rules"] = {"on": True, "work": "Site", "folders": ["/work/public"],
+                               "actions": {"edit": True, "restart": False, "packages": False,
+                                           "publish": True, "services": False}, "flag": False}
+    guest_rows(page)
+    box = open_rules(page, fake)
+    page.wait_for_selector('#guests .grules input[data-folder="/work/public"]')
+    assert box.query_selector('input[name="grmode-masha"][value="only"]').is_checked()
+    assert box.query_selector("textarea").input_value() == "Site"
+    assert box.query_selector('input[data-folder="/work/public"]').is_checked()
+    assert not box.query_selector('input[data-folder="/work/angels-help"]').is_checked()
+    assert box.query_selector('input[data-action="publish"]').is_checked()
+    assert not box.query_selector('input[data-action="restart"]').is_checked()
+    assert not box.query_selector('input.grules-flag').is_checked()
+
+
+def test_only_this_work_needs_the_work_said(page, fake):
+    guest_rows(page)
+    box = open_rules(page, fake)
+    box.query_selector('input[name="grmode-masha"][value="only"]').check()
+    box.query_selector("button.grules-save").click()
+    page.wait_for_timeout(300)
+    assert not any(p[0] == "/api/guests/rules" for p in fake.posts)
+    assert "Say what the work is" in box.inner_text()
+
+
+def test_a_refused_rule_is_said_and_the_form_stays(page, fake):
+    fake.rules_error = "rules: '/etc' is not a folder under /work"
+    guest_rows(page)
+    box = open_rules(page, fake)
+    box.query_selector('input[name="grmode-masha"][value="only"]').check()
+    box.query_selector("textarea").fill("Site")
+    box.query_selector("button.grules-save").click()
+    page.wait_for_function(
+        "() => document.querySelector('#guests .grules').innerText.includes('not a folder under /work')")
+
+
+def test_rules_and_the_web_switch_on_a_phone(browser, site, fake):  # noqa: F811
+    fake.guests[0].update(web=False, url=None)
+    ctx, pg = open_page(browser, site, fake, width=390, height=844, mobile=True)
+    try:
+        guest_rows(pg)
+        btn(pg, "masha", "rules").click()
+        pg.wait_for_selector('#guests .guest[data-name="masha"] .grules input[data-folder]')
+        assert pg.evaluate("document.documentElement.scrollWidth") <= 390
+        shot(pg, "guests-rules-phone.png")
+        assert pg.errors == []
+    finally:
+        ctx.close()

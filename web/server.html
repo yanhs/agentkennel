@@ -251,7 +251,7 @@
     .guest-main {
       /* the buttons' column fits the longest set (Open Limit Stop Remove), so the spend
          column lines up on every row whatever buttons a guest has */
-      display: grid; grid-template-columns: 10px minmax(0, 1fr) 190px minmax(236px, auto); align-items: center;
+      display: grid; grid-template-columns: 10px minmax(0, 1fr) 190px minmax(372px, auto); align-items: center;
       gap: 12px; padding: 6px 2px;
     }
     .guest-main .svc-btns { justify-content: flex-end; }
@@ -265,6 +265,30 @@
     .gspend .v { font-family: var(--mono); font-size: 10.5px; color: var(--dim); white-space: nowrap; }
     .gspend .bar { height: 5px; border-radius: 3px; background: var(--s2); overflow: hidden; }
     .gspend .bar i { display: block; height: 100%; border-radius: 3px; transition: width .6s ease; }
+    /* web on/off (owner, 12.11.2026): a switch, not a word */
+    .svc-btns button[data-act="web"]::before {
+      content: ""; display: inline-block; width: 20px; height: 11px; margin-right: 5px; vertical-align: -1px;
+      border-radius: 6px; background: radial-gradient(circle at 5.5px 5.5px, var(--bg) 3.5px, transparent 4px), var(--off);
+    }
+    .svc-btns button[data-act="web"][aria-pressed="true"]::before {
+      background: radial-gradient(circle at 14.5px 5.5px, var(--bg) 3.5px, transparent 4px), var(--green);
+    }
+    /* the agent's rules while web access is off */
+    .grules { margin: 0 0 10px 22px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--s2); font-size: 12.5px; max-width: 760px; }
+    .grules h4 { margin: 0 0 10px; font-size: 12.5px; font-weight: 600; }
+    .grules .grf { margin-bottom: 12px; }
+    .grules .grl { font-size: 11.5px; color: var(--faint); margin-bottom: 4px; }
+    .grules label.grc { display: flex; gap: 8px; align-items: flex-start; margin: 3px 0; cursor: pointer; }
+    .grules label.grc input { margin: 3px 0 0; accent-color: var(--accent); flex: none; }
+    .grules textarea { width: 100%; min-height: 54px; resize: vertical; background: var(--bg); color: var(--text);
+      border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 12.5px; }
+    .grules textarea:focus { outline: none; border-color: var(--accent); }
+    .grules .grfolders { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+    .grules .grfolders label.grc { font-family: var(--mono); font-size: 11.5px; }
+    .grules .grnote { color: var(--dim); }
+    .grules .grules-err { color: var(--red); font-size: 11.5px; margin-bottom: 8px; }
+    .grules .gracts { display: flex; gap: 8px; }
     .gjob { font-size: 11.5px; color: var(--faint); padding: 0 0 6px 22px; }
     .gjob.err { color: var(--red); }
     .glimit { display: flex; align-items: center; gap: 6px; padding: 0 0 8px 22px; font-size: 11.5px; color: var(--dim); }
@@ -348,6 +372,7 @@
       .gspend { grid-area: spend; }
       .guest-main .svc-btns { grid-area: btns; justify-content: flex-start; }
       .gjob, .glimit { padding-left: 20px; }
+      .grules { margin-left: 0; }
     }
     @media (prefers-reduced-motion: reduce) {
       * { animation: none !important; transition: none !important; }
@@ -1031,6 +1056,11 @@
   const G_API = '/api/guests';
   const gRows = new Map();                // name -> row element
   const gLimitOpen = new Set();           // names with the limit editor open
+  const gRulesOpen = new Set();           // names with the rules form open
+  const G_RULE_ACTIONS = [['edit', "Edit the work's files"], ['restart', 'Rebuild and restart the site or service'],
+    ['packages', 'Install packages the work needs'], ['publish', 'Publish new sites'],
+    ['services', 'Set up other services (bots, tunnels, scheduled jobs)']];
+  const G_RULE_DEFAULTS = { edit: true, restart: true, packages: true, publish: false, services: false };
   let gLast = null, gWizardOpen = false, gChecksAsked = false, gActErr = '';
   const STEP_CHECKS = { docker: ['docker'], bot: ['bot', 'owner'], domain: ['domain'], services: ['services'] };
   function fmtTok(n) {
@@ -1054,7 +1084,7 @@
   }
   function gButtons(g) {
     return [...(g.url && g.state === 'running' ? [['open', 'Open']] : []),
-      ['limit', 'Limit'], g.enabled && g.state === 'running' ? ['stop', 'Stop'] : ['start', 'Start'], ['remove', 'Remove']];
+      ['web', 'Web'], ['rules', 'Rules'], ['limit', 'Limit'], g.enabled && g.state === 'running' ? ['stop', 'Stop'] : ['start', 'Start'], ['remove', 'Remove']];
   }
   function gRow(name) {
     let r = gRows.get(name);
@@ -1074,6 +1104,8 @@
       if (b && !b.disabled) gAct(name, b.dataset.act);
       if (e.target.closest('.glimit-save')) gSaveLimit(name);
       if (e.target.closest('.glimit-cancel')) { gLimitOpen.delete(name); gRender(); }
+      if (e.target.closest('.grules-save')) gSaveRules(name);
+      if (e.target.closest('.grules-cancel')) { gRulesOpen.delete(name); gRender(); }
     });
     r.addEventListener('keydown', e => {
       if (e.key === 'Enter' && e.target.matches('input.glimit-in')) gSaveLimit(name);
@@ -1109,7 +1141,9 @@
       link.href = g.url;
       link.textContent = g.url.replace(/^https?:\/\//, '');
     } else if (link) link.remove();
-    note.textContent = on ? said : g.state === 'missing' ? 'off · no container' : 'off';
+    const noWeb = g.web === false;
+    note.textContent = (noWeb ? 'Telegram only' + (g.rules_active ? ' · rules on' : '') + ' · ' : '')
+      + (on ? said : g.state === 'missing' ? 'off · no container' : 'off');
     // a 5-hour and a weekly limit, like the subscription's (30.10.2026); the bar is the fuller
     const five = g.five_hour || {}, week = g.seven_day || {};
     const p5 = gPct(five), pw = gPct(week), pct = Math.max(p5, pw);
@@ -1137,9 +1171,19 @@
     }
     const busy = job && !job.done;
     box.querySelectorAll('button').forEach(b => { b.disabled = busy; });
+    const wb = box.querySelector('button[data-act="web"]'), rb = box.querySelector('button[data-act="rules"]');
+    wb.setAttribute('aria-pressed', noWeb ? 'false' : 'true');
+    wb.title = noWeb ? `Web access is off: ${g.name} works through the bot only. Click to open their terminals in the browser again`
+      : `Web access to ${g.name}'s terminals is on. Click to turn it off: the address goes, the bot and the agent stay`;
+    rb.disabled = busy || !noWeb;
+    rb.title = noWeb ? `What ${g.name}'s agent may do` + (g.rules_active ? ' (rules on)' : '')
+      : `Rules work only with web access off: in a terminal ${g.name} types commands themselves, nothing can hold them`;
+    rb.classList.toggle('on', gRulesOpen.has(g.name));
+    if (!noWeb) gRulesOpen.delete(g.name);
     const jl = r.querySelector('.gjob');
     jl.className = 'gjob' + (job && job.done && !job.ok ? ' err' : '');
-    jl.textContent = !job ? '' : busy ? { stop: 'Stopping…', start: 'Starting…', remove: 'Removing… (takes about a minute and a half)', limit: 'Saving the limit…' }[job.action] || '…'
+    jl.textContent = !job ? '' : busy ? { stop: 'Stopping…', start: 'Starting…', remove: 'Removing… (takes about a minute and a half)', limit: 'Saving the limit…',
+      web: 'Opening the web address… (about a minute)', 'web-off': 'Taking the web address down… (about a minute and a half)' }[job.action] || '…'
       : job.ok ? '' : `${job.action} failed: ${job.output || 'no details'}`;
     jl.hidden = !jl.textContent;
     let lim = r.querySelector('.glimit');
@@ -1154,6 +1198,76 @@
       r.append(lim);
       inp.focus();
     } else if (!gLimitOpen.has(g.name) && lim) lim.remove();
+    let rules = r.querySelector('.grules');
+    if (gRulesOpen.has(g.name) && !rules) r.append(gRulesForm(g));
+    else if (!gRulesOpen.has(g.name) && rules) rules.remove();
+  }
+  // The rules form (owner, 12.11.2026): built once when opened, so the poll never wipes
+  // what is being typed; the sandbox's folders are asked for when it opens.
+  function gRulesForm(g) {
+    const R = g.rules || {}, acts = Object.assign({}, G_RULE_DEFAULTS, R.actions || {});
+    const box = el('div', 'grules');
+    const f = (label, ...kids) => { const d = el('div', 'grf'); if (label) d.append(el('div', 'grl', label)); d.append(...kids); return d; };
+    const check = (type, text, attrs, checked) => {
+      const l = el('label', 'grc'), i = el('input');
+      i.type = type; Object.assign(i, attrs.props || {});
+      for (const [k, v] of Object.entries(attrs.data || {})) i.dataset[k] = v;
+      if (attrs.cls) i.className = attrs.cls;
+      i.checked = !!checked;
+      l.append(i, el('span', null, text));
+      return l;
+    };
+    const mode = `grmode-${g.name}`;
+    const ta = el('textarea');
+    ta.value = R.work || '';
+    ta.placeholder = 'For example: the website example.com — its pages, texts, photos, prices';
+    const folders = el('div', 'grfolders');
+    const addFolder = (p, on) => { if (!folders.querySelector(`input[data-folder="${CSS.escape(p)}"]`)) folders.append(check('checkbox', p, { data: { folder: p } }, on)); };
+    (R.folders || []).forEach(p => addFolder(p, true));
+    const actsBox = el('div');
+    G_RULE_ACTIONS.forEach(([k, t]) => actsBox.append(check('checkbox', t, { data: { action: k } }, acts[k])));
+    box.append(el('h4', null, `What ${g.name}'s agent may do`),
+      f(null, check('radio', 'Anything in its sandbox', { props: { name: mode, value: 'any' } }, !R.on),
+              check('radio', 'Only this work', { props: { name: mode, value: 'only' } }, !!R.on)),
+      f('The work, in your words (the agent gets it with every request)', ta),
+      f('Folders it may change', folders),
+      f('Actions', actsBox),
+      f('Anything else they ask for', el('div', 'grnote', 'The agent declines politely and does no part of it.')),
+      f(null, check('checkbox', 'Tell me in Telegram when they ask for something strange or illegal', { cls: 'grules-flag' }, R.flag !== false)));
+    const err = el('div', 'grules-err'); err.hidden = true;
+    const save = el('button', 'gbtn primary grules-save', 'Save'); save.type = 'button';
+    const cancel = el('button', 'gbtn grules-cancel', 'Cancel'); cancel.type = 'button';
+    const btns = el('div', 'gracts'); btns.append(save, cancel);
+    box.append(err, btns);
+    gPost('folders', { name: g.name }).then(d => {
+      const have = new Set((R.folders || []));
+      [...(d.folders || [])].sort().forEach(p => addFolder(p, have.has(p)));
+    }).catch(() => { /* the saved ones are still there */ });
+    return box;
+  }
+  async function gSaveRules(name) {
+    const box = gRows.get(name) && gRows.get(name).querySelector('.grules');
+    if (!box) return;
+    const err = box.querySelector('.grules-err');
+    const say = msg => { err.textContent = msg; err.hidden = !msg; };
+    const on = (box.querySelector(`input[name="grmode-${CSS.escape(name)}"]:checked`) || {}).value === 'only';
+    const work = box.querySelector('textarea').value.trim();
+    if (on && !work) { say('Say what the work is: the agent keeps to it.'); return box.querySelector('textarea').focus(); }
+    const rules = { on, work,
+      folders: [...box.querySelectorAll('input[data-folder]')].filter(i => i.checked).map(i => i.dataset.folder),
+      actions: Object.fromEntries([...box.querySelectorAll('input[data-action]')].map(i => [i.dataset.action, i.checked])),
+      flag: box.querySelector('input.grules-flag').checked };
+    const btn = box.querySelector('.grules-save');
+    btn.disabled = true;
+    try {
+      await gPost('rules', { name, rules });
+    } catch (e) {
+      btn.disabled = false;
+      return say(e.message);
+    }
+    gRulesOpen.delete(name);
+    gFailed('');
+    await pollGuests();
   }
   function gStep(step, d) {
     const box = $(`#gWizard .gstep[data-step="${step}"]`);
@@ -1201,7 +1315,7 @@
       gFillRow(r, g, (d.jobs || {})[g.name], d.agents ? d.agents[g.name] : null);
       if (list.children[i] !== r) list.insertBefore(r, list.children[i] || null);
     });
-    for (const [n, r] of gRows) if (!seen.has(n)) { r.remove(); gRows.delete(n); gLimitOpen.delete(n); }
+    for (const [n, r] of gRows) if (!seen.has(n)) { r.remove(); gRows.delete(n); gLimitOpen.delete(n); gRulesOpen.delete(n); }
     const wiz = $('#gWizard');
     wiz.hidden = !gWizardOpen;
     if (gWizardOpen) {
@@ -1241,6 +1355,16 @@
       return gRender();
     }
     if (act === 'open') return gOpen(name);
+    if (act === 'rules') {
+      if (gRulesOpen.has(name)) gRulesOpen.delete(name); else gRulesOpen.add(name);
+      return gRender();
+    }
+    if (act === 'web') {
+      const on = g.web !== false;
+      if (!confirm(on ? `Turn off web access for ${name}? Their terminals in the browser go away (the address is taken down); the bot and the agent keep working.`
+                      : `Turn on web access for ${name}? Their terminals open in the browser again (about a minute). While it is on, the agent's rules don't apply.`)) return;
+      act = on ? 'web-off' : 'web';
+    }
     if (act === 'remove' && !confirm(`Remove ${name}'s sandbox? Their terminals close and their page goes away; their files stay on this server's disk.`)) return;
     try {
       await gPost(act, { name });
