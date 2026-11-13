@@ -143,6 +143,20 @@ Owner: "оставить и по умолчанию конкретно у мен
   "Claude" label arrives when each sandbox is next recreated while idle (no terminal is
   closed for this). `GET /guest/usage` keeps its current fields for older images.
 
+## Limits follow the mode (owner, 13.11: "если подписка, то считаются не доллары")
+
+- `owner_key`: dollars a week (above).
+- `owner_sub`: today's measure, unchanged — share of the owner's week (weighted tokens,
+  1% ≈ 8.7M) plus the 5-hour window; the row shows `your subscription ⚠ · wk 1%`, the
+  guest sees today's "Today X of Y tokens" line. Today's default (140M a week ≈ 16% of the
+  owner's week) stays.
+- `own`: nothing is limited by default; the row shows just `own key` (the guest pays, so
+  the owner has nothing to count).
+- So the "For new guests" limit field changes with the chosen way: "$20 a week" for Your
+  API key, "16% of your week" for Your subscription, hidden for Their own key or login.
+  The per-guest Claude window does the same. Switching a guest between modes keeps both
+  numbers, so switching back restores the old limit.
+
 ## Not now
 
 Billing guests; per-model limits; limits for `own` guests by default; showing anyone
