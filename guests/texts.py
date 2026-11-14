@@ -37,6 +37,9 @@ EN = {
                      "prints (it starts with sk-ant-oat) here as a message. The bot deletes the "
                      "message right away and keeps the token only on the server, never in the "
                      "sandbox.",
+    "cl_withheld": "That message wasn't passed to the agent: it contained something that "
+                   "looks like an Anthropic key. To use your own key, send the key by itself "
+                   "as a message, or open /claude.",
     "cl_delete_it": "Please delete your message with the key yourself: the bot couldn't. "
                     "It was not passed on to anyone.",
     "btn_cl_own_key": "Own API key",
@@ -261,6 +264,9 @@ RU = {
     "cl_send_token": "В терминале выполните `claude setup-token`, войдите и пришлите сюда "
                      "сообщением выданный токен (он начинается с sk-ant-oat). Бот сразу удалит "
                      "сообщение и хранит токен только на сервере, не в песочнице.",
+    "cl_withheld": "Это сообщение не передано агенту: в нём есть что-то похожее на ключ "
+                   "Anthropic. Чтобы использовать свой ключ, пришлите его отдельным "
+                   "сообщением или откройте /claude.",
     "cl_delete_it": "Удалите, пожалуйста, своё сообщение с ключом сами: у бота не вышло. "
                     "Дальше оно никому не передано.",
     "btn_cl_own_key": "Own API key",

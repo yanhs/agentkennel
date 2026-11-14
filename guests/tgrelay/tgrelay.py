@@ -311,6 +311,7 @@ class Relay:
         self._files: Dict[str, set] = {}
         self._paths: Dict[str, str] = {}
         self._strangers: Dict[int, float] = {}
+        self._withheld_told: Dict[str, float] = {}   # guest -> when cl_withheld was last said
         self._menu_web: Dict[str, bool] = {}   # sync_menus: the web state each menu shows
 
     # -- incoming ---------------------------------------------------------- #
@@ -393,6 +394,13 @@ class Relay:
         guest). Nothing here logs the text or the secret."""
         if "sk-ant-" not in json.dumps(update, ensure_ascii=False):
             return False
+        cb = update.get("callback_query")
+        if isinstance(cb, dict):                     # stop the spinner, say nothing
+            try:
+                self.tg.call("answerCallbackQuery", {"callback_query_id": cb.get("id")})
+            except Exception as exc:
+                self.log(f"CLAUDE-ANSWER-FAILED guest={guest.name} {type(exc).__name__}")
+            return True
         msg = update.get("message") or update.get("edited_message")
         own = ""
         chat = None
@@ -416,6 +424,11 @@ class Relay:
                 self._say(guest, _t("cl_delete_it"), chat=chat)
         if guest.enabled and claudekeys.classify(own):
             self._later(self._switch_to_own, guest, own, chat)
+        else:                                        # nothing will answer: say why, once a minute
+            now = time.time()
+            if now - self._withheld_told.get(guest.name, float("-inf")) >= 60:
+                self._withheld_told[guest.name] = now
+                self._say(guest, _t("cl_withheld"), chat=chat)
         return True
 
     def _switch_to_own(self, guest: "ts.Guest", text: str, chat=None) -> None:

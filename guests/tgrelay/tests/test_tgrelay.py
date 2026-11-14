@@ -910,7 +910,6 @@ def test_back_goes_to_the_owners_setup_and_deletes_the_key(cl_relay, tg, book, k
 def test_a_guest_cannot_press_for_another(cl_relay, tg, book, keys):
     keys.put("anna", "api", KEY)
     book.set_claude("anna", mode="own", owner_mode="owner_key")
-    before_key = (keys.root if hasattr(keys, "root") else None)
     anna_record = book.get("anna")
     cl_relay.route({"update_id": 81, "callback_query": {
         "id": "c8", "from": {"id": BORIS}, "data": "cl:back",
@@ -1030,3 +1029,43 @@ def test_only_the_exact_claude_buttons_are_ours(cl_relay, tg):
     cl_relay.route(_cb(ANNA, "cl:other"))
     assert len(cl_relay.get_updates("anna", 0, 100, 0)) == 2
     assert not said(tg, ANNA)
+
+
+def test_a_withheld_message_without_a_switch_tells_the_guest_once_a_minute(cl_relay, tg):
+    cl_relay.route(msg(ANNA, "sk-ant-api03-short", 120))
+    cl_relay.route(msg(ANNA, "sk-ant-api03-short again", 121))
+    told = [s for s in said(tg, ANNA) if s["text"] == texts.t("cl_withheld")]
+    assert len(told) == 1
+    assert "sk-ant-" not in texts.t("cl_withheld")
+
+
+def test_a_reply_quoting_a_key_tells_the_guest_in_that_chat(cl_relay, tg):
+    GROUP = -100777
+    m = msg(ANNA, "what is this?", 122,
+            reply_to_message={"message_id": 2, "chat": {"id": GROUP}, "text": f"k {KEY}"})
+    m["message"]["chat"] = {"id": GROUP, "type": "supergroup"}
+    cl_relay.route(m)
+    assert any(s["text"] == texts.t("cl_withheld") for s in said(tg, GROUP))
+
+
+def test_a_disabled_guest_is_told_too(cl_relay, tg, book):
+    book.set_enabled("anna", False)
+    cl_relay.route(msg(ANNA, KEY, 123))
+    assert any(s["text"] == texts.t("cl_withheld") for s in said(tg, ANNA))
+
+
+def test_an_inline_query_tells_the_guest_in_the_private_chat(cl_relay, tg):
+    cl_relay.route({"update_id": 124, "inline_query": {
+        "id": "q", "from": {"id": ANNA}, "query": "sk-ant-api03-short", "offset": ""}})
+    assert any(s["text"] == texts.t("cl_withheld") for s in said(tg, ANNA))
+
+
+def test_a_full_key_switch_is_not_also_called_withheld(cl_relay, tg):
+    cl_relay.route(msg(ANNA, KEY, 125))
+    assert not any(s["text"] == texts.t("cl_withheld") for s in said(tg, ANNA))
+
+
+def test_a_withheld_callback_press_stops_the_spinner(cl_relay, tg):
+    cl_relay.route(_cb(ANNA, "x sk-ant-api03-short"))
+    assert cl_relay.get_updates("anna", 0, 100, 0) == []
+    assert ("answerCallbackQuery", {"callback_query_id": "c"}, {}) in tg.calls
