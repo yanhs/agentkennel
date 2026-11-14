@@ -440,7 +440,7 @@ def test_services_is_added_to_the_menu(svc_relay, tg):
     cmds = json.dumps([{"command": "list", "description": "terminals"}])
     svc_relay.call("anna", "setMyCommands", {"commands": cmds})
     sent = json.loads(tg.calls[-1][1]["commands"])
-    assert [c["command"] for c in sent] == ["list", "web", "newpassword", "services"]
+    assert [c["command"] for c in sent] == ["list", "web", "newpassword", "claude", "services"]
 
 
 def test_welcome_mentions_services():
@@ -613,7 +613,7 @@ def test_newpassword_is_in_the_menu(info_relay, tg):
     cmds = json.dumps([{"command": "list", "description": "terminals"}])
     info_relay.call("anna", "setMyCommands", {"commands": cmds})
     sent = json.loads(tg.calls[-1][1]["commands"])
-    assert [c["command"] for c in sent] == ["list", "web", "newpassword"]
+    assert [c["command"] for c in sent] == ["list", "web", "newpassword", "claude"]
 
 
 # ── a guest without web access: no /web, no /newpassword, not even in the menu
@@ -638,7 +638,7 @@ def test_no_web_menu_has_neither_web_nor_newpassword(noweb_relay, tg):
                        {"command": "web", "description": "sneaked in"}])
     noweb_relay.call("anna", "setMyCommands", {"commands": cmds})
     sent = json.loads(tg.calls[-1][1]["commands"])
-    assert [c["command"] for c in sent] == ["list"]
+    assert [c["command"] for c in sent] == ["list", "claude"]
 
 
 def test_no_web_start_greets_without_address_password_or_web_commands(noweb_relay, tg):
@@ -690,29 +690,29 @@ class MenuTelegram(FakeTelegram):
 def test_turning_web_off_takes_it_out_of_a_menu_already_shown(book, passes):
     """The sandbox set its menu long ago; the owner turns web off now: the menu loses
     /web and /newpassword without waiting for the sandbox to set it again."""
-    tg = MenuTelegram({ANNA: ["list", "web", "newpassword", "services"],
-                       BORIS: ["list", "web", "newpassword"]})
+    tg = MenuTelegram({ANNA: ["list", "web", "newpassword", "claude", "services"],
+                       BORIS: ["list", "web", "newpassword", "claude"]})
     relay = tr.Relay(book, tg)
     relay.sync_menus()
-    assert tg.menus == {ANNA: ["list", "web", "newpassword", "services"],
-                        BORIS: ["list", "web", "newpassword"]}      # nothing to change
+    assert tg.menus == {ANNA: ["list", "web", "newpassword", "claude", "services"],
+                        BORIS: ["list", "web", "newpassword", "claude"]}      # nothing to change
     book.set_web("anna", False)
     relay.sync_menus()
-    assert tg.menus[ANNA] == ["list", "services"]
-    assert tg.menus[BORIS] == ["list", "web", "newpassword"]
+    assert tg.menus[ANNA] == ["list", "claude", "services"]
+    assert tg.menus[BORIS] == ["list", "web", "newpassword", "claude"]
     calls = len(tg.calls)
     relay.sync_menus()                                       # already in step: no calls
     assert len(tg.calls) == calls
 
 
 def test_turning_web_back_on_puts_it_back(book, passes):
-    tg = MenuTelegram({ANNA: ["list", "services"]})
+    tg = MenuTelegram({ANNA: ["list", "claude", "services"]})
     book.set_web("anna", False)
     relay = tr.Relay(book, tg)
     relay.sync_menus()
     book.set_web("anna", True)
     relay.sync_menus()
-    assert tg.menus[ANNA] == ["list", "services", "web", "newpassword"]
+    assert tg.menus[ANNA] == ["list", "claude", "services", "web", "newpassword"]
 
 
 def test_a_menu_never_set_is_left_alone(book, passes):
@@ -724,8 +724,195 @@ def test_a_menu_never_set_is_left_alone(book, passes):
 
 def test_a_disabled_guest_without_web_loses_it_from_the_menu_too(book, passes):
     """Vlad is off now and comes back without web: the menu is clean before he does."""
-    tg = MenuTelegram({ANNA: ["list", "web", "newpassword"]})
+    tg = MenuTelegram({ANNA: ["list", "web", "newpassword", "claude"]})
     book.set_enabled("anna", False)
     book.set_web("anna", False)
     tr.Relay(book, tg).sync_menus()
-    assert tg.menus[ANNA] == ["list"]
+    assert tg.menus[ANNA] == ["list", "claude"]
+
+
+# --------------------------------------------------------------------------- #
+# /claude: what the guest's Claude runs on; a pasted key never reaches the sandbox
+# --------------------------------------------------------------------------- #
+import claudekeys  # noqa: E402
+
+KEY = "sk-ant-api03-" + "A1b2C3d4E5" * 4          # 40 characters after the prefix
+OAUTH = "sk-ant-oat01-" + "Z9y8X7w6V5" * 4
+
+
+@pytest.fixture
+def keys(tmp_path):
+    return claudekeys.KeyStore(tmp_path)
+
+
+@pytest.fixture
+def told():
+    return []
+
+
+@pytest.fixture
+def cl_relay(book, tg, passes, keys, tmp_path, told):
+    ledger = ts.Ledger(tmp_path / "usage.db")
+    seen = []
+    ok = lambda kind, secret: (True, "")                     # noqa: E731
+    r = tr.Relay(book, tg, keys=keys, ledger=ledger, background=False,
+                 claude_check=lambda kind, secret: (seen.append((kind, secret)) or ok(kind, secret)),
+                 notify=told.append)
+    r.seen = seen
+    return r
+
+
+def sent_texts(tg, chat=None):
+    return [c[1] for c in tg.calls if c[0] == "sendMessage"
+            and (chat is None or c[1]["chat_id"] == chat)]
+
+
+def test_the_menu_has_claude_with_web_on_and_off(book, passes):
+    cmds = json.dumps([{"command": "list", "description": "terminals"}])
+    for web in (True, False):
+        names = [c["command"] for c in tr._menu_for(cmds, web)]
+        assert "claude" in names
+        assert tr.claude_command() == {"command": "claude",
+                                       "description": texts.EN["cmd_claude"]}
+
+
+def test_claude_command_is_in_the_menu_the_sandbox_sets(relay, tg):
+    relay.call("anna", "setMyCommands", {"commands": "[]"})
+    assert "claude" in [c["command"] for c in json.loads(tg.calls[-1][1]["commands"])]
+
+
+def test_claude_shows_the_mode_and_the_two_buttons(cl_relay, tg, book):
+    book.set_claude("anna", mode="owner_key")
+    cl_relay.route(msg(ANNA, "/claude", 50))
+    sent = sent_texts(tg, ANNA)[-1]
+    assert "$0.00" in sent["text"] and "$20.00" in sent["text"]
+    kb = json.loads(sent["reply_markup"])["inline_keyboard"]
+    assert [b["callback_data"] for row in kb for b in row] == ["cl:own_key", "cl:own_sub"]
+    assert cl_relay.get_updates("anna", 0, 100, 0) == []          # not for the sandbox
+
+
+def test_claude_for_the_owners_subscription(cl_relay, tg):
+    cl_relay.route(msg(ANNA, "/claude", 51))
+    assert texts.t("cl_now_owner_sub") in sent_texts(tg, ANNA)[-1]["text"]
+
+
+def test_claude_on_own_key_names_the_end_and_offers_back_only_with_an_owner_mode(
+        cl_relay, tg, book, keys):
+    keys.put("anna", "api", KEY)
+    book.set_claude("anna", mode="own")
+    cl_relay.route(msg(ANNA, "/claude", 52))
+    sent = sent_texts(tg, ANNA)[-1]
+    assert KEY[-4:] in sent["text"] and KEY not in sent["text"]
+    datas = [b["callback_data"] for row in json.loads(sent["reply_markup"])["inline_keyboard"]
+             for b in row]
+    assert ("cl:back" in datas) == (book.get("anna").claude.get("owner_mode") is not None)
+
+
+def test_a_broken_block_says_so_and_has_no_buttons(cl_relay, tg, book):
+    import json as j
+    raw = j.loads(book.path.read_text())
+    raw["guests"]["anna"]["claude"] = {"mode": "nonsense"}
+    book.path.write_text(j.dumps(raw))
+    book._seen = None
+    cl_relay.route(msg(ANNA, "/claude", 53))
+    sent = sent_texts(tg, ANNA)[-1]
+    assert sent["text"] == texts.t("own_settings_broken")
+    assert "reply_markup" not in sent
+
+
+def test_buttons_explain_what_to_send(cl_relay, tg):
+    for data, key in (("cl:own_key", "cl_send_key"), ("cl:own_sub", "cl_send_token")):
+        cl_relay.route({"update_id": 60, "callback_query": {
+            "id": "c1", "from": {"id": ANNA}, "data": data,
+            "message": {"message_id": 9, "chat": {"id": ANNA}}}})
+        assert sent_texts(tg, ANNA)[-1]["text"] == texts.t(key)
+    assert "setup-token" in texts.t("cl_send_token")
+    assert cl_relay.get_updates("anna", 0, 100, 0) == []
+
+
+@pytest.mark.parametrize("text,extra", [
+    (f"here it is: {KEY} ", {}),
+    ("", {"caption": f"my key {KEY}", "photo": [{"file_id": "F"}]}),
+])
+def test_a_key_is_deleted_and_never_reaches_the_sandbox(cl_relay, tg, text, extra, keys, book):
+    m = msg(ANNA, text, 70, **extra)
+    m["message"]["message_id"] = 77
+    if not text:
+        del m["message"]["text"]
+    cl_relay.route(m)
+    assert cl_relay.get_updates("anna", 0, 100, 0) == []
+    assert ("deleteMessage", {"chat_id": ANNA, "message_id": 77}, {}) in tg.calls
+    assert cl_relay.seen == [("api", KEY)]
+    assert keys.get("anna") == ("api", KEY) and book.get("anna").claude["mode"] == "own"
+    assert KEY[-4:] in sent_texts(tg, ANNA)[-1]["text"]
+
+
+def test_an_edited_message_with_a_key_is_caught_too(cl_relay, tg):
+    m = msg(ANNA, f"oops {OAUTH}", 71)
+    cl_relay.route({"update_id": 71, "edited_message": m["message"]})
+    assert cl_relay.get_updates("anna", 0, 100, 0) == []
+    assert any(c[0] == "deleteMessage" for c in tg.calls)
+    assert cl_relay.seen == [("oauth", OAUTH)]
+
+
+def test_the_key_is_never_logged(book, tg, passes, keys, tmp_path):
+    lines = []
+    r = tr.Relay(book, tg, keys=keys, ledger=ts.Ledger(tmp_path / "u.db"), background=False,
+                 claude_check=lambda k, s: (True, ""), notify=lambda t: None, log=lines.append)
+    r.route(msg(ANNA, f"{KEY}", 72))
+    assert lines and all(KEY not in l and KEY[-12:] not in l for l in lines)
+    assert any(l == "KEY guest=anna ok=True" for l in lines)
+
+
+def test_a_refused_key_answers_why_and_changes_nothing(book, tg, passes, keys, tmp_path):
+    r = tr.Relay(book, tg, keys=keys, ledger=ts.Ledger(tmp_path / "u.db"), background=False,
+                 claude_check=lambda k, s: (False, "invalid x-api-key"), notify=lambda t: None)
+    r.route(msg(ANNA, KEY, 73))
+    assert "invalid x-api-key" in sent_texts(tg, ANNA)[-1]["text"]
+    assert keys.get("anna") is None and book.get("anna").claude["mode"] != "own"
+    assert any(c[0] == "deleteMessage" for c in tg.calls)
+
+
+def test_when_delete_fails_the_key_is_still_not_forwarded_and_the_guest_is_told(
+        book, passes, keys, tmp_path):
+    class NoDelete(FakeTelegram):
+        def call(self, method, params, files=None):
+            if method == "deleteMessage":
+                super().call(method, params, files)
+                return {"ok": False, "description": "can't delete"}
+            return super().call(method, params, files)
+    tg2 = NoDelete()
+    r = tr.Relay(book, tg2, keys=keys, ledger=ts.Ledger(tmp_path / "u.db"), background=False,
+                 claude_check=lambda k, s: (True, ""), notify=lambda t: None)
+    r.route(msg(ANNA, KEY, 74))
+    assert r.get_updates("anna", 0, 100, 0) == []
+    assert any(s["text"] == texts.t("cl_delete_it") for s in sent_texts(tg2, ANNA))
+
+
+def test_a_stranger_pasting_a_key_is_handled_as_a_stranger(cl_relay, tg, keys):
+    cl_relay.route(msg(999, KEY, 75))
+    assert cl_relay.seen == [] and keys.get("999") is None
+    assert not any(c[0] == "deleteMessage" for c in tg.calls)
+    assert sent_texts(tg, 999)
+
+
+def test_back_goes_to_the_owners_setup_and_deletes_the_key(cl_relay, tg, book, keys, told):
+    keys.put("anna", "api", KEY)
+    book.set_claude("anna", mode="own", owner_mode="owner_key")
+    cl_relay.route({"update_id": 80, "callback_query": {
+        "id": "c9", "from": {"id": ANNA}, "data": "cl:back",
+        "message": {"message_id": 9, "chat": {"id": ANNA}}}})
+    assert book.get("anna").claude["mode"] == "owner_key" and keys.get("anna") is None
+    assert sent_texts(tg, ANNA)[-1]["text"] == texts.t("own_back")
+    assert told
+
+
+def test_a_guest_cannot_press_for_another(cl_relay, tg, book, keys):
+    keys.put("anna", "api", KEY)
+    book.set_claude("anna", mode="own", owner_mode="owner_key")
+    # Boris presses back (and puts Anna's name in the data): only Boris is touched
+    cl_relay.route({"update_id": 81, "callback_query": {
+        "id": "c8", "from": {"id": BORIS}, "data": "cl:back:anna",
+        "message": {"message_id": 9, "chat": {"id": BORIS}}}})
+    assert book.get("anna").claude["mode"] == "own" and keys.get("anna") is not None
+    assert all(s["chat_id"] == BORIS for s in sent_texts(tg))

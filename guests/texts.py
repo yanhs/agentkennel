@@ -24,6 +24,23 @@ EN = {
     "cmd_web": "browser address and password",
     "cmd_newpassword": "a new browser password",
     "cmd_services": "what runs without a terminal",
+    "cmd_claude": "what Claude runs on, or add your own key",
+    "cl_now_owner_key": "Claude runs on the owner's API key. This week: ${used:.2f} of "
+                        "${limit:.2f}.",
+    "cl_now_owner_sub": "Claude runs on the owner's subscription, with weekly limits.",
+    "cl_now_own": "Claude runs on your own key or login (ends in {last4}).",
+    "cl_send_key": "Send your Anthropic API key here as a message (it starts with sk-ant-api). "
+                   "The bot deletes the message right away and keeps the key only on the "
+                   "server, never in the sandbox.",
+    "cl_send_token": "In a terminal run `claude setup-token`, sign in, and send the token it "
+                     "prints (it starts with sk-ant-oat) here as a message. The bot deletes the "
+                     "message right away and keeps the token only on the server, never in the "
+                     "sandbox.",
+    "cl_delete_it": "Please delete your message with the key yourself: the bot couldn't. "
+                    "It was not passed on to anyone.",
+    "btn_cl_own_key": "Own API key",
+    "btn_cl_own_sub": "Own subscription",
+    "btn_cl_back": "Back to the owner's key",
     "ago_min": "{m} min",
     "ago_h_min": "{h} h {m} min",
     "ago_h": "{h} h",
@@ -231,6 +248,22 @@ RU = {
     "cmd_web": "адрес в браузере и пароль",
     "cmd_newpassword": "новый пароль для браузера",
     "cmd_services": "что работает без терминала",
+    "cmd_claude": "на чём работает Claude, или свой ключ",
+    "cl_now_owner_key": "Claude работает на API-ключе владельца. За эту неделю: ${used:.2f} "
+                        "из ${limit:.2f}.",
+    "cl_now_owner_sub": "Claude работает на подписке владельца, с недельными лимитами.",
+    "cl_now_own": "Claude работает на вашем ключе или входе (оканчивается на {last4}).",
+    "cl_send_key": "Пришлите свой API-ключ Anthropic сюда сообщением (он начинается с "
+                   "sk-ant-api). Бот сразу удалит сообщение и хранит ключ только на сервере, "
+                   "не в песочнице.",
+    "cl_send_token": "В терминале выполните `claude setup-token`, войдите и пришлите сюда "
+                     "сообщением выданный токен (он начинается с sk-ant-oat). Бот сразу удалит "
+                     "сообщение и хранит токен только на сервере, не в песочнице.",
+    "cl_delete_it": "Удалите, пожалуйста, своё сообщение с ключом сами: у бота не вышло. "
+                    "Дальше оно никому не передано.",
+    "btn_cl_own_key": "Own API key",
+    "btn_cl_own_sub": "Own subscription",
+    "btn_cl_back": "Back to the owner's key",
     "ago_min": "{m} мин",
     "ago_h_min": "{h} ч {m} мин",
     "ago_h": "{h} ч",

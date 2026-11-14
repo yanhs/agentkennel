@@ -382,7 +382,7 @@
   [
    "setMyCommands",
    {
-    "commands": "[{\"command\": \"list\", \"description\": \"x\"}, {\"command\": \"web\", \"description\": \"browser address and password\"}, {\"command\": \"newpassword\", \"description\": \"a new browser password\"}, {\"command\": \"services\", \"description\": \"what runs without a terminal\"}]",
+    "commands": "[{\"command\": \"list\", \"description\": \"x\"}, {\"command\": \"web\", \"description\": \"browser address and password\"}, {\"command\": \"newpassword\", \"description\": \"a new browser password\"}, {\"command\": \"claude\", \"description\": \"what Claude runs on, or add your own key\"}, {\"command\": \"services\", \"description\": \"what runs without a terminal\"}]",
     "scope": "{\"type\": \"chat\", \"chat_id\": 1001}"
    }
   ]

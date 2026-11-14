@@ -37,6 +37,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE.parent / "turnstile"))
 import dashpass  # noqa: E402  (/web: whose password is in force; /newpassword)
+import claudekeys  # noqa: E402  (a pasted key: found, checked, kept on the host)
 import guestenv  # noqa: E402
 import invites as inv  # noqa: E402  (requests only; deciding is the owner's bot)
 import texts  # noqa: E402
@@ -99,6 +100,10 @@ def newpassword_command() -> Dict:
 
 def services_command() -> Dict:
     return {"command": "services", "description": texts.EN["cmd_services"]}
+
+
+def claude_command() -> Dict:
+    return {"command": "claude", "description": texts.EN["cmd_claude"]}
 
 
 SERVICE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}$")   # the keeper's names
@@ -221,7 +226,7 @@ def _menu_for(commands, web: bool, extras=()) -> list:
     items = [c for c in _with_extras(commands, ()) if web
              or not (isinstance(c, dict) and c.get("command") in WEB_COMMANDS)]
     return _with_extras(items, ((web_command(), newpassword_command()) if web else ())
-                        + tuple(extras))
+                        + (claude_command(),) + tuple(extras))
 
 
 def web_text(info: Optional[Dict], welcome: bool, domain: Optional[str] = None) -> str:
@@ -283,8 +288,13 @@ class Relay:
                  log=lambda line: print(line, file=sys.stderr, flush=True),
                  info_for=lambda name: None, services=None, background: bool = True,
                  settle: float = 3.5, invites: Optional[Invitations] = None,
-                 reset_for=lambda name: None) -> None:
+                 reset_for=lambda name: None, keys=None, ledger=None,
+                 claude_check=None, notify=None) -> None:
         self.book = book
+        self.keys = keys               # claudekeys.KeyStore: where a guest's own key is kept
+        self.ledger = ledger           # turnstile Ledger: dollars spent (the /claude screen)
+        self._check = claude_check or claudekeys.check   # asks Anthropic; tests fake it
+        self._notify = notify          # None = the owner's bot (guestenv.notify_owner)
         self.tg = telegram
         self.info_for = info_for  # name -> {"url", "password"} of the guest's dashboard
         self.reset_for = reset_for  # /newpassword: name -> the same with a NEW password, or None
@@ -326,7 +336,16 @@ class Relay:
         if not guest.enabled:
             self.log(f"DROP disabled guest={guest.name} update={update.get('update_id')}")
             return None
+        if self._intercept_key(guest, update):       # before anything else sees the message
+            return guest.name
         command = _command(update)
+        if command == "/claude":
+            self._later(self._show_claude, guest)
+            return guest.name
+        cb = update.get("callback_query")
+        if isinstance(cb, dict) and str(cb.get("data") or "").startswith("cl:"):
+            self._later(self._press_claude, guest, cb)
+            return guest.name
         if command == "/start" and not guest.web:
             self._send_web(guest, noweb_text())
             return guest.name
@@ -353,6 +372,98 @@ class Relay:
             self._files.setdefault(guest.name, set()).update(_file_ids(update))
             self._cond.notify_all()
         return guest.name
+
+    # -- /claude ------------------------------------------------------------ #
+    def _say(self, guest: "ts.Guest", text: str, markup: Optional[Dict] = None) -> None:
+        params = {"chat_id": guest.telegram_id, "text": text}
+        if markup:
+            params["reply_markup"] = json.dumps(markup, ensure_ascii=False)
+        try:
+            self.tg.call("sendMessage", params)
+        except Exception as exc:
+            self.log(f"CLAUDE-SEND-FAILED guest={guest.name} {type(exc).__name__}")
+
+    def _intercept_key(self, guest: "ts.Guest", update: Dict) -> bool:
+        """A message (text, caption, or an edit of either) holding an Anthropic key never
+        goes on to the sandbox: it is deleted from the chat and the key is switched to in
+        the background. The text and the secret are never logged."""
+        msg = update.get("message") or update.get("edited_message")
+        if not isinstance(msg, dict):
+            return False
+        found = claudekeys.classify(str(msg.get("text") or msg.get("caption") or ""))
+        if not found:
+            return False
+        text = str(msg.get("text") or msg.get("caption"))
+        deleted = False
+        try:
+            r = self.tg.call("deleteMessage", {"chat_id": guest.telegram_id,
+                                               "message_id": msg.get("message_id")})
+            deleted = bool(r.get("ok")) if isinstance(r, dict) else False
+        except Exception:
+            deleted = False
+        if not deleted:
+            self._say(guest, _t("cl_delete_it"))
+        self._later(self._switch_to_own, guest, text)
+        return True
+
+    def _switch_to_own(self, guest: "ts.Guest", text: str) -> None:
+        try:
+            if self.keys is None:
+                ok, message = False, _t("own_failed")
+            else:
+                ok, message = claudekeys.switch_own(self.book, self.keys, guest.name, text,
+                                                    check=self._check, notify=self._notify)
+        except Exception as exc:
+            ok, message = False, _t("own_failed")
+            self.log(f"KEY-ERROR guest={guest.name} {type(exc).__name__}")
+        self.log(f"KEY guest={guest.name} ok={ok}")
+        self._say(guest, message)
+
+    def _show_claude(self, guest: "ts.Guest") -> None:
+        try:
+            view = ts.claude_view(guest, self.ledger, self.keys)
+        except Exception as exc:
+            self.log(f"CLAUDE-VIEW-FAILED guest={guest.name} {type(exc).__name__}")
+            self._say(guest, _t("own_failed"))
+            return
+        if view.get("error"):
+            self._say(guest, _t("own_settings_broken"))
+            return
+        mode = view["mode"]
+        if mode == "owner_key" and view.get("usd"):
+            text = _t("cl_now_owner_key", used=view["usd"]["used"], limit=view["usd"]["limit"])
+        elif mode == "own":
+            text = _t("cl_now_own", last4=view.get("last4") or "…")
+        else:
+            text = _t("cl_now_owner_sub")
+        rows = [[{"text": texts.EN["btn_cl_own_key"], "callback_data": "cl:own_key"}],
+                [{"text": texts.EN["btn_cl_own_sub"], "callback_data": "cl:own_sub"}]]
+        if mode == "own" and view.get("owner_mode"):
+            rows.append([{"text": texts.EN["btn_cl_back"], "callback_data": "cl:back"}])
+        self._say(guest, text, {"inline_keyboard": rows})
+
+    def _press_claude(self, guest: "ts.Guest", cb: Dict) -> None:
+        """A /claude button. The guest is the presser (found by the sender); nothing in the
+        button names anyone."""
+        action = str(cb.get("data")).partition(":")[2]
+        try:
+            self.tg.call("answerCallbackQuery", {"callback_query_id": cb.get("id")})
+        except Exception as exc:
+            self.log(f"CLAUDE-ANSWER-FAILED guest={guest.name} {type(exc).__name__}")
+        if action == "own_key":
+            self._say(guest, _t("cl_send_key"))
+        elif action == "own_sub":
+            self._say(guest, _t("cl_send_token"))
+        elif action == "back":
+            try:
+                ok, message = (claudekeys.switch_back(self.book, self.keys, guest.name,
+                                                      notify=self._notify, log=self.log)
+                               if self.keys is not None else (False, _t("own_failed")))
+            except Exception as exc:
+                ok, message = False, _t("own_failed")
+                self.log(f"KEY-ERROR guest={guest.name} {type(exc).__name__}")
+            self.log(f"KEY-BACK guest={guest.name} ok={ok}")
+            self._say(guest, message)
 
     def sync_menus(self) -> None:
         """A menu already shown follows the guest's web switch (on or off since the
@@ -781,7 +892,8 @@ def main() -> int:
     if owner and owner.isdigit():
         invites = Invitations(inv.RequestBook(data / "requests.json"), int(owner))
     relay = Relay(book, api, info_for=info_for, services=KeeperClient(keeper_base),
-                  invites=invites, reset_for=reset_for)
+                  invites=invites, reset_for=reset_for,
+                  keys=claudekeys.KeyStore(data), ledger=ts.Ledger(data / "usage.db"))
     bind = os.environ.get("TGRELAY_BIND", "127.0.0.1")
     port = int(os.environ.get("TGRELAY_PORT", "8792"))
     server = make_server(bind, port, relay)
