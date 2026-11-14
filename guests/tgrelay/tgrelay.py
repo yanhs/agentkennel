@@ -457,16 +457,19 @@ class Relay:
         mode = view["mode"]
         if mode == "owner_key" and view.get("usd"):
             text = _t("cl_now_owner_key", used=view["usd"]["used"], limit=view["usd"]["limit"])
-        elif mode == "own":
-            text = _t("cl_now_own", last4=view.get("last4") or "…")
+        elif mode == "own" and view.get("last4"):
+            text = _t("cl_now_own", last4=view["last4"])
+        elif mode == "own":                        # the owner picked it, no key saved yet
+            text = _t("cl_now_own_none")
         elif mode == "owner_key":
             text = _t("cl_now_owner_key_plain")
         else:
             text = _t("cl_now_owner_sub")
-        rows = [[{"text": texts.EN["btn_cl_own_key"], "callback_data": "cl:own_key"}],
-                [{"text": texts.EN["btn_cl_own_sub"], "callback_data": "cl:own_sub"}]]
+        rows = [[{"text": _t("btn_cl_own_key"), "callback_data": "cl:own_key"}],
+                [{"text": _t("btn_cl_own_sub"), "callback_data": "cl:own_sub"}]]
         if mode == "own" and view.get("owner_mode"):
-            rows.append([{"text": texts.EN["btn_cl_back"], "callback_data": "cl:back"}])
+            back = "btn_cl_back_sub" if view["owner_mode"] == "owner_sub" else "btn_cl_back_key"
+            rows.append([{"text": _t(back), "callback_data": "cl:back"}])
         self._say(guest, text, {"inline_keyboard": rows})
 
     def _press_claude(self, guest: "ts.Guest", cb: Dict) -> None:

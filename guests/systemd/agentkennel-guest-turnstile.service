@@ -1,7 +1,7 @@
 # Template: guests/install.sh fills in @USER@ / @HOME@ / @GUESTS_DIR@ and writes it to
 # /etc/systemd/system. Settings come from @GUESTS_DIR@/.env (read by the program itself).
 [Unit]
-Description=AgentKennel guests: Claude turnstile (owner's subscription behind guest passes)
+Description=AgentKennel guests: Claude turnstile (guest passes to the owner's API key, a guest's own key, or the owner's subscription)
 After=network-online.target docker.service sbx-firewall.service
 Wants=network-online.target
 

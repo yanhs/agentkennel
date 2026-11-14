@@ -30,6 +30,8 @@ EN = {
     "cl_now_owner_key_plain": "Claude runs on the owner's API key.",
     "cl_now_owner_sub": "Claude runs on the owner's subscription, with weekly limits.",
     "cl_now_own": "Claude runs on your own key or login (ends in {last4}).",
+    "cl_now_own_none": "Claude is set to run on your own key or login, and none is saved yet. "
+                       "Add one with the buttons below.",
     "cl_send_key": "Send your Anthropic API key here as a message (it starts with sk-ant-api). "
                    "The bot deletes the message right away and keeps the key only on the "
                    "server, never in the sandbox.",
@@ -44,7 +46,8 @@ EN = {
                     "It was not passed on to anyone.",
     "btn_cl_own_key": "Own API key",
     "btn_cl_own_sub": "Own subscription",
-    "btn_cl_back": "Back to the owner's key",
+    "btn_cl_back_key": "Back to the owner's key",
+    "btn_cl_back_sub": "Back to the owner's subscription",
     "ago_min": "{m} min",
     "ago_h_min": "{h} h {m} min",
     "ago_h": "{h} h",
@@ -258,6 +261,8 @@ RU = {
     "cl_now_owner_key_plain": "Claude работает на API-ключе владельца.",
     "cl_now_owner_sub": "Claude работает на подписке владельца, с недельными лимитами.",
     "cl_now_own": "Claude работает на вашем ключе или входе (оканчивается на {last4}).",
+    "cl_now_own_none": "Claude настроен на ваш собственный ключ или вход, но он ещё не "
+                       "добавлен. Добавить — кнопками ниже.",
     "cl_send_key": "Пришлите свой API-ключ Anthropic сюда сообщением (он начинается с "
                    "sk-ant-api). Бот сразу удалит сообщение и хранит ключ только на сервере, "
                    "не в песочнице.",
@@ -269,9 +274,10 @@ RU = {
                    "сообщением или откройте /claude.",
     "cl_delete_it": "Удалите, пожалуйста, своё сообщение с ключом сами: у бота не вышло. "
                     "Дальше оно никому не передано.",
-    "btn_cl_own_key": "Own API key",
-    "btn_cl_own_sub": "Own subscription",
-    "btn_cl_back": "Back to the owner's key",
+    "btn_cl_own_key": "Свой API-ключ",
+    "btn_cl_own_sub": "Своя подписка",
+    "btn_cl_back_key": "Вернуться на ключ владельца",
+    "btn_cl_back_sub": "Вернуться на подписку владельца",
     "ago_min": "{m} мин",
     "ago_h_min": "{h} ч {m} мин",
     "ago_h": "{h} ч",

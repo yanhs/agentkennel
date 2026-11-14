@@ -698,8 +698,11 @@ def cmd_list(a) -> int:
     rows = guests_report()
     if getattr(a, "json", False):
         key = claudekeys.KeyStore(DATA).owner()
-        spent = sum((r["claude"]["usd"] or {}).get("used", 0) for r in rows
-                    if r["claude"]["mode"] == "owner_key")
+        spent = 0.0
+        if rows:     # every guest's owner-key dollars this week, whatever they run on now
+            ledger = ts.Ledger(DATA / "usage.db")
+            start, end = ts.week_bounds(time.time(), ledger.week_reset())
+            spent = sum(ledger.usd_between(r["name"], start, end) for r in rows)
         print(json.dumps({"guests": rows,
                           "owner_key": {"set": bool(key), "last4": claudekeys.last4(key) if key else None},
                           "owner_key_week_usd": round(spent, 2)}, ensure_ascii=False))
@@ -809,9 +812,14 @@ def cmd_claude(a) -> int:
     except (ValueError, TypeError) as exc:
         return _fail(exc)
     keys = claudekeys.KeyStore(DATA)
-    if was_own and book.get(a.name).claude["mode"] != "own":
-        keys.drop(a.name)                     # the secret does not outlive its use
     res = {"ok": True, "claude": book.get(a.name).claude}
+    if was_own and res["claude"]["mode"] != "own":
+        try:
+            keys.drop(a.name)                 # the secret does not outlive its use
+        except OSError as exc:
+            print(f"KEY-NOT-DELETED guest={a.name} {type(exc).__name__}", file=sys.stderr)
+            res["key_not_deleted"] = True
+            res["message"] = "Saved, but the guest's own key could not be deleted from the host."
     if d.get("mode") == "owner_key" and not keys.owner():
         res["warning"] = "no_owner_key"
     print(json.dumps(res))

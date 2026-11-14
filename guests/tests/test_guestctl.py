@@ -1153,3 +1153,144 @@ def test_defaults_accept_the_rules_exactly_as_the_page_sends_them(data, capsys):
     assert gc.main(["defaults", "--set", json.dumps({"rules": off})]) == 0
     assert out_json(capsys)["rules"]["on"] is False
     assert gdefaults.load(data)["rules"]["work"] == "The bakery site"
+
+
+# -- final review: never repaired into the subscription; the week's owner-key total ----- #
+BROKEN = {"mode": "owner_key", "usd_week": "twenty"}
+
+
+def _store(data, name, block):
+    """Write a guest's claude block as found on disk (None: a legacy record without one)."""
+    path = data / "guests.json"
+    raw = json.loads(path.read_text())
+    if block is None:
+        raw["guests"][name].pop("claude", None)
+    else:
+        raw["guests"][name]["claude"] = block
+    path.write_text(json.dumps(raw))
+
+
+def test_guestctl_claude_without_mode_on_a_broken_block_is_refused(data, capsys):
+    """Path B: `guestctl claude anna '{"usd_week": 30}'` used to store owner_sub."""
+    gc.ts.GuestBook(data / "guests.json").add("anna", 10, 2, claude={"mode": "owner_key"})
+    _store(data, "anna", BROKEN)
+    before = _raw(data)
+    assert gc.cmd_claude(ns(name="anna", json='{"usd_week": 30}')) == 1
+    res = out_json(capsys)
+    assert res["ok"] is False and "broken" in res["error"] and "choose a mode" in res["error"]
+    assert _raw(data) == before
+
+
+def _claude_on_disk(data, name="anna"):
+    return json.loads((data / "guests.json").read_text())["guests"][name].get("claude")
+
+
+START = {"owner_key": {"mode": "owner_key"},
+         "own": {"mode": "own", "owner_mode": "owner_key", "usd_week": 20, "notify_at": 0.8},
+         "broken_type": BROKEN, "broken_mode": {"mode": "bogus"},
+         "broken_own": {"mode": "own", "usd_week": -1},
+         "legacy": None}
+
+OPS = {
+    "set_claude own": lambda book, keys: book.set_claude("anna", mode="own"),
+    "set_claude owner_key": lambda book, keys: book.set_claude("anna", mode="owner_key"),
+    "set_claude usd": lambda book, keys: book.set_claude("anna", usd_week=30),
+    "set_claude notify": lambda book, keys: book.set_claude("anna", notify_at=0.5),
+    "guestctl own": lambda book, keys: gc.cmd_claude(ns(name="anna", json='{"mode": "own"}')),
+    "guestctl usd": lambda book, keys: gc.cmd_claude(ns(name="anna", json='{"usd_week": 30}')),
+    "guestctl owner_key": lambda book, keys: gc.cmd_claude(
+        ns(name="anna", json='{"mode": "owner_key", "usd_week": 5}')),
+    "guestctl owner_sub not understood": lambda book, keys: gc.cmd_claude(
+        ns(name="anna", json='{"mode": "owner_sub"}')),
+    "switch_back": lambda book, keys: claudekeys.switch_back(book, keys, "anna",
+                                                             notify=lambda t: None),
+    "own, key, back": lambda book, keys: (
+        gc.cmd_claude(ns(name="anna", json='{"mode": "own"}')),
+        claudekeys.switch_own(book, keys, "anna", GUEST_KEY, check=lambda k, s: (True, ""),
+                              notify=lambda t: None),
+        claudekeys.switch_back(book, keys, "anna", notify=lambda t: None)),
+}
+
+
+@pytest.mark.parametrize("op", list(OPS))
+@pytest.mark.parametrize("start", list(START))
+def test_no_write_ends_on_the_subscription_unless_asked(data, monkeypatch, capsys,
+                                                          start, op):
+    """Across set_claude / guestctl claude / switch_back: nothing that did not ask for
+    owner_sub stores it — except a legacy record without `claude` (that one IS owner_sub)."""
+    # switch_* tell the owner about a broken block once an hour (module state): keep that
+    # throttle to this test, or a later test's "the owner is told" finds it already used
+    monkeypatch.setattr(claudekeys, "_broken_told", {})
+    book = gc.ts.GuestBook(data / "guests.json")
+    book.add("anna", 10, 2, claude={"mode": "owner_key"})
+    _store(data, "anna", START[start])
+    keys = claudekeys.KeyStore(data)
+    if start == "own":
+        keys.put("anna", "api", GUEST_KEY)
+    try:
+        OPS[op](book, keys)
+    except (ValueError, KeyError):
+        pass
+    capsys.readouterr()
+    c = _claude_on_disk(data)
+    if start == "legacy":
+        return
+    if c == START[start]:
+        return                                   # refused: the stored block is untouched
+    assert c["mode"] != "owner_sub" and c["owner_mode"] != "owner_sub", (start, op, c)
+
+
+def test_the_guard_is_not_vacuous_owner_sub_when_asked(data, capsys):
+    book = gc.ts.GuestBook(data / "guests.json")
+    book.add("anna", 10, 2, claude={"mode": "owner_key"})
+    _store(data, "anna", BROKEN)
+    assert gc.cmd_claude(ns(name="anna", json='{"mode": "owner_sub", "understood": true}')) == 0
+    assert _claude_on_disk(data)["mode"] == "owner_sub"
+
+
+@pytest.mark.parametrize("mode", ["owner_key", "own"])
+def test_add_never_stores_the_subscription_unless_the_defaults_say_so(data, monkeypatch,
+                                                                      capsys, mode):
+    fake_add_env(data, monkeypatch)
+    gdefaults.save(data, {**gdefaults.load(data), "claude_mode": mode})
+    assert gc.cmd_add(add_args()) == 0
+    c = _claude_on_disk(data, "newbie")
+    assert c["mode"] == mode and "owner_sub" not in (c["mode"], c["owner_mode"])
+
+
+def test_owner_key_week_usd_counts_every_guest_that_spent_on_the_key(data, monkeypatch, capsys):
+    """bob spent on the owner's key this week, then moved to his own key: still counted."""
+    import time as _time
+    book = gc.ts.GuestBook(data / "guests.json")
+    book.add("anna", 10, 1, claude={"mode": "owner_key"})
+    book.add("bob", 10, 2, claude={"mode": "own"})
+    book.add("old", 10, 3)
+    ledger = gc.ts.Ledger(data / "usage.db")
+    now = _time.time()
+    ledger.record("anna", "m", {"input_tokens": 1}, ts_=now, mode="owner_key", usd=1.25)
+    ledger.record("bob", "m", {"input_tokens": 1}, ts_=now, mode="owner_key", usd=2.5)
+    ledger.record("bob", "m", {"input_tokens": 1}, ts_=now, mode="own", usd=9.0)
+    ledger.record("old", "m", {"input_tokens": 1}, ts_=now, mode="owner_sub", usd=7.0)
+    ledger.record("anna", "m", {"input_tokens": 1}, ts_=now - 30 * 86400, mode="owner_key",
+                  usd=100.0)
+    monkeypatch.setattr(gc, "_registry", lambda: {n: {"port": 1} for n in ("anna", "bob", "old")})
+    monkeypatch.setattr(gc, "container_state", lambda n: "running")
+    monkeypatch.setattr(gc, "web_exists", lambda n: False)
+    gc.cmd_list(ns(json=True))
+    assert json.loads(capsys.readouterr().out)["owner_key_week_usd"] == 3.75
+
+
+def test_claude_leaving_own_when_the_key_cannot_be_deleted(data, monkeypatch, capsys):
+    book = gc.ts.GuestBook(data / "guests.json")
+    book.add("anna", 10, 2, claude={"mode": "own"})
+    claudekeys.KeyStore(data).put("anna", "api", GUEST_KEY)
+
+    def drop(self, name):
+        raise OSError("read-only")
+    monkeypatch.setattr(claudekeys.KeyStore, "drop", drop)
+    assert gc.cmd_claude(ns(name="anna", json='{"mode": "owner_key"}')) == 0
+    cap = capsys.readouterr()
+    res = json.loads(cap.out)
+    assert res["ok"] is True and res["claude"]["mode"] == "owner_key"
+    assert res["key_not_deleted"] is True and "could not be deleted" in res["message"]
+    assert "KEY-NOT-DELETED guest=anna" in cap.err and GUEST_KEY not in cap.err + cap.out

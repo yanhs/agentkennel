@@ -368,3 +368,14 @@ def test_nothing_to_move_on_a_fresh_server(box):
     r = box.run("--yes", SUDO="")
     assert r.returncode == 0
     assert not [c for c in box.calls() if "agentdeck-" in c and "is-active" not in c]
+
+
+def test_the_turnstile_unit_describes_every_credential_not_only_the_subscription():
+    """Final review: the unit said "owner's subscription behind guest passes"; guests run on
+    the owner's API key, their own key, or the owner's subscription."""
+    text = (GUESTS / "systemd" / "agentkennel-guest-turnstile.service").read_text()
+    desc = [l for l in text.splitlines() if l.startswith("Description=")][0]
+    assert desc.startswith("Description=AgentKennel ")
+    for words in ("API key", "own key", "subscription"):
+        assert words in desc, desc
+    assert "on your subscription" not in text.lower()

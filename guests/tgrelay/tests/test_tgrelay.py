@@ -1069,3 +1069,49 @@ def test_a_withheld_callback_press_stops_the_spinner(cl_relay, tg):
     cl_relay.route(_cb(ANNA, "x sk-ant-api03-short"))
     assert cl_relay.get_updates("anna", 0, 100, 0) == []
     assert ("answerCallbackQuery", {"callback_query_id": "c"}, {}) in tg.calls
+
+
+# -- final review: /claude in the guest's language; own without a key says so ------------- #
+def _claude_keyboard(tg):
+    return {b["callback_data"]: b["text"]
+            for row in json.loads(said(tg, ANNA)[-1]["reply_markup"])["inline_keyboard"]
+            for b in row}
+
+
+def test_claude_on_own_without_a_saved_key_says_none_is_saved(cl_relay, tg, book):
+    book.set_claude("anna", mode="own")
+    cl_relay.route(msg(ANNA, "/claude", 110))
+    text = said(tg, ANNA)[-1]["text"]
+    assert text == texts.t("cl_now_own_none")
+    assert "…" not in text and "{last4}" not in texts.EN["cl_now_own_none"]
+
+
+def test_claude_buttons_follow_the_guests_language(cl_relay, tg, book, keys):
+    """The guests suite runs in Russian (conftest): the buttons are Russian too."""
+    import re
+    keys.put("anna", "api", KEY)
+    book.set_claude("anna", mode="own", owner_mode="owner_key")
+    cl_relay.route(msg(ANNA, "/claude", 111))
+    kb = _claude_keyboard(tg)
+    assert kb == {"cl:own_key": texts.RU["btn_cl_own_key"],
+                  "cl:own_sub": texts.RU["btn_cl_own_sub"],
+                  "cl:back": texts.RU["btn_cl_back_key"]}
+    assert all(re.search("[А-Яа-яЁё]", v) for v in kb.values()), kb
+
+
+@pytest.mark.parametrize("owner_mode,key", [("owner_key", "btn_cl_back_key"),
+                                            ("owner_sub", "btn_cl_back_sub")])
+def test_back_button_names_where_it_goes(cl_relay, tg, book, keys, owner_mode, key):
+    keys.put("anna", "api", KEY)
+    book.set_claude("anna", mode="own", owner_mode=owner_mode)
+    cl_relay.route(msg(ANNA, "/claude", 112))
+    assert _claude_keyboard(tg)["cl:back"] == texts.t(key)
+
+
+def test_back_button_labels_in_both_languages():
+    assert texts.EN["btn_cl_back_key"] == "Back to the owner's key"
+    assert texts.EN["btn_cl_back_sub"] == "Back to the owner's subscription"
+    assert texts.RU["btn_cl_back_key"] != texts.EN["btn_cl_back_key"]
+    assert texts.RU["btn_cl_back_sub"] != texts.EN["btn_cl_back_sub"]
+    assert texts.RU["btn_cl_own_key"] != texts.EN["btn_cl_own_key"]
+    assert texts.RU["btn_cl_own_sub"] != texts.EN["btn_cl_own_sub"]
