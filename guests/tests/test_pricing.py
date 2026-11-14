@@ -94,5 +94,45 @@ def test_the_shipped_table_names_its_source_and_date():
     assert doc["source"].startswith("https://")
     assert doc["updated"] == "2026-11-14"
     for fam, row in doc["models"].items():
-        assert set(row) == {"input", "output", "cache_write", "cache_read"}, fam
-        assert all(isinstance(v, (int, float)) and v >= 0 for v in row.values()), fam
+        for r in (row, row.get("above", row)):
+            assert {"input", "output", "cache_write", "cache_read"} <= set(r), fam
+            assert all(isinstance(r[k], (int, float)) and r[k] >= 0
+                       for k in ("input", "output", "cache_write", "cache_read")), fam
+
+
+# --- prompt-size tiers: a model row may carry "above": {"prompt_tokens": N, <prices>} ---
+TIERED = {"input": 1, "output": 2, "cache_write": 3, "cache_read": 4,
+          "above": {"prompt_tokens": 100_000, "input": 10, "output": 20,
+                    "cache_write": 30, "cache_read": 40}}
+
+
+def test_a_short_request_uses_the_low_tier(tmp_path):
+    p = _write(tmp_path, {"t-1": TIERED})
+    u = {"input_tokens": 50_000, "output_tokens": 10_000,
+         "cache_creation_input_tokens": 20_000, "cache_read_input_tokens": 30_000}  # prompt = 100000, not over
+    want = (50_000 * 1 + 10_000 * 2 + 20_000 * 3 + 30_000 * 4) / 1e6
+    assert pricing.usd("claude-t-1", u, path=p) == pytest.approx(want)
+
+
+def test_a_request_over_the_threshold_uses_the_high_tier_for_everything(tmp_path):
+    p = _write(tmp_path, {"t-1": TIERED})
+    u = {"input_tokens": 10, "output_tokens": 1_000,
+         "cache_creation_input_tokens": 20_000, "cache_read_input_tokens": 80_000}  # prompt = 100010
+    want = (10 * 10 + 1_000 * 20 + 20_000 * 30 + 80_000 * 40) / 1e6
+    assert pricing.usd("claude-t-1", u, path=p) == pytest.approx(want)
+
+
+def test_the_unknown_model_max_includes_the_tier_prices(tmp_path):
+    p = _write(tmp_path, {"t-1": TIERED,
+                          "o": {"input": 5, "output": 5, "cache_write": 5, "cache_read": 5}})
+    assert pricing.usd("zzz", {"output_tokens": 1_000_000}, path=p) == pytest.approx(20)
+    assert pricing.usd("zzz", {"cache_read_input_tokens": 1_000_000}, path=p) == pytest.approx(40)
+
+
+def test_shipped_haiku_5_5_is_tiered_at_100k():
+    row = pricing.load()["models"]["haiku-5-5"]
+    assert row["input"] == 0.10 and row["output"] == 0.50
+    assert row["above"]["prompt_tokens"] == 100_000
+    assert row["above"]["input"] == 0.50 and row["above"]["output"] == 2.50
+    short = pricing.usd("claude-haiku-5-5", {"input_tokens": 1_000_000 // 20 * 1})
+    assert short == pytest.approx(0.05 * 0.10)

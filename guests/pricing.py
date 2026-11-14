@@ -4,7 +4,11 @@ the `usage` object the API returned, and adds the result to the guest's spend.
 The table is prices.json (USD per million tokens, copied from Anthropic's pricing page —
 see its "source" and "updated"). Keys are family substrings of the model id; the longest
 match wins ("opus-4-5" beats "opus-4"). A model with no match — or no model at all — is
-charged the highest price for each kind of token in the table: never undercount."""
+charged the highest price for each kind of token in the table, tier prices included:
+never undercount.
+
+A row may carry "above": {"prompt_tokens": N, <the four prices>}. A request whose prompt
+(input + cache-write + cache-read tokens) is over N pays the "above" prices for all of it."""
 import json
 from pathlib import Path
 
@@ -27,6 +31,11 @@ def load(path=None):
     return doc
 
 
+def _prompt_tokens(usage):
+    return sum((usage.get(k) or 0) for k in
+               ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+
+
 def _row(models, model):
     best = None
     if model:
@@ -35,10 +44,14 @@ def _row(models, model):
                 best = key
     if best is not None:
         return models[best]
-    return {f: max((r[f] for r in models.values()), default=0) for _, f in _FIELDS}
+    rows = [t for r in models.values() for t in (r, r.get("above") or r)]
+    return {f: max((r[f] for r in rows), default=0) for _, f in _FIELDS}
 
 
 def usd(model, usage, path=None):
     row = _row(load(path)["models"], model)
     usage = usage or {}
+    above = row.get("above")
+    if above and _prompt_tokens(usage) > above["prompt_tokens"]:
+        row = above
     return sum((usage.get(u) or 0) * row[f] for u, f in _FIELDS) / 1_000_000
