@@ -10,6 +10,7 @@ never undercount.
 A row may carry "above": {"prompt_tokens": N, <the four prices>}. A request whose prompt
 (input + cache-write + cache-read tokens) is over N pays the "above" prices for all of it."""
 import json
+import re
 from pathlib import Path
 
 DEFAULT_PATH = Path(__file__).resolve().parent / "prices.json"
@@ -27,6 +28,8 @@ def load(path=None):
     if hit and hit[0] == mtime:
         return hit[1]
     doc = json.loads(p.read_text())
+    if not doc.get("models"):
+        raise ValueError(f"{p}: the price table has no models")
     _cache[p] = (mtime, doc)
     return doc
 
@@ -36,11 +39,21 @@ def _prompt_tokens(usage):
                ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
 
 
+def _matches(key, model):
+    """The key must be a whole family name inside the id: it starts the id or follows a "-"
+    or "/", and the id then ends, or carries a "[1m]"-style or "@date" suffix, or goes on
+    with "-" and something that is not one more version number. So "sonnet-5" matches
+    "claude-sonnet-5" and "claude-sonnet-5-20260101" but not "claude-sonnet-5-6" (a new
+    model: unknown, charged the maximum)."""
+    return re.search(r"(?:^|[-/])" + re.escape(key) + r"(?=$|[\[@]|-(?!\d{1,2}(?:$|[-\[@])))",
+                     model) is not None
+
+
 def _row(models, model):
     best = None
     if model:
         for key in models:
-            if key in model and (best is None or len(key) > len(best)):
+            if _matches(key, model) and (best is None or len(key) > len(best)):
                 best = key
     if best is not None:
         return models[best]

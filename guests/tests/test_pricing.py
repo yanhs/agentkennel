@@ -1,5 +1,7 @@
 """Dollars per request: the price table (prices.json) and pricing.usd()."""
 import json
+import os
+import re
 import sys
 from pathlib import Path
 
@@ -71,7 +73,6 @@ def test_the_table_is_reloaded_when_the_file_changes(tmp_path):
     u = {"input_tokens": 1_000_000}
     assert pricing.usd("m", u, path=p) == pytest.approx(1)
     _write(tmp_path, {"m": {"input": 2, "output": 0, "cache_write": 0, "cache_read": 0}})
-    import os
     st = p.stat()
     os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
     assert pricing.usd("m", u, path=p) == pytest.approx(2)
@@ -92,7 +93,7 @@ def test_the_shipped_table_prices_the_models_claude_code_uses():
 def test_the_shipped_table_names_its_source_and_date():
     doc = pricing.load()
     assert doc["source"].startswith("https://")
-    assert doc["updated"] == "2026-11-14"
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", doc["updated"])
     for fam, row in doc["models"].items():
         for r in (row, row.get("above", row)):
             assert {"input", "output", "cache_write", "cache_read"} <= set(r), fam
@@ -136,3 +137,38 @@ def test_shipped_haiku_5_5_is_tiered_at_100k():
     assert row["above"]["input"] == 0.50 and row["above"]["output"] == 2.50
     short = pricing.usd("claude-haiku-5-5", {"input_tokens": 1_000_000 // 20 * 1})
     assert short == pytest.approx(0.05 * 0.10)
+
+
+# --- the match must not stop at a shorter family when the id extends the version ---
+def _shipped_max_out():
+    return max(max(r["output"], r.get("above", r)["output"])
+               for r in pricing.load()["models"].values())
+
+
+@pytest.mark.parametrize("model", ["claude-sonnet-5-6", "claude-fable-5-3", "claude-opus-5-6",
+                                   "claude-haiku-5-6", "claude-opus-4-9-20270101"])
+def test_a_new_minor_version_of_a_known_family_is_unknown(model):
+    assert pricing.usd(model, {"output_tokens": 1_000_000}) == pytest.approx(_shipped_max_out())
+
+
+@pytest.mark.parametrize("model,out", [
+    ("claude-opus-4-5-20251101", 25), ("claude-opus-4-5", 25), ("claude-opus-4-5@20251101", 25),
+    ("claude-sonnet-5", 10), ("claude-sonnet-5-20260101", 10),
+    ("claude-sonnet-5-5", 10), ("claude-sonnet-5-5[1m]", 10),
+    ("claude-haiku-4-5", 5), ("claude-haiku-4-5-20251001", 5),
+    ("claude-opus-4-20250514", 75), ("claude-opus-4-1-20250805", 75),
+    ("claude-fable-5", 50), ("claude-fable-5-2", 40)])
+def test_known_ids_get_their_own_row(model, out):
+    assert pricing.usd(model, {"output_tokens": 1_000_000}) == pytest.approx(out)
+
+
+def test_the_sonnet_5_5_1m_suffix_gets_the_sonnet_5_5_row_cache_read():
+    assert pricing.usd("claude-sonnet-5-5[1m]", {"cache_read_input_tokens": 1_000_000}) == pytest.approx(0.10)
+
+
+def test_an_empty_table_is_an_error_not_free(tmp_path):
+    p = _write(tmp_path, {})
+    with pytest.raises(ValueError):
+        pricing.load(p)
+    with pytest.raises(ValueError):
+        pricing.usd("claude-opus-5-5", {"output_tokens": 1}, path=p)
