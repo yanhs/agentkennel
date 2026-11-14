@@ -231,8 +231,10 @@ def switch_back(book, keys, name, notify=None, log=None):
         c = getattr(g, "claude", None) or {}
         if c.get("mode") != "own" or c.get("owner_mode") not in ("owner_key", "owner_sub"):
             return False, texts.t("own_back_not_allowed")
-        try:
-            book.set_claude(name, mode=c["owner_mode"])
+        try:     # the mode and owner_mode are read again under the book's file lock
+            book.claude_back(name)
+        except ValueError:      # another process moved them off `own` meanwhile
+            return False, texts.t("own_back_not_allowed")
         except Exception:
             return False, texts.t("own_failed")
         message = texts.t("own_back")

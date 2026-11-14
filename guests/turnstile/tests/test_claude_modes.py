@@ -1286,3 +1286,75 @@ def test_post_is_rate_limited_per_guest(key_gate, book, told):
     assert codes[:ts.CLAUDE_PER_HOUR] == [200] * ts.CLAUDE_PER_HOUR
     assert codes[ts.CLAUDE_PER_HOUR:] == [429, 429]
     assert _post_claude(key_gate, other, {"secret": "nothing"})[0] == 200
+
+
+# -- final review: a broken block is never repaired into the subscription --------------- #
+BROKEN_BLOCKS = [{"mode": "owner_key", "usd_week": "twenty"}, {"mode": "bogus"},
+                 {"mode": "owner_key", "usd_week": -1}, {"mode": "own", "notify_at": 7}]
+
+
+@pytest.mark.parametrize("block", BROKEN_BLOCKS)
+def test_owner_picks_own_for_a_broken_guest_and_back_is_the_owners_key(book, keys, block):
+    """Path A: the owner picks "Their own key" for a broken guest; the guest sends a key
+    and presses Back. Back goes to the owner's key, never to the subscription."""
+    guest(book, mode="owner_key")
+    book._update("anna", claude=block)
+    assert book.get("anna").claude_error
+    book.set_claude("anna", mode="own")
+    assert book.get("anna").claude == {"mode": "own", "owner_mode": "owner_key",
+                                       "usd_week": 20, "notify_at": 0.8}
+    ok, _ = claudekeys.switch_own(book, keys, "anna", GUEST_KEY,
+                                  check=lambda k, s: (True, ""), notify=lambda t: None)
+    assert ok
+    ok, _ = claudekeys.switch_back(book, keys, "anna", notify=lambda t: None)
+    assert ok and book.get("anna").claude["mode"] == "owner_key"
+    assert book.get("anna").claude["owner_mode"] == "owner_key"
+
+
+@pytest.mark.parametrize("block", BROKEN_BLOCKS)
+@pytest.mark.parametrize("patch", [{"usd_week": 30}, {"notify_at": 0.5}, {}])
+def test_a_patch_without_mode_on_a_broken_block_is_refused(book, block, patch):
+    """Path B: `guestctl claude <name> '{"usd_week": 30}'` on a broken block used to make
+    it owner_sub. Now it is refused and nothing is written."""
+    guest(book, mode="owner_key")
+    book._update("anna", claude=block)
+    before = book.path.read_bytes()
+    with pytest.raises(ValueError, match="broken — choose a mode"):
+        book.set_claude("anna", **patch)
+    assert book.path.read_bytes() == before
+
+
+@pytest.mark.parametrize("block", BROKEN_BLOCKS)
+@pytest.mark.parametrize("mode,owner_mode", [("owner_key", "owner_key"), ("own", "owner_key"),
+                                             ("owner_sub", "owner_sub")])
+def test_a_patch_with_mode_on_a_broken_block_starts_from_that_mode(book, block, mode, owner_mode):
+    guest(book, mode="owner_key")
+    book._update("anna", claude=block)
+    book.set_claude("anna", mode=mode, usd_week=35)
+    g = book.get("anna")
+    assert g.claude_error is None
+    assert g.claude == {"mode": mode, "owner_mode": owner_mode, "usd_week": 35, "notify_at": 0.8}
+
+
+def test_switch_back_reads_the_owner_mode_under_the_lock(tmp_path, keys):
+    """Another process moves the guest off `own` between switch_back's look and its write:
+    switch_back must not put the stale owner mode back over the owner's choice."""
+    path = tmp_path / "guests.json"
+    book = ts.GuestBook(path)
+    guest(book, mode="owner_key")
+    book.set_claude("anna", mode="own")
+    keys.put("anna", "api", GUEST_KEY)
+    other = ts.GuestBook(path)                      # "guestctl", a second process
+    real_get = book.get
+    calls = []
+
+    def get(name):
+        g = real_get(name)
+        calls.append(1)
+        if len(calls) == 2:                         # after the broken-block look
+            other.set_claude("anna", mode="owner_sub")   # the owner, with "understood"
+        return g
+    book.get = get
+    ok, _ = claudekeys.switch_back(book, keys, "anna", notify=lambda t: None)
+    assert not ok
+    assert ts.GuestBook(path).get("anna").claude["mode"] == "owner_sub"

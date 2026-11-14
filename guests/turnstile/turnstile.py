@@ -18,6 +18,7 @@ each guest's usage is recorded. Only hashes of passes are stored.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import hmac
 import http.client
@@ -29,9 +30,11 @@ import secrets
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import deque
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, time as dtime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -129,8 +132,22 @@ class Guest:
         return self.unlimited_until > (time.time() if now is None else now)
 
 
+BROKEN_NEEDS_MODE = "this guest's Claude settings are broken — choose a mode"
+
+
+def _claude_base(mode) -> Dict:
+    """Where a `mode` patch starts when the stored block is broken: that mode's own
+    defaults — never the subscription unless the patch itself asks for it."""
+    return {"mode": mode, "owner_mode": mode if mode != "own" else "owner_key",
+            "usd_week": 20, "notify_at": 0.8}
+
+
 class GuestBook:
-    """Guests in a JSON file (only pass hashes). Re-read when the file changes."""
+    """Guests in a JSON file (only pass hashes). Re-read when the file changes.
+
+    Three processes write the file (the turnstile, the Telegram relay, guestctl): every
+    change goes through _mutate — an flock on <file>.lock, the file re-read from disk
+    under it, the change, a write to a unique temporary file and os.replace."""
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
@@ -153,12 +170,52 @@ class GuestBook:
                 self._data.setdefault("guests", {})
                 self._seen = seen
 
-    def _save(self) -> None:
+    @contextmanager
+    def _file_lock(self):
+        """The lock every writing process takes (the same pattern as invites.py)."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self._data, indent=2, ensure_ascii=False), "utf-8")
-        os.chmod(tmp, 0o600)
-        tmp.replace(self.path)
+        fd = os.open(str(self.path) + ".lock", os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+    def _mutate(self, fn: Callable[[Dict], object]):
+        """Run fn(guests) on the file as it is on disk now, under the lock, and write the
+        result; an exception from fn writes nothing. Returns what fn returns."""
+        with self._lock, self._file_lock():
+            self._seen = None                      # never trust the cache for a write
+            try:
+                if self.path.exists():
+                    self._load()
+                else:
+                    self._data = {"guests": {}}
+                result = fn(self._data["guests"])
+                self._save()
+            except BaseException:
+                self._seen = None                  # the next read comes from disk
+                raise
+            return result
+
+    def _save(self) -> None:
+        """Only under _mutate: a unique temporary file in the same folder, fsync, replace."""
+        fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=f".{self.path.name}.",
+                                   suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                os.fchmod(f.fileno(), 0o600)
+                f.write(json.dumps(self._data, indent=2, ensure_ascii=False))
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, self.path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
         self._seen = self._stat(self.path)
 
     @staticmethod
@@ -174,12 +231,12 @@ class GuestBook:
         if not NAME_RE.match(name):
             raise ValueError(f"bad guest name {name!r}: a-z, 0-9, '-', 2-31 chars")
         checked = validate_claude(claude) if claude is not None else None
-        with self._lock:
-            self._load()
-            if name in self._data["guests"]:
+        secret = "sbx-" + secrets.token_urlsafe(32)
+
+        def change(guests: Dict) -> None:
+            if name in guests:
                 raise ValueError(f"guest {name!r} already exists")
-            secret = "sbx-" + secrets.token_urlsafe(32)
-            self._data["guests"][name] = {
+            guests[name] = {
                 "pass_sha256": _hash(secret),
                 **self._limits(week_limit, five_hour_limit),
                 "telegram_id": telegram_id,
@@ -187,9 +244,9 @@ class GuestBook:
                 "created": datetime.now(DAY_TZ).isoformat(timespec="seconds"),
             }
             if checked is not None:
-                self._data["guests"][name]["claude"] = checked
-            self._save()
-            return secret
+                guests[name]["claude"] = checked
+        self._mutate(change)
+        return secret
 
     def _guest(self, name: str, rec: Dict) -> Guest:
         if "week_limit" in rec:
@@ -239,12 +296,11 @@ class GuestBook:
             return sorted(self._data["guests"])
 
     def _update(self, name: str, **fields) -> None:
-        with self._lock:
-            self._load()
-            if name not in self._data["guests"]:
+        def change(guests: Dict) -> None:
+            if name not in guests:
                 raise KeyError(name)
-            self._data["guests"][name].update(fields)
-            self._save()
+            guests[name].update(fields)
+        self._mutate(change)
 
     def set_enabled(self, name: str, enabled: bool) -> None:
         self._update(name, enabled=bool(enabled))
@@ -258,23 +314,46 @@ class GuestBook:
         """What the guest's agent may do (owner, 12.11.2026); ValueError when malformed."""
         self._update(name, rules=validate_rules(rules))
 
-    def set_claude(self, name: str, **fields) -> None:
-        """Merge `fields` into the guest's `claude` settings; ValueError when malformed.
-        mode owner_key/owner_sub sets owner_mode too; "own" keeps it."""
-        with self._lock:
-            self._load()
-            rec = self._data["guests"].get(name)
+    def set_claude(self, name: str, **fields) -> Dict:
+        """Merge `fields` into the guest's `claude` settings (read under the lock); returns
+        the stored block. ValueError when malformed. mode owner_key/owner_sub sets
+        owner_mode too; "own" keeps it. A broken stored block is replaced only by a patch
+        with a `mode`, from that mode's defaults (never the subscription unless asked);
+        without one it is refused, nothing written."""
+        patch = dict(fields)
+        if patch.get("mode") in _OWNER_MODES and "owner_mode" not in patch:
+            patch["owner_mode"] = patch["mode"]
+
+        def change(guests: Dict) -> Dict:
+            rec = guests.get(name)
             if rec is None:
                 raise KeyError(name)
             try:
                 merged = validate_claude(rec.get("claude"))
             except ValueError:
-                merged = dict(CLAUDE_DEFAULT)
-            if fields.get("mode") in _OWNER_MODES and "owner_mode" not in fields:
-                fields["owner_mode"] = fields["mode"]
-            merged.update(fields)
+                if "mode" not in patch:
+                    raise ValueError(BROKEN_NEEDS_MODE)
+                merged = _claude_base(patch["mode"])
+            merged.update(patch)
             rec["claude"] = validate_claude(merged)
-            self._save()
+            return dict(rec["claude"])
+        return self._mutate(change)
+
+    def claude_back(self, name: str) -> Dict:
+        """`own` -> the owner_mode stored, both read under the lock (another process may
+        have moved the guest meanwhile). ValueError when the block is broken or the guest
+        is not on `own`; returns the stored block."""
+        def change(guests: Dict) -> Dict:
+            rec = guests.get(name)
+            if rec is None:
+                raise KeyError(name)
+            c = validate_claude(rec.get("claude"))
+            if "claude" not in rec or c["mode"] != "own" or c["owner_mode"] not in _OWNER_MODES:
+                raise ValueError("not on their own key")
+            c["mode"] = c["owner_mode"]
+            rec["claude"] = validate_claude(c)
+            return dict(rec["claude"])
+        return self._mutate(change)
 
     def set_limit(self, name: str, week_limit: int, five_hour_limit: Optional[int] = None) -> None:
         """Set the weekly limit; the 5 hours get a seventh of it unless given apart."""
@@ -285,10 +364,7 @@ class GuestBook:
         self._update(name, unlimited_until=float(until))
 
     def remove(self, name: str) -> None:
-        with self._lock:
-            self._load()
-            self._data["guests"].pop(name, None)
-            self._save()
+        self._mutate(lambda guests: guests.pop(name, None))
 
 
 # --------------------------------------------------------------------------- #
