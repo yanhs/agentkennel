@@ -1441,6 +1441,9 @@ class GuestsPanel:
     def __init__(self):
         self.lock = threading.Lock()
         self.guests = None            # last `list --json` result
+        self.owner_key = {"set": False, "last4": None}
+        self.owner_key_week_usd = 0.0
+        self.settings = None          # last `defaults` result (may carry "error")
         self.list_at = 0.0
         self.list_error = None
         self.listing = False
@@ -1450,9 +1453,10 @@ class GuestsPanel:
         self.entries = {}             # Open links: ticket -> {host, cookie, max_age, until}
 
     @staticmethod
-    def run(*args, timeout=180):
+    def run(*args, timeout=180, input=None):
+        """guestctl <args>; `input` is its stdin (a key goes there, never in argv)."""
         r = subprocess.run([sys.executable, str(guests_dir() / "guestctl.py"), *args],
-                           capture_output=True, text=True, timeout=timeout,
+                           capture_output=True, text=True, timeout=timeout, input=input,
                            cwd=str(guests_dir()))
         return r.returncode, r.stdout, r.stderr
 
@@ -1467,8 +1471,23 @@ class GuestsPanel:
             guests = json.loads(out).get("guests")
             if not isinstance(guests, list):
                 raise RuntimeError("guestctl list: no guests list")
+            listed = json.loads(out)
+            ok = listed.get("owner_key")
+            ok = ok if isinstance(ok, dict) else {}
+            owner_key = {"set": ok.get("set") is True,           # only the known fields are copied
+                         "last4": ok["last4"] if isinstance(ok.get("last4"), str) else None}
+            spent = listed.get("owner_key_week_usd")
+            spent = spent if isinstance(spent, (int, float)) and not isinstance(spent, bool) else 0.0
+            settings = None
+            try:
+                dcode, dout, _ = self.run("defaults", timeout=30)
+                settings = json.loads(dout) if dcode == 0 else None
+            except Exception:
+                settings = None
             with self.lock:
                 self.guests, self.list_error = guests, None
+                self.owner_key, self.owner_key_week_usd = owner_key, spent
+                self.settings = settings if isinstance(settings, dict) else None
         except Exception as e:
             with self.lock:
                 self.list_error = str(e)[:300]
@@ -1510,6 +1529,9 @@ class GuestsPanel:
                     "admin": guests_admin(),
                     "guests": self.guests if configured else None,
                     "list_error": self.list_error if configured else None,
+                    "owner_key": dict(self.owner_key) if configured else None,
+                    "owner_key_week_usd": self.owner_key_week_usd if configured else 0,
+                    "settings": dict(self.settings) if configured and self.settings else None,
                     "agents": self.agents() if configured else {},
                     "checks": self.checks, "checking": self.checking,
                     "jobs": {n: dict(j) for n, j in self.jobs.items()}}
@@ -1576,8 +1598,16 @@ class GuestsPanel:
                 ok, output = code == 0, (out + err).strip()[-500:]
             except Exception as e:
                 ok, output = False, str(e)[:500]
+            warning = None
+            try:                                  # `add` ends with a JSON line: {"warning": ...}
+                last = json.loads(out.strip().splitlines()[-1]) if ok else {}
+                warning = last.get("warning") if isinstance(last, dict) else None
+            except Exception:
+                pass
             with self.lock:
                 job.update(done=True, ok=ok, output=output)
+                if isinstance(warning, str):
+                    job["warning"] = warning
             self._list()                          # the list shows the result at once
         self._spawn(work)
         return {"ok": True}
@@ -1602,6 +1632,90 @@ class GuestsPanel:
             raise LibError(400, (err or out).strip()[-300:] or "rules not saved")
         self._spawn(self._list)
         return {"ok": True}
+
+    @staticmethod
+    def _ctl_error(out, err, fallback):
+        """guestctl's refusal: the "error" of its JSON answer, else its last words. A key is
+        never part of it."""
+        text = ""
+        for stream in (out, err):
+            try:
+                e = json.loads((stream or "").strip().splitlines()[-1]).get("error")
+            except (ValueError, IndexError, AttributeError):
+                continue
+            if isinstance(e, str) and e:
+                text = e
+                break
+        text = text or (err or out or "").strip()[-300:] or fallback
+        return re.sub(r"sk-ant[\w-]*", "[key]", text)[:300]
+
+    def _ctl(self, *args, input=None, fallback="not saved"):
+        """Run guestctl for a write; its JSON answer, or LibError 400 (504 on a timeout)."""
+        try:
+            code, out, err = self.run(*args, timeout=60, input=input)
+        except subprocess.TimeoutExpired:
+            raise LibError(504, "guestctl did not answer in time")
+        if code != 0:
+            raise LibError(400, self._ctl_error(out, err, fallback))
+        try:
+            res = json.loads(out.strip().splitlines()[-1])      # the LAST line is the JSON
+        except (ValueError, IndexError):
+            res = {"ok": True}
+        return res if isinstance(res, dict) else {"ok": True}
+
+    def claude(self, body):
+        """POST /api/guests/claude {name, mode?, usd_week?, notify_at?, secret?, understood?}.
+        A secret (the guest's own key) goes to guestctl on stdin only."""
+        name = self._guest_name(body)
+        if "owner_mode" in body:
+            raise LibError(400, "owner_mode is not accepted: `mode` sets it")
+        secret = body.get("secret")
+        spec = {k: body[k] for k in ("mode", "usd_week", "notify_at", "understood") if k in body}
+        stdin = None
+        if secret is not None and secret != "":
+            if not isinstance(secret, str):
+                raise LibError(400, "secret: a string")
+            spec["secret"], stdin = True, secret
+        res = self._ctl("claude", name, json.dumps(spec), input=stdin, fallback="not saved")
+        self._spawn(self._list)
+        out = {"ok": True}
+        for k in ("claude", "message", "warning"):
+            if k in res:
+                out[k] = res[k]
+        return out
+
+    SETTINGS_FIELDS = ("claude_mode", "usd_week", "notify_at", "week_limit", "web", "rules",
+                       "understood")
+
+    def settings_set(self, body):
+        """POST /api/guests/settings {claude_mode?, usd_week?, ...}: what new guests get."""
+        if not self.state()["configured"]:
+            raise LibError(409, "the guests module is not set up")
+        patch = {k: body[k] for k in self.SETTINGS_FIELDS if k in body}
+        if not patch or set(patch) == {"understood"}:
+            raise LibError(400, "settings: nothing to save")
+        res = self._ctl("defaults", "--set", json.dumps(patch), fallback="settings not saved")
+        self._spawn(self._list)
+        return {"ok": True, "settings": res}
+
+    def owner_key_set(self, body):
+        """POST /api/guests/owner-key {key} | {remove: true}: the owner's API key. Only
+        {ok, last4} comes back."""
+        if not self.state()["configured"]:
+            raise LibError(409, "the guests module is not set up")
+        if body.get("remove") is True:
+            self._ctl("owner-key", "--remove", fallback="not removed")
+            out = {"ok": True}
+        else:
+            key = body.get("key")
+            if not isinstance(key, str) or not key.strip():
+                raise LibError(400, "key: your Anthropic API key")
+            res = self._ctl("owner-key", input=key.strip(), fallback="key not saved")
+            out = {"ok": True}
+            if isinstance(res.get("last4"), str):
+                out["last4"] = res["last4"]
+        self._spawn(self._list)
+        return out
 
     def folders(self, body):
         """POST /api/guests/folders {name}: the sandbox's folders in /work (Rules form)."""
@@ -2121,6 +2235,12 @@ class Handler(BaseHTTPRequestHandler):
                     data = GUESTS.rules(body)
                 elif what == "folders":
                     data = GUESTS.folders(body)
+                elif what == "claude":
+                    data = GUESTS.claude(body)
+                elif what == "settings":
+                    data = GUESTS.settings_set(body)
+                elif what == "owner-key":
+                    data = GUESTS.owner_key_set(body)
                 else:
                     data = GUESTS.act(what, body)
             else:

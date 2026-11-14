@@ -50,8 +50,16 @@ behave = json.loads((here / "behave.json").read_text())
 if behave.get("sleep"):
     time.sleep(behave["sleep"])
 cmd = sys.argv[1]
+if (cmd == "owner-key" and "--remove" not in sys.argv) or (
+        cmd == "claude" and '"secret": true' in sys.argv[3]):
+    with open(here / "stdin.log", "a") as f:
+        f.write(sys.stdin.read() + "\n")
 if cmd == "list":
-    print(json.dumps({"guests": behave.get("guests", [])}))
+    print(json.dumps({"guests": behave.get("guests", []), **behave.get("list_extra", {})}))
+elif cmd == "defaults" and len(sys.argv) == 2:
+    print(json.dumps(behave.get("defaults", {"claude_mode": "owner_key", "usd_week": 20})))
+elif cmd in ("defaults", "claude", "owner-key") and cmd not in behave.get("fail", []):
+    print(json.dumps(behave.get("answer", {"ok": True})))
 elif cmd == "doctor":
     print(json.dumps({"checks": behave.get("checks", [])}))
 elif cmd in behave.get("fail", []):
@@ -523,3 +531,160 @@ def test_folders_come_from_the_sandbox(g):
     g.behave(folders=["/work/angels-help", "/work/public"])
     assert post(g.base, "/api/guests/folders", {"name": "masha"}) == (
         200, {"folders": ["/work/angels-help", "/work/public"]})
+
+
+# ── Claude keys: /claude, /settings, /owner-key (Task 9) ──
+SECRET = "sk-ant-api03-" + "Z" * 40
+
+
+def stdin_log(g):
+    p = g.dir / "stdin.log"
+    return p.read_text() if p.exists() else ""
+
+
+def test_claude_mode_goes_to_guestctl_as_json(g):
+    configure(g)
+    body = {"name": "masha", "mode": "owner_key", "usd_week": 5, "notify_at": 0.5}
+    assert post(g.base, "/api/guests/claude", body)[0] == 200
+    [call] = [c for c in g.calls() if c[0] == "claude"]
+    assert call[1] == "masha" and json.loads(call[2]) == {"mode": "owner_key", "usd_week": 5, "notify_at": 0.5}
+
+
+def test_claude_secret_only_on_stdin(g):
+    configure(g)
+    code, d = post(g.base, "/api/guests/claude", {"name": "masha", "secret": SECRET})
+    assert code == 200
+    [call] = [c for c in g.calls() if c[0] == "claude"]
+    assert "sk-ant" not in " ".join(call)
+    assert json.loads(call[2])["secret"] is True
+    assert SECRET in stdin_log(g)
+    assert "sk-ant" not in json.dumps(d)
+
+
+def test_claude_owner_mode_is_refused(g):
+    configure(g)
+    code, d = post(g.base, "/api/guests/claude", {"name": "masha", "owner_mode": "owner_sub"})
+    assert code == 400 and "owner_mode" in d["error"]
+    assert not [c for c in g.calls() if c[0] == "claude"]
+
+
+def test_claude_owner_sub_needs_understood(g):
+    configure(g)
+    g.behave(fail=["claude"], why='{"ok": false, "error": "owner_sub: say understood"}')
+    code, d = post(g.base, "/api/guests/claude", {"name": "masha", "mode": "owner_sub"})
+    assert code == 400 and "understood" in d["error"]
+
+
+def test_claude_understood_is_forwarded(g):
+    configure(g)
+    post(g.base, "/api/guests/claude", {"name": "masha", "mode": "owner_sub", "understood": True})
+    [call] = [c for c in g.calls() if c[0] == "claude"]
+    assert json.loads(call[2]) == {"mode": "owner_sub", "understood": True}
+
+
+def test_claude_passes_the_no_owner_key_warning(g):
+    configure(g)
+    g.behave(answer={"ok": True, "claude": {}, "warning": "no_owner_key"})
+    assert post(g.base, "/api/guests/claude", {"name": "masha", "mode": "owner_key"})[1]["warning"] == "no_owner_key"
+
+
+def test_claude_bad_name(g):
+    configure(g)
+    assert post(g.base, "/api/guests/claude", {"name": "../x"})[0] == 400
+
+
+def test_claude_json_error_text_is_extracted(g):
+    configure(g)
+    g.behave(fail=["claude"], why='{"ok": false, "error": "no guest masha"}')
+    assert post(g.base, "/api/guests/claude", {"name": "masha"})[1]["error"] == "no guest masha"
+
+
+def test_claude_timeout_is_504(g, monkeypatch):
+    import subprocess
+    configure(g)
+
+    def boom(*a, **k):
+        raise subprocess.TimeoutExpired("guestctl", 1)
+    monkeypatch.setattr(g.mod.GuestsPanel, "run", staticmethod(boom))
+    assert post(g.base, "/api/guests/claude", {"name": "masha"})[0] == 504
+
+
+def test_settings_go_to_defaults_set(g):
+    configure(g)
+    body = {"claude_mode": "owner_sub", "usd_week": 10, "understood": True}
+    assert post(g.base, "/api/guests/settings", body)[0] == 200
+    [call] = [c for c in g.calls() if c[0] == "defaults"]
+    assert call[1] == "--set" and json.loads(call[2]) == body
+
+
+def test_settings_error_is_400(g):
+    configure(g)
+    g.behave(fail=["defaults"], why="owner_key: save your API key first")
+    code, d = post(g.base, "/api/guests/settings", {"claude_mode": "owner_key"})
+    assert code == 400 and "save your API key" in d["error"]
+
+
+@pytest.mark.parametrize("body", [{}, {"bogus": 1}])
+def test_settings_need_known_fields(g, body):
+    configure(g)
+    assert post(g.base, "/api/guests/settings", body)[0] == 400
+
+
+def test_owner_key_on_stdin_answers_last4_only(g):
+    configure(g)
+    g.behave(answer={"ok": True, "last4": "ZZZZ"})
+    code, d = post(g.base, "/api/guests/owner-key", {"key": SECRET})
+    assert (code, d) == (200, {"ok": True, "last4": "ZZZZ"})
+    [call] = [c for c in g.calls() if c[0] == "owner-key"]
+    assert "sk-ant" not in " ".join(call) and call == ["owner-key"]
+    assert SECRET in stdin_log(g)
+
+
+def test_owner_key_answer_never_echoes_a_key(g):
+    configure(g)
+    g.behave(answer={"ok": True, "last4": "ZZZZ", "echo": SECRET})
+    assert SECRET not in json.dumps(post(g.base, "/api/guests/owner-key", {"key": SECRET})[1])
+
+
+def test_owner_key_error_is_400_without_the_key(g):
+    configure(g)
+    g.behave(fail=["owner-key"], why='{"ok": false, "error": "Anthropic did not accept the key"}')
+    code, d = post(g.base, "/api/guests/owner-key", {"key": SECRET})
+    assert code == 400 and "did not accept" in d["error"] and SECRET not in json.dumps(d)
+
+
+def test_owner_key_remove(g):
+    configure(g)
+    assert post(g.base, "/api/guests/owner-key", {"remove": True})[0] == 200
+    assert ["owner-key", "--remove"] in g.calls()
+
+
+@pytest.mark.parametrize("body", [{}, {"key": ""}, {"key": 5}])
+def test_owner_key_needs_a_key(g, body):
+    configure(g)
+    assert post(g.base, "/api/guests/owner-key", body)[0] == 400
+
+
+def test_claude_routes_need_json_and_same_origin(g):
+    configure(g)
+    for r in ("claude", "settings", "owner-key"):
+        assert post(g.base, "/api/guests/" + r, {"name": "masha"}, ctype="text/plain")[0] in (400, 415)
+        assert post(g.base, "/api/guests/" + r, {"name": "masha"}, origin="https://evil.example")[0] == 403
+
+
+def test_state_has_owner_key_and_settings(g):
+    configure(g)
+    g.behave(list_extra={"owner_key": {"set": True, "last4": "ZZZZ"}, "owner_key_week_usd": 1.5,
+                         "leak": SECRET},
+             defaults={"claude_mode": "owner_key", "usd_week": 20, "error": "broken file"})
+    d = until(lambda: (lambda r: r[1] if r[1]["guests"] is not None else None)(get(g.base)))
+    assert d["owner_key"] == {"set": True, "last4": "ZZZZ"} and d["owner_key_week_usd"] == 1.5
+    assert d["settings"]["claude_mode"] == "owner_key" and d["settings"]["error"] == "broken file"
+    assert "sk-ant" not in json.dumps(d)
+
+
+def test_state_drops_a_key_that_slipped_into_owner_key(g):
+    configure(g)
+    g.behave(list_extra={"owner_key": {"set": True, "last4": "ZZZZ", "key": SECRET}})
+    d = until(lambda: (lambda r: r[1] if r[1]["guests"] is not None else None)(get(g.base)))
+    assert d["owner_key"] == {"set": True, "last4": "ZZZZ"}
