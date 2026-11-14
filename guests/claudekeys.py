@@ -153,48 +153,94 @@ def _tell_owner(notify, text):
     threading.Thread(target=run, daemon=True).start()
 
 
+_locks = {}
+_locks_guard = threading.Lock()
+_broken_told = {}
+BROKEN_TOLD_EVERY = 3600
+
+
+def _lock_for(name):
+    with _locks_guard:
+        return _locks.setdefault(name, threading.Lock())
+
+
+def _refuse_broken(book, name, notify, now=None):
+    """(False, text) when the guest's stored claude block is invalid: the gate refuses
+    them on purpose, and a switch would overwrite the block with the defaults (a silent
+    fallback to the subscription). The owner is told once an hour. None when fine."""
+    import texts
+    g = book.get(name)
+    err = getattr(g, "claude_error", None)
+    if not err:
+        return None
+    now = time.time() if now is None else now
+    with _locks_guard:
+        first = now - _broken_told.get(name, float("-inf")) >= BROKEN_TOLD_EVERY
+        if first:
+            _broken_told[name] = now
+    if first:
+        _tell_owner(notify, texts.t("owner_claude_broken", guest=name, error=str(err)[:200]))
+    return False, texts.t("own_settings_broken")
+
+
 def switch_own(book, keys, name, text, check=check, notify=None):
     """A guest moves to a key or token of their own. (ok, message for the guest).
     classify -> check with Anthropic -> store the key -> flip the mode (the key is there
-    before the gate can see mode=own) -> tell the owner. Any failure changes nothing."""
+    before the gate can see mode=own) -> tell the owner. Any failure changes nothing
+    (a key that was saved before is put back). One switch at a time per guest."""
     import texts
-    found = classify(text)
-    if not found:
-        return False, texts.t("own_not_a_key")
-    kind, secret = found
-    ok, why = check(kind, secret)
-    if not ok:
-        return False, texts.t("own_refused", error=why)
-    try:
-        keys.put(name, kind, secret)
-    except Exception:
-        return False, texts.t("own_failed")
-    try:
-        book.set_claude(name, mode="own")
-    except Exception:
+    with _lock_for(name):
+        refused = _refuse_broken(book, name, notify)
+        if refused:
+            return refused
+        found = classify(text)
+        if not found:
+            return False, texts.t("own_not_a_key")
+        kind, secret = found
+        ok, why = check(kind, secret)
+        if not ok:
+            return False, texts.t("own_refused", error=why)
         try:
-            keys.drop(name)
+            previous = keys.get(name)
+            keys.put(name, kind, secret)
         except Exception:
-            pass
-        return False, texts.t("own_failed")
-    _tell_owner(notify, texts.t("owner_guest_own", guest=name))
-    return True, texts.t("own_saved", last4=last4(secret))
+            return False, texts.t("own_failed")
+        try:
+            book.set_claude(name, mode="own")
+        except Exception:
+            try:
+                if previous:
+                    keys.put(name, *previous)
+                else:
+                    keys.drop(name)
+            except Exception:
+                pass
+            return False, texts.t("own_failed")
+        _tell_owner(notify, texts.t("owner_guest_own", guest=name))
+        return True, texts.t("own_saved", last4=last4(secret))
 
 
-def switch_back(book, keys, name, notify=None):
+def switch_back(book, keys, name, notify=None, log=None):
     """Back to what the owner set (owner_key or owner_sub); only from `own`."""
     import texts
-    g = book.get(name)
-    c = getattr(g, "claude", None) or {}
-    if c.get("mode") != "own" or c.get("owner_mode") not in ("owner_key", "owner_sub"):
-        return False, texts.t("own_back_not_allowed")
-    try:
-        book.set_claude(name, mode=c["owner_mode"])
-    except Exception:
-        return False, texts.t("own_failed")
-    try:
-        keys.drop(name)
-    except OSError:
-        pass
-    _tell_owner(notify, texts.t("owner_guest_back", guest=name))
-    return True, texts.t("own_back")
+    with _lock_for(name):
+        refused = _refuse_broken(book, name, notify)
+        if refused:
+            return refused
+        g = book.get(name)
+        c = getattr(g, "claude", None) or {}
+        if c.get("mode") != "own" or c.get("owner_mode") not in ("owner_key", "owner_sub"):
+            return False, texts.t("own_back_not_allowed")
+        try:
+            book.set_claude(name, mode=c["owner_mode"])
+        except Exception:
+            return False, texts.t("own_failed")
+        message = texts.t("own_back")
+        try:
+            keys.drop(name)
+        except OSError as exc:
+            if log:
+                log(f"KEY-NOT-DELETED guest={name} {type(exc).__name__}")
+            message = texts.t("own_back_key_stays")
+        _tell_owner(notify, texts.t("owner_guest_back", guest=name))
+        return True, message

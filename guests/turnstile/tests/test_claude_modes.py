@@ -1025,7 +1025,9 @@ def test_claude_view_broken_block_shows_owner_sub_and_error_flag(book, ledger, k
     book._update("anna", claude={"mode": "bogus"})
     v = ts.claude_view(book.get("anna"), ledger, keys)
     assert v["mode"] == "owner_sub" and v["error"] is True
-    assert "mode" not in json.dumps(v.get("error"))     # no error text for the guest
+    err = book.get("anna").claude_error
+    assert err and not any(isinstance(x, str) and err in x for x in v.values())
+    assert err not in json.dumps(v)                     # no error text for the guest
 
 
 def test_usage_without_a_claude_record_is_owner_sub(key_gate, book):
@@ -1133,6 +1135,9 @@ def test_switch_own_stores_before_flipping_and_drops_when_set_claude_fails(book,
     guest(book, mode="owner_key")
 
     class Book:
+        def get(self, name):
+            return book.get(name)
+
         def set_claude(self, name, **f):
             assert keys.get(name) is not None      # the key is there before the flip
             raise ValueError("boom")
@@ -1161,3 +1166,113 @@ def test_switch_back_to_owner_sub(book, keys):
     told = []
     ok, _ = claudekeys.switch_back(book, keys, "anna", notify=told.append)
     assert ok and book.get("anna").claude["mode"] == "owner_sub" and told
+
+
+# -- fix round 1 ------------------------------------------------------------------------ #
+def _broken(book, name="anna"):
+    s = guest(book, name)
+    book._update(name, claude={"mode": "bogus"})
+    return s
+
+
+def test_broken_block_guest_cannot_switch_own_or_back(key_gate, up, book, keys, told):
+    s = _broken(book)
+    before = book.path.read_bytes()
+    d = json.loads(_post_claude(key_gate, s, {"secret": GUEST_KEY})[1])
+    assert d["ok"] is False and d["message"]
+    d2 = json.loads(_post_claude(key_gate, s, {"back": True})[1])
+    assert d2["ok"] is False
+    assert book.path.read_bytes() == before          # the stored block is untouched
+    assert book.get("anna").claude_error and keys.get("anna") is None
+    assert not up.requests                           # the key was not even sent upstream
+    wait_for(told, 1)
+    assert len(told) == 1 and "anna" in told[0]      # the owner is told once
+
+
+def test_broken_block_back_from_a_stored_key_changes_nothing(book, keys):
+    guest(book)
+    book._update("anna", claude={"mode": "bogus"})
+    keys.put("anna", "api", GUEST_KEY)
+    before = book.path.read_bytes()
+    ok, msg = claudekeys.switch_back(book, keys, "anna", notify=lambda t: None)
+    assert not ok and msg
+    assert book.path.read_bytes() == before and keys.get("anna") == ("api", GUEST_KEY)
+
+
+def test_set_claude_failure_restores_the_previous_key(book, keys):
+    guest(book, mode="owner_key")
+    keys.put("anna", "api", GUEST_KEY)
+
+    class Book:
+        def get(self, name):
+            return book.get(name)
+
+        def set_claude(self, name, **f):
+            raise ValueError("boom")
+
+    ok, _ = claudekeys.switch_own(Book(), keys, "anna", GUEST_TOKEN,
+                                  check=lambda k, s: (True, ""), notify=lambda t: None)
+    assert not ok and keys.get("anna") == ("api", GUEST_KEY)
+
+
+def test_concurrent_switches_for_one_guest_are_serialised(book, keys):
+    guest(book, mode="owner_key")
+    inside, peak, lock = [0], [0], threading.Lock()
+
+    def slow_check(kind, secret):
+        with lock:
+            inside[0] += 1
+            peak[0] = max(peak[0], inside[0])
+        time.sleep(0.1)
+        with lock:
+            inside[0] -= 1
+        return True, ""
+
+    ts_ = [threading.Thread(target=claudekeys.switch_own, args=(book, keys, "anna", GUEST_KEY),
+                            kwargs={"check": slow_check, "notify": lambda t: None})
+           for _ in range(3)]
+    [x.start() for x in ts_]
+    [x.join() for x in ts_]
+    assert peak[0] == 1
+
+
+@pytest.mark.parametrize("payload", [
+    {"back": False}, {"back": 1}, {"back": "yes"}, {"back": True, "secret": GUEST_KEY},
+    {"secret": GUEST_KEY, "back": False}, {}, {"back": True, "x": 1}])
+def test_post_exact_shapes_only(key_gate, book, payload):
+    s = guest(book, mode="owner_key")
+    assert _post_claude(key_gate, s, payload)[0] == 400
+
+
+def test_switch_back_when_the_key_cannot_be_deleted(book, keys):
+    guest(book, mode="owner_key")
+    keys.put("anna", "api", GUEST_KEY)
+    book.set_claude("anna", mode="own")
+
+    class Keys:
+        def drop(self, name):
+            raise OSError("read-only")
+
+    lines = []
+    ok, msg = claudekeys.switch_back(book, Keys(), "anna", notify=lambda t: None,
+                                     log=lines.append)
+    assert ok and book.get("anna").claude["mode"] == "owner_key"
+    assert lines and GUEST_KEY not in "".join(lines) and "anna" in lines[0]
+    import texts
+    assert msg == texts.t("own_back_key_stays")
+
+
+def test_claude_view_takes_now(book, ledger, keys):
+    guest(book, mode="owner_key", usd_week=20)
+    far = time.time() + 20 * 86400
+    v = ts.claude_view(book.get("anna"), ledger, keys, now=far)
+    assert v["usd"]["resets_at"] > time.time() + 7 * 86400 - 1
+
+
+def test_post_is_rate_limited_per_guest(key_gate, book, told):
+    s = guest(book, mode="owner_key")
+    other = guest(book, "bob", mode="owner_key")
+    codes = [_post_claude(key_gate, s, {"secret": "nothing"})[0] for _ in range(ts.CLAUDE_PER_HOUR + 2)]
+    assert codes[:ts.CLAUDE_PER_HOUR] == [200] * ts.CLAUDE_PER_HOUR
+    assert codes[ts.CLAUDE_PER_HOUR:] == [429, 429]
+    assert _post_claude(key_gate, other, {"secret": "nothing"})[0] == 200

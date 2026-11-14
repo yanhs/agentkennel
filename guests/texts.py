@@ -131,6 +131,11 @@ EN = {
     "own_failed": "Couldn't save it. Nothing was changed.",
     "own_back": "Back to the owner's setup. Your own key was deleted.",
     "own_back_not_allowed": "You're not on your own key, so there is nothing to go back from.",
+    "own_back_key_stays": "Back to the owner's setup, but your saved key couldn't be deleted. "
+                          "Tell the owner.",
+    "own_settings_broken": "The owner needs to fix this guest's Claude settings first. "
+                           "The owner has been told.",
+    "gate_claude_many": "Too many tries for now. Wait an hour and try again.",
     "owner_claude_broken": "⚠️ Guest {guest}: their Claude settings in guests.json are not "
                            "valid ({error}). Their requests are refused until they're fixed "
                            "(the Claude button on the guest's row saves valid ones).",
@@ -322,14 +327,19 @@ RU = {
                         "ключе получают эту ошибку, пока это не исправлено.",
     "ownerkey_prices": "не читается таблица цен ({error}), доллары не посчитать. Гостям на "
                        "вашем ключе отказывается, пока это не исправлено.",
-    "owner_guest_own": "🔑 Гость {guest} перешёл на свой ключ или вход Claude. Его Claude больше не работает на вашем.",
-    "owner_guest_back": "↩️ Гость {guest} вернулся со своего ключа к тому, что вы для него задали.",
+    "owner_guest_own": "🔑 Гость {guest}: переход на свой ключ или вход Claude. Claude гостя больше не работает на вашем.",
+    "owner_guest_back": "↩️ Гость {guest}: возврат со своего ключа к тому, что вы задали для гостя.",
     "own_not_a_key": "Это не похоже на ключ или токен Anthropic (он начинается с sk-ant-).",
     "own_refused": "Anthropic не принял: {error}",
     "own_saved": "Сохранено (оканчивается на {last4}). Теперь Claude работает на вашем ключе или входе.",
     "own_failed": "Не удалось сохранить. Ничего не изменилось.",
     "own_back": "Вернулись к настройке владельца. Ваш ключ удалён.",
-    "own_back_not_allowed": "Вы не на своём ключе, возвращаться не откуда.",
+    "own_back_not_allowed": "Вы не на своём ключе, возвращаться неоткуда.",
+    "own_back_key_stays": "Вернулись к настройке владельца, но сохранённый ключ удалить не "
+                          "удалось. Скажите владельцу.",
+    "own_settings_broken": "Владельцу нужно сначала исправить настройки Claude для этого гостя. "
+                           "Владельцу сообщили.",
+    "gate_claude_many": "Слишком много попыток. Подождите час и попробуйте снова.",
     "owner_claude_broken": "⚠️ Гость {guest}: настройки Claude в guests.json неверны ({error}). "
                            "Запросам гостя отказывается, пока их не исправят (кнопка Claude "
                            "в строке гостя сохраняет верные).",

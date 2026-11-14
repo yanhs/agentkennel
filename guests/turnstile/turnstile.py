@@ -731,7 +731,7 @@ def usd_window(guest, ledger, now: Optional[float] = None) -> Dict:
             "limit": guest.claude["usd_week"], "resets_at": math.ceil(end)}
 
 
-def claude_view(guest, ledger, keys) -> Dict:
+def claude_view(guest, ledger, keys, now: Optional[float] = None) -> Dict:
     """What a guest's Claude runs on, for the guest (never a secret): shared by
     GET /guest/usage, the relay and guestctl. A broken stored block reads as owner_sub
     with "error": True (the text goes to the owner, not the guest)."""
@@ -740,7 +740,7 @@ def claude_view(guest, ledger, keys) -> Dict:
     out = {"mode": c["mode"], "owner_mode": c.get("owner_mode"),
            "has_key": have is not None,
            "last4": claudekeys.last4(have[1]) if have else None,
-           "usd": usd_window(guest, ledger) if c["mode"] == "owner_key" else None}
+           "usd": usd_window(guest, ledger, now) if c["mode"] == "owner_key" else None}
     if guest.claude_error:
         out["error"] = True
     return out
@@ -791,6 +791,7 @@ RULE_ACTIONS = {          # key -> what it lets the agent do (said to the agent 
 }
 FLAG_PATH = "/flag"
 FLAG_PER_HOUR = 5
+CLAUDE_PER_HOUR = 10       # POST /guest/claude attempts a guest may make an hour
 WORK_MAX = 1000
 
 
@@ -1013,6 +1014,19 @@ def make_server(
         if watch is not None and hasattr(watch, "check_usd"):
             watch.check_usd(guest.name, c["usd_week"])
 
+    claude_tries: Dict[str, deque] = {}
+
+    def claude_allowed(name: str) -> bool:
+        now = time.time()
+        with flags_lock:
+            q = claude_tries.setdefault(name, deque())
+            while q and q[0] < now - 3600:
+                q.popleft()
+            if len(q) >= CLAUDE_PER_HOUR:
+                return False
+            q.append(now)
+            return True
+
     def flag_allowed(name: str) -> bool:
         now = time.time()
         with flags_lock:
@@ -1047,7 +1061,7 @@ def make_server(
                 if self.command != "GET":
                     return self._reply(403, _error("permission_error", _t("gate_path")))
                 out = guest_usage(guest, ledger, clock())
-                out["claude"] = claude_view(guest, ledger, keys)
+                out["claude"] = claude_view(guest, ledger, keys, clock())
                 return self._reply(200, json.dumps(out).encode())
             if self.path.split("?", 1)[0] == CLAUDE_PATH:   # switch to an own key, or back
                 return self._claude(guest)
@@ -1190,14 +1204,20 @@ def make_server(
                 req = json.loads(self.rfile.read(length) or b"")
                 if not isinstance(req, dict):
                     raise ValueError("not an object")
-                secret, back = req.get("secret"), req.get("back")
-                if (secret is None) == (back is None) \
-                        or not (secret is None or isinstance(secret, str)):
-                    raise ValueError("secret or back")
+                if set(req) == {"back"} and req["back"] is True:
+                    secret, back = None, True
+                elif set(req) == {"secret"} and isinstance(req["secret"], str):
+                    secret, back = req["secret"], False
+                else:
+                    raise ValueError("exactly {back: true} or {secret: str}")
             except ValueError:
                 return self._reply(400, _error("invalid_request_error", _t("gate_bad_body")))
+            if not claude_allowed(guest.name):
+                log(f"CLAUDE-CAPPED guest={guest.name}")
+                return self._reply(429, _error("rate_limit_error", _t("gate_claude_many")))
             if back:
-                ok, message = claudekeys.switch_back(book, keys, guest.name, notify=send_owner)
+                ok, message = claudekeys.switch_back(book, keys, guest.name, notify=send_owner,
+                                                     log=log)
                 log(f"CLAUDE-BACK guest={guest.name} ok={ok}")
             else:
                 ok, message = claudekeys.switch_own(
@@ -1207,7 +1227,7 @@ def make_server(
             fresh = book.get(guest.name) or guest
             return self._reply(200, json.dumps(
                 {"ok": ok, "message": message,
-                 "claude": claude_view(fresh, ledger, keys)}).encode())
+                 "claude": claude_view(fresh, ledger, keys, clock())}).encode())
 
         def _flag(self, guest) -> None:
             length = int(self.headers.get("content-length") or 0)
