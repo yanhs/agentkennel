@@ -426,6 +426,16 @@ class Ledger:
             ).fetchone()
         return float(row[0])
 
+    def usd_max_between(self, guest: str, start: float, end: float) -> float:
+        """The largest single owner_key request in [start, end), 0 when none."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT COALESCE(MAX(usd),0) FROM usage"
+                " WHERE guest=? AND mode='owner_key' AND ts>=? AND ts<?",
+                (guest, start, end),
+            ).fetchone()
+        return float(row[0])
+
     def usd_since(self, guest: str, since: float) -> float:
         with self._lock:
             row = self._db.execute(
@@ -859,8 +869,10 @@ def _flag_text(body: Optional[bytes]) -> str:
 
 
 def _allowed_path(path: str) -> bool:
-    bare = path.split("?", 1)[0]
-    return bare == "/v1/messages" or bare.startswith("/v1/messages/")
+    """Only the Messages API itself and its token count. Batches (/v1/messages/batches*)
+    are closed in every mode: their usage never comes back in the answer, so it could be
+    neither counted nor limited."""
+    return path.split("?", 1)[0] in ("/v1/messages", "/v1/messages/count_tokens")
 
 
 OWNER_TOLD_EVERY = 3600     # the same problem is told to the owner at most once an hour
@@ -944,15 +956,40 @@ def make_server(
         except Exception as exc:
             return _clip(str(exc))
 
+    def charge(guest, model: Optional[str], usage: Dict) -> float:
+        """Dollars of one owner_key request; never $0 because pricing failed: then the
+        unknown-model maximum for its usage, else the largest request this week, else $1."""
+        def sane(value) -> Optional[float]:
+            value = float(value)
+            return value if math.isfinite(value) and value >= 0 else None
+        try:
+            got = sane(prices(model, usage))
+            if got is not None:
+                return got
+            why = "not a price"
+        except Exception as exc:
+            why = repr(exc)
+        log(f"PRICE-ERROR guest={guest.name} model={model} {why}")
+        tell_owner("prices", _t("owner_key_problem", guest=guest.name, error=_t(
+            "ownerkey_prices", error=_clip(why))))
+        try:
+            got = sane(prices(None, usage))
+            if got:
+                return got
+        except Exception:
+            pass
+        start, end = week_bounds(clock(), ledger.week_reset())
+        return ledger.usd_max_between(guest.name, start, end) or 1.0
+
     def after_owner_key(guest) -> None:
         """The owner hears once a week when the guest's dollars cross notify_at."""
         c = guest.claude
-        start, _ = week_bounds(time.time(), ledger.week_reset())
-        used = ledger.usd_between(guest.name, start, start + WEEK)
-        if used >= c["notify_at"] * c["usd_week"] \
-                and ledger.once(f"usd80:{guest.name}:{int(start)}"):
-            log(f"USD-NOTICE guest={guest.name} ${used:.2f} of ${c['usd_week']}")
-            send_owner(_t("usd_notice", guest=guest.name, spent=used, limit=c["usd_week"]))
+        w = usd_window(guest, ledger, now=clock())
+        week = int(w["resets_at"] - WEEK)       # names the week (its start, but for DST)
+        if w["used"] >= c["notify_at"] * w["limit"] \
+                and ledger.once(f"usd80:{guest.name}:{week}"):
+            log(f"USD-NOTICE guest={guest.name} ${w['used']:.2f} of ${w['limit']}")
+            send_owner(_t("usd_notice", guest=guest.name, spent=w["used"], limit=w["limit"]))
         if watch is not None and hasattr(watch, "check_usd"):
             watch.check_usd(guest.name, c["usd_week"])
 
@@ -1025,7 +1062,7 @@ def make_server(
                     tell_owner("prices", _t("owner_key_problem", guest=guest.name, error=_t(
                         "ownerkey_prices", error=_clip(str(exc)))))
                     return self._reply(503, unavailable)
-            refusal = over_limit(guest, ledger)
+            refusal = over_limit(guest, ledger, now=clock())
             if refusal:
                 log(f"LIMIT guest={guest.name} {refusal}")
                 return self._reply(429, _error("rate_limit_error", refusal))
@@ -1052,9 +1089,21 @@ def make_server(
                 reset = (resp.getheader(WEEK_RESET_HEADER) or "").strip()
                 if reset.isdigit():
                     ledger.set_week_reset(int(reset))  # the guests' week follows the owner's
-            # the owner's key refused (revoked, disabled, out of credit): the guest gets
-            # Anthropic's answer as it is, the owner is told
-            err = bytearray() if mode == "owner_key" and resp.status in (400, 401, 403) else None
+            # the owner's key refused (revoked, disabled, out of credit): the guest gets the
+            # plain "unavailable, the owner has been told", never Anthropic's answer
+            head = b""
+            if mode == "owner_key" and resp.status in (400, 401, 403):
+                try:
+                    head = resp.read(_ERR_CAP)
+                except (OSError, http.client.HTTPException) as exc:   # cut off: IncompleteRead
+                    log(f"UPSTREAM-ERROR guest={guest.name} {exc!r}")
+                if resp.status != 400 or b"credit balance" in head.lower():
+                    conn.close()
+                    log(f"OWNER-KEY-REFUSED guest={guest.name} {resp.status}")
+                    tell_owner("ownerkey", _t("owner_key_problem", guest=guest.name, error=_t(
+                        "ownerkey_refused", status=resp.status,
+                        message=_upstream_message(head, auth[1]))))
+                    return self._reply(503, unavailable)
 
             self.send_response(resp.status)
             for key, value in resp.getheaders():
@@ -1063,13 +1112,14 @@ def make_server(
             self.send_header("connection", "close")
             self.end_headers()
             try:
+                if head:                # an ordinary 400 read above: passed on as it is
+                    parser.feed(head)
+                    self.wfile.write(head)
                 while True:
                     chunk = resp.read1(65536)
                     if not chunk:
                         break
                     parser.feed(chunk)
-                    if err is not None and len(err) < _ERR_CAP:
-                        err += chunk[:_ERR_CAP - len(err)]
                     self.wfile.write(chunk)
                     self.wfile.flush()
             except OSError as exc:  # guest hung up mid-stream: still count what came
@@ -1077,19 +1127,10 @@ def make_server(
             finally:
                 parser.close()
                 conn.close()
-            if err is not None and (resp.status != 400 or b"credit balance" in bytes(err).lower()):
-                tell_owner("ownerkey", _t("owner_key_problem", guest=guest.name, error=_t(
-                    "ownerkey_refused", status=resp.status,
-                    message=_upstream_message(bytes(err), auth[1]))))
             used, usd = 0, 0.0
             if parser.usage:
                 if mode == "owner_key":
-                    try:
-                        usd = float(prices(parser.model, parser.usage))
-                    except Exception as exc:
-                        log(f"PRICE-ERROR guest={guest.name} {exc!r}")
-                        tell_owner("prices", _t("owner_key_problem", guest=guest.name, error=_t(
-                            "ownerkey_prices", error=_clip(str(exc)))))
+                    usd = charge(guest, parser.model, parser.usage)
                 used = ledger.record(guest.name, parser.model, parser.usage, mode=mode, usd=usd)
             log(f"PASS guest={guest.name} {self.command} {self.path} {resp.status} "
                 f"mode={mode} model={parser.model} weighted={used} usd={usd:.6f}")

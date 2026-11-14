@@ -236,6 +236,8 @@ class Upstream:
                 self.end_headers()
                 self.wfile.write(up.body)
 
+            do_GET = do_POST            # a GET reaching here is recorded too
+
             def log_message(self, *a):
                 pass
 
@@ -473,7 +475,7 @@ def test_a_broken_claude_block_is_refused_not_run_on_the_subscription(gate, up, 
     (400, {"type": "invalid_request_error",
            "message": "Your credit balance is too low to access the Anthropic API."}),
 ])
-def test_owner_key_refused_upstream_passes_through_and_the_owner_is_told_once(
+def test_owner_key_refused_upstream_is_unavailable_and_the_owner_is_told_once(
         gate, up, book, keys, told, status, error):
     keys.set_owner(OWNER_KEY)
     p = guest(book, mode="owner_key")
@@ -481,10 +483,27 @@ def test_owner_key_refused_upstream_passes_through_and_the_owner_is_told_once(
     up.body = json.dumps({"type": "error", "error": error}).encode()
     for _ in range(2):
         got, body = call(gate, p)
-        assert (got, body) == (status, up.body)
+        assert got == 503 and message(body) == ts._t("gate_no_owner_key")
+        assert json.loads(body)["type"] == "error"
+        assert OWNER_KEY.encode() not in body and b"sk-ant" not in body
+        assert error["message"].encode() not in body          # Anthropic's words stay here
     assert len(wait_for(told, 1)) == 1
     assert "anna" in told[0] and str(status) in told[0]
     assert OWNER_KEY not in told[0] and "sk-ant" not in told[0]
+
+
+def test_owner_key_refused_while_streaming_requested_still_503(gate, up, book, keys, told):
+    keys.set_owner(OWNER_KEY)
+    p = guest(book, mode="owner_key")
+    up.status = 401
+    up.body = b'{"type":"error","error":{"type":"authentication_error","message":"invalid"}}'
+    conn = http.client.HTTPConnection("127.0.0.1", gate.server_address[1], timeout=10)
+    conn.request("POST", "/v1/messages", headers={"authorization": f"Bearer {p}"},
+                 body=json.dumps({"model": "m", "stream": True, "messages": []}))
+    r = conn.getresponse()
+    body = r.read()
+    assert r.status == 503 and b"invalid" not in body
+    assert r.getheader("content-type") == "application/json"
 
 
 def test_other_upstream_errors_are_not_the_owners_problem(gate, up, book, keys, told):
@@ -494,7 +513,7 @@ def test_other_upstream_errors_are_not_the_owners_problem(gate, up, book, keys, 
     o = guest(book, "own", mode="own")
     up.status = 400
     up.body = b'{"type":"error","error":{"type":"invalid_request_error","message":"bad"}}'
-    assert call(gate, p)[0] == 400
+    assert call(gate, p) == (400, up.body)               # not a key problem: as it is
     up.status = 401                                     # the guest's own key: theirs to fix
     assert call(gate, o)[0] == 401
     assert wait_for(told, 0) == []
@@ -709,3 +728,161 @@ def test_add_column_tolerates_a_column_another_process_added(tmp_path):
     assert [r[1] for r in db.execute("PRAGMA table_info(usage)")] == ["ts", "mode"]
     with pytest.raises(sqlite3.OperationalError):
         ts._add_column(db, "nope", "x INT")
+
+
+# -- only the Messages API itself (fix round 1: batches would spend uncounted) ---------- #
+def raw(gate, method, path, secret):
+    conn = http.client.HTTPConnection("127.0.0.1", gate.server_address[1], timeout=10)
+    body = json.dumps({"requests": []}) if method == "POST" else None
+    conn.request(method, path, body=body, headers={"authorization": f"Bearer {secret}"})
+    r = conn.getresponse()
+    return r.status, r.read()
+
+
+@pytest.mark.parametrize("mode", ["owner_key", "owner_sub", "own"])
+@pytest.mark.parametrize("method,path", [
+    ("POST", "/v1/messages/batches"),
+    ("POST", "/v1/messages/batches?beta=true"),
+    ("GET", "/v1/messages/batches/x/results"),
+    ("GET", "/v1/messages/batches"),
+    ("POST", "/v1/messages/"),
+    ("POST", "/v1/messages/count_tokens/x"),
+])
+def test_message_batches_and_other_subpaths_are_closed(gate, up, book, keys, mode, method, path):
+    keys.set_owner(OWNER_KEY)
+    keys.put("anna", "api", GUEST_KEY)
+    p = guest(book, mode=mode)
+    status, body = raw(gate, method, path, p)
+    assert status == 403 and message(body) == ts._t("gate_path")
+    assert up.requests == []
+
+
+@pytest.mark.parametrize("path", ["/v1/messages", "/v1/messages?beta=true",
+                                  "/v1/messages/count_tokens",
+                                  "/v1/messages/count_tokens?beta=true"])
+def test_messages_and_count_tokens_stay_open(gate, up, book, keys, path):
+    keys.set_owner(OWNER_KEY)
+    assert raw(gate, "POST", path, guest(book, mode="owner_key"))[0] == 200
+    assert len(up.requests) == 1
+
+
+# -- a request is never counted at $0 because pricing failed (fix round 1) ------------- #
+def _priced_gate(up, book, ledger, keys, prices):
+    keys.set_owner(OWNER_KEY)
+    return _serve(book=book, ledger=ledger, owner_token=lambda: OWNER, keys=keys,
+                  upstream=("http", "127.0.0.1", up.server.server_address[1]),
+                  notify=lambda text: None, log=lambda line: None, prices=prices)
+
+
+def _last_usd(ledger, name="anna"):
+    return ledger._db.execute("SELECT usd FROM usage WHERE guest=? ORDER BY rowid DESC LIMIT 1",
+                              (name,)).fetchone()[0]
+
+
+def test_pricing_failure_charges_the_unknown_model_maximum(up, book, ledger, keys):
+    def prices(model, usage):
+        if model is not None:
+            raise KeyError(model)
+        return 0.0 if not usage else 42.0                 # the max row, for this usage
+    server = _priced_gate(up, book, ledger, keys, prices)
+    try:
+        assert call(server, guest(book, mode="owner_key"))[0] == 200
+    finally:
+        server.shutdown()
+    assert _last_usd(ledger) == pytest.approx(42.0)
+
+
+def test_pricing_failure_falls_back_to_the_weeks_largest_request(up, book, ledger, keys):
+    def prices(model, usage):
+        if usage:
+            raise ValueError("broken")
+        return 0.0
+    now = time.time()
+    p = guest(book, mode="owner_key", usd_week=100)
+    ledger.record("anna", "m", {"input_tokens": 1}, ts_=now - 60, mode="owner_key", usd=2.5)
+    ledger.record("anna", "m", {"input_tokens": 1}, ts_=now - 50, mode="owner_key", usd=0.5)
+    ledger.record("anna", "m", {"input_tokens": 1}, ts_=now - 40, mode="own", usd=9.0)
+    ledger.record("bob", "m", {"input_tokens": 1}, ts_=now - 40, mode="owner_key", usd=9.0)
+    start, _ = ts.week_bounds(now, ledger.week_reset())
+    ledger.record("anna", "m", {"input_tokens": 1}, ts_=start - 10, mode="owner_key", usd=7.0)
+    server = _priced_gate(up, book, ledger, keys, prices)
+    try:
+        assert call(server, p)[0] == 200
+    finally:
+        server.shutdown()
+    assert _last_usd(ledger) == pytest.approx(2.5)
+
+
+def test_pricing_failure_with_nothing_this_week_charges_a_dollar(up, book, ledger, keys):
+    def prices(model, usage):
+        if usage:
+            return float("nan") if model is None else -1.0    # nonsense is a failure too
+        return 0.0
+    server = _priced_gate(up, book, ledger, keys, prices)
+    try:
+        assert call(server, guest(book, mode="owner_key"))[0] == 200
+    finally:
+        server.shutdown()
+    assert _last_usd(ledger) == pytest.approx(1.0)
+
+
+def test_the_eighty_percent_notice_uses_the_servers_clock(up, book, ledger, keys, told):
+    keys.set_owner(OWNER_KEY)
+    then = 1_900_000_000.0                                    # a week far from now
+    server = _serve(book=book, ledger=ledger, owner_token=lambda: OWNER, keys=keys,
+                    upstream=("http", "127.0.0.1", up.server.server_address[1]),
+                    notify=told.append, log=lambda line: None, prices=lambda m, u: 1.0,
+                    clock=lambda: then)
+    try:
+        p = guest(book, mode="owner_key", usd_week=10)
+        ledger.record("anna", "m", {}, ts_=then - 60, mode="owner_key", usd=8.0)
+        # the request's own row lands at the real time (another week): the notice is
+        # worked out on the server's clock, where $8 of $10 is already spent
+        assert call(server, p)[0] == 200
+        assert len(wait_for(told, 1)) == 1
+        assert told[0] == ts._t("usd_notice", guest="anna", spent=8.0, limit=10)
+    finally:
+        server.shutdown()
+
+
+def test_owner_login_problem_says_your_login(monkeypatch):
+    import texts
+    assert "your login can't be read" in texts.EN["owner_login_problem"]
+
+
+def test_a_cut_off_refusal_from_upstream_is_still_503(book, ledger, keys, told):
+    """Anthropic's 401 ends early (IncompleteRead, not an OSError): still a clean 503."""
+    import socket
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(5)
+
+    def answer():
+        while True:
+            try:
+                c, _ = srv.accept()
+            except OSError:
+                return
+            got = b""
+            while b"\r\n\r\n" not in got:
+                got += c.recv(65536)
+            head, _, body = got.partition(b"\r\n\r\n")
+            length = int([ln.split(b":")[1] for ln in head.split(b"\r\n")
+                          if ln.lower().startswith(b"content-length:")][0])
+            while len(body) < length:            # all of it read: the close is clean
+                body += c.recv(65536)
+            c.sendall(b"HTTP/1.1 401 Unauthorized\r\ncontent-type: application/json\r\n"
+                      b"transfer-encoding: chunked\r\n\r\n1f4\r\n{\"type\":\"error\"")
+            c.close()
+    threading.Thread(target=answer, daemon=True).start()
+    keys.set_owner(OWNER_KEY)
+    server = _serve(book=book, ledger=ledger, owner_token=lambda: OWNER, keys=keys,
+                    upstream=("http", "127.0.0.1", srv.getsockname()[1]),
+                    notify=told.append, log=lambda line: None)
+    try:
+        status, body = call(server, guest(book, mode="owner_key"))
+        assert status == 503 and message(body) == ts._t("gate_no_owner_key")
+        assert len(wait_for(told, 1)) == 1 and "401" in told[0]
+    finally:
+        server.shutdown()
+        srv.close()

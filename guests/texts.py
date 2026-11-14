@@ -126,7 +126,7 @@ EN = {
     "owner_claude_broken": "⚠️ Guest {guest}: their Claude settings in guests.json are not "
                            "valid ({error}). Their requests are refused until they're fixed "
                            "(the Claude button on the guest's row saves valid ones).",
-    "owner_login_problem": "⚠️ Guest {guest} runs on your subscription, but its login can't be "
+    "owner_login_problem": "⚠️ Guest {guest} runs on your subscription, but your login can't be "
                            "read ({error}). Their requests are refused until it's fixed.",
     "usd_notice": "💵 Guest {guest} has spent ${spent:.2f} of their ${limit:.2f} a week on your "
                   "API key.",
