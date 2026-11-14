@@ -1911,6 +1911,74 @@ def quota_from_turnstile(d):
     return out
 
 
+QUOTA_CLAUDE_ROUTE = "/api/quota/claude"
+QUOTA_CLAUDE_TIMEOUT = 30          # the turnstile checks a key with Anthropic: up to 20 s
+QUOTA_CLAUDE_BODY_MAX = 8 * 1024   # the turnstile's own cap on POST /guest/claude
+_CLAUDE_MODES = ("owner_key", "own", "owner_sub")
+
+
+def quota_claude_view(c):
+    """The turnstile's claude_view, known fields only (it never carries a secret, and
+    this keeps it so whatever the turnstile adds), or None when there is none."""
+    if not isinstance(c, dict) or c.get("mode") not in _CLAUDE_MODES:
+        return None
+    num = lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool) else None  # noqa: E731
+    usd = c.get("usd")
+    if isinstance(usd, dict) and num(usd.get("used")) is not None and num(usd.get("limit")) is not None:
+        usd = {"used": usd["used"], "limit": usd["limit"], "resets_at": num(usd.get("resets_at"))}
+    else:
+        usd = None
+    last4 = c.get("last4")
+    out = {"mode": c["mode"],
+           "owner_mode": c.get("owner_mode") if c.get("owner_mode") in _CLAUDE_MODES else None,
+           "has_key": c.get("has_key") is True,
+           "last4": last4 if isinstance(last4, str) and len(last4) <= 4 else None,
+           "usd": usd, "usd_week": num(c.get("usd_week"))}
+    if c.get("error") is True:
+        out["error"] = True
+    return out
+
+
+def quota_claude_body(raw):
+    """The dialog's body, checked like the turnstile checks it: exactly {"secret": str}
+    or {"back": true}. The secret itself (for scrubbing), or LibError(400)."""
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        raise LibError(400, "body is not JSON")
+    if isinstance(body, dict) and set(body) == {"back"} and body["back"] is True:
+        return None
+    if isinstance(body, dict) and set(body) == {"secret"} and isinstance(body["secret"], str):
+        return body["secret"]
+    raise LibError(400, 'send exactly {"secret": "..."} or {"back": true}')
+
+
+def quota_claude_post(base, token, raw, secret):
+    """POST <turnstile>/guest/claude with the pass -> (status, JSON-able answer). Neither
+    the pass nor the secret ever comes back, and nothing here is logged."""
+    req = urllib.request.Request(base + "/guest/claude", data=raw, method="POST", headers={
+        "Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=QUOTA_CLAUDE_TIMEOUT) as r:
+            status, text = r.status, r.read(65536)
+    except urllib.error.HTTPError as e:
+        status, text = e.code, e.read(65536)
+    except (OSError, ValueError) as e:
+        return 502, {"error": f"the turnstile did not answer ({type(e).__name__})"}
+    try:
+        answer = json.loads(text)
+    except ValueError:
+        return 502, {"error": f"the turnstile's answer ({status}) is not JSON"}
+    out = json.dumps(answer, ensure_ascii=False)
+    for s in (token, secret):
+        if s and len(s) >= 8:
+            out = out.replace(json.dumps(s, ensure_ascii=False)[1:-1], "…")
+    try:
+        return status, json.loads(out)
+    except ValueError:
+        return 502, {"error": "the turnstile's answer could not be passed on"}
+
+
 class Quota:
     """GET /api/quota. get() never waits for the network: it answers what is known and,
     when that is stale, starts one background fetch (never two at once)."""
@@ -1950,7 +2018,20 @@ class Quota:
         w = quota_from_turnstile(d)
         if w is None:
             return {"available": False, "error": "the turnstile's answer has no usage numbers"}
-        return {"available": True, "source": "guest", **w}
+        out = {"available": True, "source": "guest", **w}
+        c = quota_claude_view(d.get("claude"))
+        if c is not None:                  # an older turnstile says nothing: nothing new shows
+            out["claude"] = c
+        return out
+
+    def put_claude(self, view):
+        """After a switch in the dialog: the page sees the new Claude at once, and the
+        numbers (they follow the mode) are fetched again on the next ask."""
+        c = quota_claude_view(view)
+        with self.lock:
+            if c is not None and self.data is not None and self.data.get("available"):
+                self.data = dict(self.data, claude=c)
+                self.at = float("-inf")
 
     def fetch_subscription(self, token):
         try:
@@ -2446,7 +2527,40 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(out)
 
+    def _quota_claude(self):
+        """POST /api/quota/claude: the guest's "Your Claude" dialog, passed to the
+        turnstile with the pass. Only behind a turnstile; the body is never logged."""
+        try:
+            src = Quota.source()
+            if src is None or src[0] != "guest":
+                raise LibError(404, "not found")
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                raise LibError(400, "bad Content-Length")
+            if length > QUOTA_CLAUDE_BODY_MAX:       # before a byte of it is read
+                self.close_connection = True
+                raise LibError(413, "body too large")
+            ctype = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+            if ctype != "application/json":
+                raise LibError(415, "Content-Type must be application/json")
+            origin = self.headers.get("Origin")
+            if origin is not None and not lib_origin_ok(origin, self.headers):
+                raise LibError(403, "cross-origin request refused")
+            raw = self.rfile.read(length) if length > 0 else b""
+            secret = quota_claude_body(raw)
+            code, answer = quota_claude_post(src[1], src[2], raw, secret)
+            if code == 200 and isinstance(answer, dict):
+                QUOTA.put_claude(answer.get("claude"))
+            self._lib_json(code, answer)
+        except LibError as e:
+            self._lib_json(e.code, {"error": str(e)})
+        except Exception as e:                       # never the body: only what failed
+            self._lib_json(500, {"error": f"failed ({type(e).__name__})"})
+
     def do_POST(self):
+        if self._route() == QUOTA_CLAUDE_ROUTE:
+            return self._quota_claude()
         if self._is_library():
             return self._library_post()
         if self._is_services():

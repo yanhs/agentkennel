@@ -16,6 +16,15 @@ pr/terminal-dev/.progress-usage-limits-disk.md.
   the env var); the numbers are its anthropic-ratelimit-unified-{5h,7d}-{utilization,reset}
   headers. At most one probe per 10 minutes, always in a background thread.
 
+    a guest's answer also carries the turnstile's "claude" (known fields only) when the
+    turnstile sends one; an older turnstile sends none and nothing new shows.
+
+    POST /api/quota/claude {"secret": str} | {"back": true}   (a guest only; 404 elsewhere)
+  -> forwarded as it is to <base>/guest/claude with the pass (30 s); the turnstile's status
+     and JSON come back, never the pass. Same-origin JSON only, 8 KB, never logged.
+     Every proxy already routes it: Caddy's `handle /api/quota*` (docker/Caddyfile is the
+     guest image's) and nginx's `location /api/quota` are prefixes.
+
     GET /api/quota/terminals -> {"terminals": [{"id", "name", "tokens_today"}]}   (owner only)
   today's weighted tokens per terminal from its conversation JSONL (input 1, cache write
   1.25, cache read 0.1, output 5; each assistant message.id once), top 8, cached 5 min.
@@ -66,7 +75,9 @@ def probe_headers(r5, r7, u5="0.07", u7="0.09"):
 class FakeTurnstile:
     def __init__(self):
         self.calls = []
+        self.posts = []                 # POST /guest/claude: (path, authorization, body bytes)
         self.status, self.body = 200, b"{}"
+        self.post_status, self.post_body = 200, b"{}"
         me = self
 
         class H(BaseHTTPRequestHandler):
@@ -78,6 +89,16 @@ class FakeTurnstile:
                 self.end_headers()
                 self.wfile.write(me.body)
 
+            def do_POST(self):
+                n = int(self.headers.get("content-length") or 0)
+                me.posts.append((self.path, self.headers.get("authorization"),
+                                 self.rfile.read(n), self.headers.get("content-type")))
+                self.send_response(me.post_status)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(me.post_body)))
+                self.end_headers()
+                self.wfile.write(me.post_body)
+
             def log_message(self, *a):
                 pass
 
@@ -88,6 +109,10 @@ class FakeTurnstile:
     def answer(self, data, status=200):
         self.status = status
         self.body = data if isinstance(data, bytes) else json.dumps(data).encode()
+
+    def answer_post(self, data, status=200):
+        self.post_status = status
+        self.post_body = data if isinstance(data, bytes) else json.dumps(data).encode()
 
 
 class FakeProbe:
@@ -607,7 +632,168 @@ def test_terminals_are_the_owners_only(q, tmp_path):
 
 
 def test_the_proxies_route_quota_to_the_status_server():
+    # prefixes: /api/quota/terminals and /api/quota/claude go the same way (a guest's
+    # sandbox runs the AgentKennel image: docker/Caddyfile)
     for f in ("Caddyfile", "docker/Caddyfile"):
         assert "handle /api/quota* {" in (TERMINAL_DIR / f).read_text(), f
     conf = (TERMINAL_DIR / "nginx/agents-subdomain.conf").read_text()
     assert "location /api/quota {" in conf and "location = /api/quota " not in conf
+
+
+# ── a guest's own Claude: POST /api/quota/claude (task 11, 13.11.2026) ──────
+# The panel's "Your Claude" dialog posts {"secret": ...} or {"back": true}; status_server
+# forwards exactly that to the turnstile's POST /guest/claude with the pass and returns
+# the turnstile's status and JSON — never the pass. Only behind a turnstile ("guest").
+KEY = "sk-ant-api03-" + "k" * 80 + "x4Fk"
+CLAUDE_OWN = {"mode": "own", "owner_mode": "owner_key", "has_key": True, "last4": "x4Fk",
+              "usd": None, "usd_week": 20}
+CLAUDE_OWNER_KEY = {"mode": "owner_key", "owner_mode": None, "has_key": False, "last4": None,
+                    "usd": {"used": 6.1, "limit": 20, "resets_at": 1_900_000_000},
+                    "usd_week": 20}
+
+
+def post(base, body, path="/api/quota/claude", ctype="application/json", headers=None):
+    raw = body if isinstance(body, bytes) else json.dumps(body).encode()
+    req = urllib.request.Request(base + path, data=raw, method="POST",
+                                 headers={"Content-Type": ctype, **(headers or {})})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, r.read().decode()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode()
+
+
+def test_the_dialog_forwards_the_key_with_the_pass_and_returns_the_answer(q, capfd):
+    q.guest()
+    answer = {"ok": True, "message": "Checked: the key works. Claude now runs on it.",
+              "claude": CLAUDE_OWN}
+    q.turnstile.answer_post(answer)
+    body = json.dumps({"secret": KEY}).encode()
+    code, raw = post(q.base, body)
+    assert code == 200
+    assert json.loads(raw) == answer
+    assert q.turnstile.posts == [("/guest/claude", f"Bearer {PASS}", body, "application/json")]
+    assert PASS not in raw and KEY not in raw
+    assert KEY not in capfd.readouterr().err                 # never logged
+
+
+def test_back_to_the_owner_is_forwarded_too(q):
+    q.guest()
+    q.turnstile.answer_post({"ok": True, "message": "Back on the owner's key.",
+                             "claude": CLAUDE_OWNER_KEY})
+    code, raw = post(q.base, {"back": True})
+    assert code == 200 and json.loads(raw)["claude"]["mode"] == "owner_key"
+    assert json.loads(q.turnstile.posts[0][2]) == {"back": True}
+
+
+def test_the_pass_never_comes_back_even_if_the_turnstile_says_it(q):
+    q.guest()
+    q.turnstile.answer_post({"ok": False, "message": f"pass {PASS} key {KEY}",
+                             "claude": CLAUDE_OWNER_KEY})
+    code, raw = post(q.base, {"secret": KEY})
+    assert code == 200
+    assert PASS not in raw and KEY not in raw
+    assert json.loads(raw)["ok"] is False
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 413, 429])
+def test_the_turnstiles_refusal_comes_back_as_it_is(q, status):
+    q.guest()
+    refusal = {"type": "error", "error": {"type": "rate_limit_error",
+                                          "message": "Too many tries; wait an hour."}}
+    q.turnstile.answer_post(refusal, status)
+    code, raw = post(q.base, {"secret": KEY})
+    assert code == status and json.loads(raw) == refusal
+    assert PASS not in raw
+
+
+def test_a_turnstile_that_does_not_answer_is_a_502(q, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", PASS)
+    code, raw = post(q.base, {"secret": KEY})
+    assert code == 502 and json.loads(raw)["error"]
+    assert PASS not in raw and KEY not in raw
+
+
+def test_the_turnstile_gets_thirty_seconds(q):
+    assert q.mod.QUOTA_CLAUDE_TIMEOUT == 30          # the key check alone can take 20 s
+
+
+def test_not_on_the_owners_own_install(q, monkeypatch):
+    q.owner()                                        # his subscription: no turnstile
+    code, raw = post(q.base, {"secret": KEY})
+    assert code == 404 and KEY not in raw
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", q.turnstile.base)   # a proxy without a pass
+    code, _ = post(q.base, {"secret": KEY})
+    assert code == 404
+    assert q.turnstile.posts == []
+
+
+@pytest.mark.parametrize("body", [
+    b"{}", b'{"secret": 12}', b'{"back": false}', b'{"back": "yes"}',
+    b'{"secret": "sk-ant-x", "back": true}', b'{"secret": "sk-ant-x", "kind": "api"}',
+    b'["sk-ant-x"]', b'"sk-ant-x"', b"not json", b""],
+    ids=["empty", "number", "back-false", "back-string", "both", "extra-key", "list",
+         "string", "garbage", "nothing"])
+def test_a_bad_shape_is_refused_here(q, body):
+    q.guest()
+    code, raw = post(q.base, body)
+    assert code == 400 and json.loads(raw)["error"]
+    assert "sk-ant-x" not in raw
+    assert q.turnstile.posts == []
+
+
+def test_an_oversized_body_is_refused_before_it_is_read(q):
+    import http.client
+    q.guest()
+    code, _ = post(q.base, {"secret": "k" * (8 * 1024)})
+    assert code == 413
+    host, port = q.base.rsplit(":", 1)
+    conn = http.client.HTTPConnection("127.0.0.1", int(port), timeout=5)
+    conn.putrequest("POST", "/api/quota/claude")     # says 1 MB, sends 2 bytes: a server
+    conn.putheader("Content-Type", "application/json")   # that read first would hang here
+    conn.putheader("Content-Length", str(1 << 20))
+    conn.endheaders()
+    conn.send(b"{}")
+    assert conn.getresponse().status == 413
+    conn.close()
+    assert q.turnstile.posts == []
+
+
+def test_same_origin_json_writes_only(q, monkeypatch):
+    for k in ("AGENTKENNEL_ORIGIN", "AGENTDECK_ORIGIN"):
+        monkeypatch.delenv(k, raising=False)
+    q.guest()
+    assert post(q.base, {"secret": KEY}, ctype="text/plain")[0] == 415
+    code, _ = post(q.base, {"secret": KEY}, headers={"Origin": "https://evil.example"})
+    assert code == 403
+    assert q.turnstile.posts == []
+    q.turnstile.answer_post({"ok": True, "message": "ok", "claude": CLAUDE_OWN})
+    code, _ = post(q.base, {"secret": KEY}, headers={"Origin": q.base})
+    assert code == 200
+
+
+def test_quota_carries_the_turnstiles_claude_view(q):
+    now = int(time.time())
+    q.guest()
+    q.turnstile.answer(dict(usage_body(now + 60, now + 600),
+                            claude=dict(CLAUDE_OWNER_KEY, secret="never", extra=1)))
+    d = settled(q.base)[2]
+    assert d["claude"] == CLAUDE_OWNER_KEY            # known fields only
+
+
+def test_an_older_turnstile_has_no_claude(q):
+    now = int(time.time())
+    q.guest()
+    q.turnstile.answer(usage_body(now + 60, now + 600))
+    assert "claude" not in settled(q.base)[2]
+
+
+def test_after_a_switch_quota_says_the_new_claude_at_once(q):
+    now = int(time.time())
+    q.guest()
+    q.turnstile.answer(dict(usage_body(now + 60, now + 600), claude=CLAUDE_OWNER_KEY))
+    assert settled(q.base)[2]["claude"]["mode"] == "owner_key"
+    q.turnstile.answer_post({"ok": True, "message": "ok", "claude": CLAUDE_OWN})
+    assert post(q.base, {"secret": KEY})[0] == 200
+    assert json.loads(get(q.base)[1])["claude"] == CLAUDE_OWN

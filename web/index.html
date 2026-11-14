@@ -153,6 +153,23 @@
     .quota-chip b { font-weight: 400; color: var(--dim); }
     .quota-chip .warn b { color: var(--amber); }
     .quota-chip .crit b { color: var(--red); }
+    /* A guest's sandbox: whose Claude runs here — "Claude · owner's key $6.10/$20",
+       "Claude · own key …x4Fk", or just "Claude" beside today's chip; opens "Your Claude" */
+    .claude-btn {
+      display: block; width: 100%; min-width: 0; margin: 0; padding: 1px 1px 0;
+      background: none; border: none; border-radius: 3px; text-align: left; cursor: pointer;
+      font: 0.62rem/1.3 'Inter', system-ui, sans-serif; color: var(--faint);
+      white-space: normal; overflow-wrap: anywhere;
+    }
+    .claude-btn[hidden] { display: none; }
+    .claude-btn .cl-word { color: var(--accent-fg); }
+    .claude-btn:hover .cl-word { color: var(--accent-fg-hi); text-decoration: underline; }
+    .claude-btn:hover { color: var(--dim); }
+    .claude-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+    .claude-btn.warn .cl-more { color: var(--amber); }
+    .claude-btn.crit .cl-more { color: var(--red); }
+    .lib-tools.creating .claude-btn { display: none; }
+    .claude-top { display: none; }               /* the phone's place for it, below */
     .new-row .cmd-btn {
       flex: none;
       width: auto;
@@ -381,6 +398,54 @@
       font-weight: 700; font-size: 17px;
     }
     #confirmDlg.danger .dlg-btns .dlg-ok { background: #dc2626; border-color: #dc2626; color: #fff; }
+    /* "Your Claude" (a guest's sandbox): what runs now, their own key or subscription
+       token instead, or back to the owner's key. The key leaves with the POST and the
+       field is emptied whatever the answer. */
+    #claudeDlg {
+      width: min(440px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px);
+      padding: 18px 18px 14px; margin: auto; overflow: auto;
+      border: 1px solid rgba(var(--fg-rgb),0.14); border-radius: 12px;
+      background: var(--menu-bg); color: var(--text); box-shadow: var(--menu-shadow);
+      font: 13px/1.45 'Inter', sans-serif;
+    }
+    #claudeDlg::backdrop { background: rgba(0,0,0,0.45); }
+    #claudeDlg h2 { font-size: 15px; font-weight: 600; color: var(--text-hi); margin-bottom: 12px; }
+    #claudeDlg .cl-l { font-size: 11.5px; color: var(--faint); margin-bottom: 4px; padding: 0; }
+    #claudeDlg .cl-sec { margin-bottom: 14px; }
+    #claudeNow { color: var(--text-2); }
+    #claudeNow .cl-sub { font-size: 11.5px; color: var(--faint); }
+    #claudeDlg .cl-bar { height: 3px; max-width: 240px; margin-top: 5px; border-radius: 2px; background: rgba(var(--fg-rgb),0.12); }
+    #claudeDlg .cl-bar i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+    #claudeDlg .cl-bar.warn i { background: var(--amber); }
+    #claudeDlg .cl-bar.crit i { background: var(--red); }
+    #claudeDlg fieldset { border: none; padding: 0; margin: 0 0 8px; min-width: 0; }
+    #claudeDlg .cl-radio { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; color: var(--text-2); }
+    #claudeDlg .cl-radio input { margin: 0; accent-color: var(--accent); width: 14px; height: 14px; flex: none; }
+    #claudeDlg .cl-hint { margin: 4px 0 0 22px; font-size: 12px; color: var(--dim); }
+    #claudeDlg .cl-hint code { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-2);
+      background: rgba(var(--fg-rgb),0.07); padding: 0 4px; border-radius: 3px; }
+    #claudeKey {
+      display: block; width: 100%; height: 34px; padding: 0 10px; border-radius: 7px;
+      border: 1px solid rgba(var(--fg-rgb),0.16); background: var(--input-bg); color: var(--text);
+      font: 13px 'JetBrains Mono', monospace; -webkit-text-security: disc; text-security: disc;
+    }
+    #claudeKey:focus { outline: none; border-color: var(--accent); }
+    #claudeDlg .cl-note { margin-top: 6px; font-size: 11.5px; color: var(--faint); }
+    #claudeMsg { min-height: 1.45em; margin: 10px 0 2px; color: var(--dim); overflow-wrap: anywhere; }
+    #claudeMsg.good { color: var(--green); }
+    #claudeMsg.bad { color: var(--red); }
+    #claudeMsg:empty { min-height: 0; margin: 0; }
+    #claudeDlg .cl-btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+    #claudeDlg .cl-btns button {
+      min-height: 36px; padding: 0 14px; border-radius: 8px; cursor: pointer;
+      font: 500 13px 'Inter', sans-serif; color: var(--text-2);
+      background: transparent; border: 1px solid rgba(var(--fg-rgb),0.14);
+    }
+    #claudeDlg .cl-btns #claudeBack { margin-right: auto; }
+    #claudeDlg .cl-btns .cl-ok { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+    #claudeDlg .cl-btns button:disabled { opacity: 0.55; cursor: progress; }
+    #claudeDlg .cl-btns button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    #claudeDlg [hidden] { display: none !important; }
 
     .proj-edit {
       font-size: 0.72rem;
@@ -746,6 +811,19 @@
       .new-row .cmd-btn { padding: 0 6px; }
       .new-row #newBtn { padding: 0 8px; }
       .quota-chip { display: none !important; }
+      /* the tools row has no room left (the search must stay usable): the label moves to
+         the topbar, beside ⋯ — whole on the empty page, just "Claude" over a terminal */
+      #claudeBtn { display: none !important; }
+      .topbar > .claude-top:not([hidden]), .topbar.no-term > .claude-top:not([hidden]) {
+        display: inline-block; width: auto; flex: none; min-width: 0;
+        height: 24px; line-height: 22px; padding: 0 8px; margin-left: auto;
+        border: 1px solid rgba(var(--fg-rgb),0.14); border-radius: 4px;
+        font-size: 0.68rem; white-space: nowrap;
+      }
+      .topbar > .claude-top:not([hidden]) + .acct { margin-left: 0; }
+      .topbar:not(.no-term) > .claude-top .cl-more { display: none; }
+      #claudeKey { font-size: 16px; height: 38px; }
+      #claudeDlg .cl-btns #claudeBack { order: 3; flex-basis: 100%; margin-right: 0; }
       /* 16px: iOS zooms the page into any input with a smaller font. */
       .lib-input { flex: 1 1 0; height: 26px; font-size: 16px; }
       .new-form { flex: 1; min-width: 0; }
@@ -862,6 +940,7 @@
           <button type="submit" id="newOk" title="Create and open (Enter)">✓</button>
           <button type="button" id="newCancel" title="Cancel (Esc)">✕</button>
         </form>
+        <button type="button" class="claude-btn" id="claudeBtn" hidden aria-haspopup="dialog"></button>
         <input class="lib-input" id="search" type="search" placeholder="Search: name or code" title="Search by terminal name or code (archived ones too); Enter opens the first match" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
       </div>
     </div>
@@ -877,6 +956,7 @@
       <button class="btn" id="tPasteImg" title="Upload files to the server: their paths go into the terminal and the clipboard (or drop files onto the terminal)">📎 File</button>
       <input type="file" id="tFileInput" multiple hidden>
       <a class="btn" id="tOpen" href="#" target="_blank">Open in tab</a>
+      <button type="button" class="claude-btn claude-top" id="claudeTop" hidden aria-haspopup="dialog"></button>
       <div class="acct" id="tAcct">
         <button type="button" class="btn acct-btn" id="tMenu" aria-haspopup="menu" aria-expanded="false" aria-controls="tMenuList" title="Account: Telegram, password, log out">⋯</button>
         <div class="acct-menu" id="tMenuList" role="menu" aria-labelledby="tMenu" hidden>
@@ -894,6 +974,30 @@
       <div class="dlg-head"><span class="dlg-icon" aria-hidden="true">!</span><b id="confirmDlgTitle"></b></div>
       <p id="confirmDlgText"></p>
       <div class="dlg-btns"><button type="button" class="dlg-cancel">Cancel</button><button type="button" class="dlg-ok">Restart</button></div>
+    </dialog>
+    <dialog id="claudeDlg" aria-labelledby="claudeDlgTitle">
+      <form id="claudeForm" autocomplete="off" novalidate>
+        <h2 id="claudeDlgTitle">Your Claude</h2>
+        <div class="cl-sec" id="claudeNowSec"><div class="cl-l">Now</div><div id="claudeNow"></div></div>
+        <p class="cl-sec" id="claudeBroken" hidden>Claude needs the owner's attention here. The owner has been told.</p>
+        <div id="claudeEdit">
+          <fieldset>
+            <legend class="cl-l" id="claudeKindLegend">Use your own instead</legend>
+            <label class="cl-radio"><input type="radio" name="claudeKind" id="claudeKindApi" value="api" checked><span>API key</span></label>
+            <label class="cl-radio"><input type="radio" name="claudeKind" id="claudeKindSub" value="sub"><span>Your Claude subscription</span></label>
+            <p class="cl-hint" id="claudeHintApi">Create one at console.anthropic.com → API keys</p>
+            <p class="cl-hint" id="claudeHintSub" hidden>Run <code>claude setup-token</code> on your computer and paste the token</p>
+          </fieldset>
+          <input id="claudeKey" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-form-type="other" aria-label="Key or token" placeholder="sk-ant-api03-…">
+          <p class="cl-note">It is checked with Anthropic and kept on the server, not in this sandbox. Only its last 4 characters are shown.</p>
+        </div>
+        <p id="claudeMsg" role="status" aria-live="polite"></p>
+        <div class="cl-btns">
+          <button type="button" id="claudeBack" hidden>Back to the owner's key</button>
+          <button type="button" id="claudeClose">Close</button>
+          <button type="submit" id="claudeSave" class="cl-ok">Check and save</button>
+        </div>
+      </form>
     </dialog>
     <div class="mob-input" id="mobInput">
       <button id="mobEsc" title="Ctrl+C">⎋</button>
@@ -2827,6 +2931,7 @@
       const ok = w => w && isFinite(w.utilization) && isFinite(w.resets_at);
       if (!d || d.available !== true || !ok(d.five_hour) || !ok(d.seven_day)) {
         chip.hidden = true;
+        renderClaude(null);
         if (++_quotaPolls === 1) setTimeout(pollQuota, 5000);   // the server's first fetch runs now
         return;
       }
@@ -2853,8 +2958,155 @@
       chip.title = parts.join('; ')
         + (d.source === 'guest' ? '\nYour Claude limits on this server' : '\nClaude subscription, as in /usage')
         + (terms ? `\nToday by terminal: ${terms}` : '');
-      chip.hidden = false;
+      _quotaLast = d;
+      chip.hidden = renderClaude(d);       // the owner's key or their own: the label says it
     }
+
+    // ── "Your Claude": a guest's sandbox only (task 11, 13.11.2026) ──
+    // /api/quota carries the turnstile's `claude` {mode, owner_mode, last4, usd, error}
+    // behind a turnstile. The label replaces the chip for owner_key / own (their limits
+    // are dollars or none); for owner_sub the chip stays and a small "Claude" sits below.
+    // An older turnstile (no `claude`) and the owner's own install: nothing new.
+    // The dialog posts {"secret"} / {"back": true} to /api/quota/claude; the key field
+    // is emptied after the POST whatever the answer, and answers are shown as text.
+    let _quotaLast = null, _claudeBusy = false;
+    const claudeEl = id => document.getElementById(id);
+    const usdUsed = n => '$' + Number(n).toFixed(2);
+    const usdLimit = n => '$' + (Number.isInteger(n) ? String(n) : Number(n).toFixed(2));
+    function claudeOf(d) {
+      const c = d && d.source === 'guest' ? d.claude : null;
+      return c && typeof c === 'object' && ['owner_key', 'own', 'owner_sub'].includes(c.mode) ? c : null;
+    }
+    function claudeLevel(c) {                 // the owner's key: amber from 70 %, red from 90 %
+      const u = c.usd;
+      if (c.error || c.mode !== 'owner_key' || !u || !(u.limit > 0)) return '';
+      const r = u.used / u.limit;
+      return r >= 0.9 ? 'crit' : r >= 0.7 ? 'warn' : '';
+    }
+    function claudeMore(c) {
+      if (c.error) return ' · needs the owner';
+      if (c.mode === 'owner_key') return " · owner's key" + (c.usd ? ` ${usdUsed(c.usd.used)}/${usdLimit(c.usd.limit)}` : '');
+      if (c.mode === 'own') return ' · own key' + (c.last4 ? ' …' + c.last4 : '');
+      return '';
+    }
+    function claudeNowText(c) {
+      if (c.mode === 'owner_key') return "The owner's key" + (c.usd ? ` · ${usdUsed(c.usd.used)} of ${usdLimit(c.usd.limit)} this week` : '');
+      if (c.mode === 'own') return 'Your own key' + (c.last4 ? ' · …' + c.last4 : '');
+      return "The owner's Claude subscription";
+    }
+    // the label (returns true when it takes the chip's place)
+    const CLAUDE_BTNS = ['claudeBtn', 'claudeTop'];   // the sidebar's; the phone's topbar
+    function renderClaude(d) {
+      const c = claudeOf(d);
+      for (const id of CLAUDE_BTNS) {
+        const btn = claudeEl(id);
+        if (!c) { btn.hidden = true; continue; }
+        const word = document.createElement('span'), more = document.createElement('span');
+        word.className = 'cl-word'; word.textContent = 'Claude';
+        more.className = 'cl-more'; more.textContent = claudeMore(c);
+        btn.replaceChildren(word, more);
+        btn.classList.remove('warn', 'crit');
+        if (claudeLevel(c)) btn.classList.add(claudeLevel(c));
+        btn.title = c.error ? 'Claude needs the owner; they have been told'
+          : claudeNowText(c) + (c.mode === 'owner_key' && c.usd && c.usd.resets_at > 0
+              ? ` · resets ${quotaReset(c.usd.resets_at, true)}` : '') + '\nOpen "Your Claude"';
+        btn.hidden = false;
+      }
+      if (!c) return false;
+      if (claudeEl('claudeDlg').open) fillClaudeDlg(c);
+      return !!c.error || c.mode !== 'owner_sub';
+    }
+    function fillClaudeDlg(c) {
+      const broken = !!c.error;
+      claudeEl('claudeBroken').hidden = !broken;
+      claudeEl('claudeNowSec').hidden = broken;
+      claudeEl('claudeEdit').hidden = broken;
+      claudeEl('claudeSave').hidden = broken;
+      claudeEl('claudeBack').hidden = broken || !(c.mode === 'own' && c.owner_mode);
+      if (broken) return;
+      const now = claudeEl('claudeNow'), line = document.createElement('div');
+      line.textContent = claudeNowText(c);
+      const parts = [line];
+      if (c.mode === 'owner_key' && c.usd && c.usd.limit > 0) {
+        const bar = document.createElement('div'), fill = document.createElement('i');
+        bar.className = 'cl-bar' + (claudeLevel(c) ? ' ' + claudeLevel(c) : '');
+        fill.style.width = Math.min(100, Math.max(0, c.usd.used / c.usd.limit * 100)).toFixed(1) + '%';
+        bar.appendChild(fill);
+        parts.push(bar);
+      }
+      now.replaceChildren(...parts);
+      claudeEl('claudeKindLegend').textContent = c.mode === 'own' ? 'Use another key instead' : 'Use your own instead';
+    }
+    function claudeKind() {
+      const sub = claudeEl('claudeKindSub').checked;
+      claudeEl('claudeHintApi').hidden = sub;
+      claudeEl('claudeHintSub').hidden = !sub;
+      claudeEl('claudeKey').placeholder = sub ? 'sk-ant-oat01-…' : 'sk-ant-api03-…';
+    }
+    function claudeSay(text, cls) {
+      const m = claudeEl('claudeMsg');
+      m.textContent = text || '';
+      m.className = cls || '';
+    }
+    function claudeAnswerText(r, j) {
+      if (r.ok && j && typeof j.message === 'string') return [j.message, j.ok ? 'good' : 'bad'];
+      const e = j && j.error;
+      const text = e && typeof e === 'object' && typeof e.message === 'string' ? e.message
+        : typeof e === 'string' ? e : `The server answered HTTP ${r.status}`;
+      return [text, 'bad'];
+    }
+    async function claudePost(body) {
+      if (_claudeBusy) return;
+      const save = claudeEl('claudeSave'), back = claudeEl('claudeBack'), key = claudeEl('claudeKey');
+      _claudeBusy = true;
+      save.disabled = back.disabled = true;
+      claudeSay('Checking with Anthropic…', '');
+      let said = ['The server did not answer. Try again.', 'bad'];
+      try {
+        const r = await fetch('/api/quota/claude', {
+          method: 'POST', cache: 'no-store', credentials: 'same-origin',
+          headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+        let j = null;
+        try { j = await r.json(); } catch {}
+        said = claudeAnswerText(r, j);
+        if (r.ok && j && j.claude && typeof j.claude === 'object' && _quotaLast) {
+          _quotaLast = Object.assign({}, _quotaLast, {claude: j.claude});
+          document.getElementById('quotaChip').hidden = renderClaude(_quotaLast);
+        }
+      } catch {}
+      finally {
+        key.value = '';                      // the page never keeps the key
+        _claudeBusy = false;
+        save.disabled = back.disabled = false;
+      }
+      claudeSay(...said);
+    }
+    function openClaudeDlg() {
+      const c = claudeOf(_quotaLast);
+      if (!c) return;
+      fillClaudeDlg(c);
+      if (!_claudeBusy) claudeSay('', '');
+      claudeEl('claudeDlg').showModal();
+      if (!c.error && !_isMobile) claudeEl('claudeKey').focus();
+    }
+    for (const id of CLAUDE_BTNS) claudeEl(id).addEventListener('click', openClaudeDlg);
+    claudeEl('claudeKindApi').addEventListener('change', claudeKind);
+    claudeEl('claudeKindSub').addEventListener('change', claudeKind);
+    claudeEl('claudeForm').addEventListener('submit', e => {
+      e.preventDefault();
+      if (_claudeBusy || claudeEl('claudeSave').hidden) return;
+      const secret = claudeEl('claudeKey').value.trim();
+      if (!secret) { claudeSay('Paste the key first.', 'bad'); claudeEl('claudeKey').focus(); return; }
+      claudePost({secret});
+    });
+    claudeEl('claudeBack').addEventListener('click', () => claudePost({back: true}));
+    claudeEl('claudeClose').addEventListener('click', () => {
+      claudeEl('claudeKey').value = '';
+      claudeEl('claudeDlg').close();
+    });
+    claudeEl('claudeDlg').addEventListener('close', () => {
+      if (!_claudeBusy) claudeEl('claudeKey').value = '';
+    });
     pollQuota();
     setInterval(pollQuota, 60000);
 
