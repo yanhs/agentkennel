@@ -654,6 +654,8 @@ class TestGuestUsage:
         ledger.record("pavel", "claude-opus-x", {"input_tokens": 777})
         code, d = usage_of(gate, p)
         assert code == 200
+        claude = d.pop("claude")                        # the new block; the rest is unchanged
+        assert claude["mode"] == "owner_sub" and claude["usd"] is None
         assert d == {"guest": "maria", "enabled": True, "unlimited_until": 0,
                      "five_hour": {"used": w, "limit": 5_000_000, "utilization": w / 5_000_000,
                                    "resets_at": math.ceil(opened + 5 * 3600)},
