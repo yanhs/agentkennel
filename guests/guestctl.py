@@ -8,6 +8,9 @@
     guestctl.py disk-watch                                   warn about full disks (a timer runs it)
     guestctl.py list [--json]                                who, port, state, 5-hour + weekly use
     guestctl.py limit <name> <tokens per week>               change the weekly limit (5 h: a seventh)
+    guestctl.py claude <name> '<json>'                       whose Claude: mode / usd_week / notify_at (key: stdin)
+    guestctl.py defaults [--set '<json>']                    defaults for new guests
+    guestctl.py owner-key [--remove]                         the owner's API key (stdin), checked and saved
     guestctl.py check <name>                                 network walls from inside
     guestctl.py stop|start <name>                            pause / resume a sandbox
     guestctl.py recreate <name> [--image I] [--force]        new container, same volumes
@@ -46,6 +49,8 @@ import disk as guest_disk  # noqa: E402  (a guest's own fixed-size disk)
 import envcompat  # noqa: E402  (on the path via guestenv: AGENTKENNEL_*, then AGENTDECK_*)
 from texts import t as _t  # noqa: E402
 import turnstile as ts  # noqa: E402
+import claudekeys  # noqa: E402
+import defaults as guest_defaults  # noqa: E402
 
 GW = "172.31.250.1"
 IMAGE_NAME = "agentkennel-guest"  # tag = the AgentKennel version (install.sh builds it)
@@ -541,7 +546,17 @@ def cmd_add(a) -> int:
         raise SystemExit(f"guest {a.name} already exists")
     used = {v["port"] for v in reg.values()}
     port = next(p for p in range(PORT_BASE + 1, PORT_BASE + 900) if p not in used)
-    secret = book.add(a.name, a.limit, a.tg)
+    d = guest_defaults.load(DATA)
+    if a.limit is None:
+        a.limit = d["week_limit"]
+    claude = {"mode": d["claude_mode"],
+              "owner_mode": d["claude_mode"] if d["claude_mode"] != "own" else "owner_key",
+              "usd_week": d["usd_week"], "notify_at": d["notify_at"]}
+    secret = book.add(a.name, a.limit, a.tg, claude=claude)
+    if d["rules"]:
+        book.set_rules(a.name, d["rules"])
+    if not d["web"]:
+        book.set_web(a.name, False)
     password = secrets.token_urlsafe(12)
     public_key = new_public_key(a.name)
     _public_folder(public_key)
@@ -575,6 +590,8 @@ def cmd_add(a) -> int:
     pw_file.chmod(0o600)
     print(f"guest {a.name}: tg={a.tg} dashboard=127.0.0.1:{port} "
           f"limit={a.limit}/week password-file={pw_file}")
+    if d["claude_mode"] == "owner_key" and not claudekeys.KeyStore(DATA).owner():
+        print(json.dumps({"ok": True, "name": a.name, "warning": "no_owner_key"}))
     return 0
 
 
@@ -651,6 +668,7 @@ def guests_report() -> list:
         return []
     book = ts.GuestBook(DATA / "guests.json")
     ledger = ts.Ledger(DATA / "usage.db")
+    keys = claudekeys.KeyStore(DATA)
     has_domain = bool(guestenv.domain())
     out = []
     for name, info in sorted(reg.items()):
@@ -670,6 +688,8 @@ def guests_report() -> list:
             "rules_active": bool(g and ts.rules_active(g)),
             # the panel counts the agents in it (status_server -> server_status)
             "container": f"sbx-{name}",
+            # whose Claude (claude_view: never a secret); an old guest reads as owner_sub
+            "claude": ts.claude_view(g or ts.Guest(name, 0, 0, None, False), ledger, keys),
         })
     return out
 
@@ -677,7 +697,12 @@ def guests_report() -> list:
 def cmd_list(a) -> int:
     rows = guests_report()
     if getattr(a, "json", False):
-        print(json.dumps({"guests": rows}, ensure_ascii=False))
+        key = claudekeys.KeyStore(DATA).owner()
+        spent = sum((r["claude"]["usd"] or {}).get("used", 0) for r in rows
+                    if r["claude"]["mode"] == "owner_key")
+        print(json.dumps({"guests": rows,
+                          "owner_key": {"set": bool(key), "last4": claudekeys.last4(key) if key else None},
+                          "owner_key_week_usd": spent}, ensure_ascii=False))
         return 0
     for r in rows:
         print(_t("ctl_list_line", name=r["name"], tg=r["telegram_id"], port=r["port"],
@@ -723,6 +748,109 @@ def cmd_limit(a) -> int:
     except KeyError:
         raise SystemExit(f"no guest {a.name}")
     print(f"{a.name}: limit {a.tokens} per week, {ts.five_hour_of(a.tokens)} per 5 hours")
+    return 0
+
+
+def _fail(msg: str) -> int:
+    print(json.dumps({"ok": False, "error": str(msg)}, ensure_ascii=False))
+    return 1
+
+
+def _json_object(text: str, what: str):
+    try:
+        d = json.loads(text)
+    except (ValueError, TypeError):
+        raise ValueError(f"{what}: not JSON")
+    if not isinstance(d, dict):
+        raise ValueError(f"{what}: an object")
+    return d
+
+
+def key_check(kind: str, secret: str):
+    """(ok, why) from Anthropic; tests replace this, they never reach the real API."""
+    return claudekeys.check(kind, secret)
+
+
+def _read_secret() -> str:
+    """A key comes on stdin, never in argv."""
+    return sys.stdin.read().strip()
+
+
+def cmd_claude(a) -> int:
+    """guestctl claude <name> '<json>': {"mode"?, "usd_week"?, "notify_at"?, "understood"?,
+    "secret"?}. owner_sub needs "understood" (not stored); "secret": true reads the guest's own
+    key from stdin and goes through switch_own (the owner pasted it, so no owner notice)."""
+    book = ts.GuestBook(DATA / "guests.json")
+    try:
+        d = _json_object(a.json, "claude")
+    except ValueError as exc:
+        return _fail(exc)
+    if not book.get(a.name):
+        return _fail(f"no guest {a.name}")
+    secret, understood = d.pop("secret", False), d.pop("understood", False)
+    if not isinstance(secret, bool) or not isinstance(understood, bool):
+        return _fail("secret and understood are true or false")
+    if secret:
+        if set(d) - {"mode"} or d.get("mode", "own") != "own":
+            return _fail("secret: the key goes to the guest's own mode, nothing else with it")
+        ok, msg = claudekeys.switch_own(book, claudekeys.KeyStore(DATA), a.name, _read_secret(),
+                                        check=lambda k, s: key_check(k, s),
+                                        notify=lambda *_: None)
+        print(json.dumps({"ok": bool(ok), "message": msg} if ok else
+                         {"ok": False, "error": msg}, ensure_ascii=False))
+        return 0 if ok else 1
+    if d.get("mode") == "owner_sub" and not understood:
+        return _fail("owner_sub: say \"understood\": true (it runs on the owner's subscription)")
+    try:
+        book.set_claude(a.name, **d)
+    except (ValueError, TypeError) as exc:
+        return _fail(exc)
+    print(json.dumps({"ok": True, "claude": book.get(a.name).claude}))
+    return 0
+
+
+def cmd_defaults(a) -> int:
+    """guestctl defaults [--set '<json>']: what a new guest gets (new_guest_defaults.json)."""
+    cur = guest_defaults.load(DATA)
+    if a.set is None:
+        print(json.dumps(cur))
+        return 0
+    try:
+        patch = _json_object(a.set, "defaults")
+        understood = patch.pop("understood", False)
+        new = {**cur, **patch}
+        if new["claude_mode"] == "owner_sub" and patch.get("claude_mode") == "owner_sub" \
+                and understood is not True:
+            raise ValueError("owner_sub: say \"understood\": true (it runs on the owner's subscription)")
+        if new["claude_mode"] == "owner_key" and "claude_mode" in patch \
+                and not claudekeys.KeyStore(DATA).owner():
+            raise ValueError("owner_key: save your API key first (it has to pass the check)")
+        saved = guest_defaults.save(DATA, new)
+    except ValueError as exc:
+        return _fail(exc)
+    print(json.dumps(saved))
+    return 0
+
+
+def cmd_owner_key(a) -> int:
+    """guestctl owner-key [--remove]: the owner's API key on stdin; saved only after Anthropic
+    accepts it. Prints {"ok", "last4"} or {"ok": false, "error"} — never the key."""
+    keys = claudekeys.KeyStore(DATA)
+    if a.remove:
+        keys.drop_owner()
+        print(json.dumps({"ok": True}))
+        return 0
+    found = claudekeys.classify(_read_secret())
+    if not found:
+        return _fail("that is not an Anthropic API key (sk-ant-api...)")
+    kind, secret = found
+    if kind != "api":
+        return _fail("that is a subscription token, not an API key; the owner's key must be sk-ant-api...")
+    ok, why = key_check("api", secret)
+    if not ok:
+        return _fail(why or "Anthropic did not accept the key")
+    keys.set_owner(secret)
+    print(json.dumps({"ok": True, "last4": claudekeys.last4(secret)}))
     return 0
 
 
@@ -1067,7 +1195,8 @@ def main(argv=None) -> int:
     add = sub.add_parser("add")
     add.add_argument("name")
     add.add_argument("--tg", type=int, required=True)
-    add.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
+    add.add_argument("--limit", type=int, default=None,
+                     help="tokens per week (default: from `defaults`)")
     add.add_argument("--image", default=None)
     add.add_argument("--disk-gb", type=int, default=guest_disk.DEFAULT_GB,
                      help="the guest's own disk in GB (0: Docker volumes, no cap)")
@@ -1075,6 +1204,11 @@ def main(argv=None) -> int:
     lim = sub.add_parser("limit")
     lim.add_argument("name")
     lim.add_argument("tokens", type=int)
+    cl = sub.add_parser("claude")
+    cl.add_argument("name")
+    cl.add_argument("json")
+    sub.add_parser("defaults").add_argument("--set", default=None)
+    sub.add_parser("owner-key").add_argument("--remove", action="store_true")
     sub.add_parser("doctor").add_argument("--json", action="store_true")
     sub.add_parser("files-web")
     sub.add_parser("image-tag")
@@ -1105,7 +1239,8 @@ def main(argv=None) -> int:
             "recreate": cmd_recreate, "web": cmd_web, "rules": cmd_rules, "folders": cmd_folders, "session": cmd_session, "doctor": cmd_doctor,
             "files-web": cmd_files_web, "image-tag": cmd_image_tag, "disk-move": cmd_disk_move,
             "disk-watch": cmd_disk_watch, "move-domain": cmd_move_domain,
-            "address": cmd_address}.get(a.cmd, cmd_simple)(a)
+            "address": cmd_address, "claude": cmd_claude, "defaults": cmd_defaults,
+            "owner-key": cmd_owner_key}.get(a.cmd, cmd_simple)(a)
 
 
 if __name__ == "__main__":

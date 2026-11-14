@@ -285,6 +285,10 @@ def _two_guests(data, monkeypatch):
     return math.ceil(opened + 5 * 3600)
 
 
+OLD_CLAUDE = {"mode": "owner_sub", "owner_mode": "owner_sub", "has_key": False, "last4": None,
+              "usd": None}
+
+
 def test_list_json_shape(data, monkeypatch, capsys):
     """Decision 30.10.2026: a 5-hour and a weekly limit, like the subscription's."""
     window_end = _two_guests(data, monkeypatch)
@@ -295,12 +299,15 @@ def test_list_json_shape(data, monkeypatch, capsys):
          "five_hour": {"used": 1000, "limit": 20_000_000, "resets_at": window_end},
          "seven_day": {"used": 1000, "limit": 140_000_000, "resets_at": next_monday()},
          "url": "https://sb-anna.example.test", "created": "2026-10-27 08:54:00",
-         "web": True, "rules": {}, "rules_active": False, "container": "sbx-anna"},
+         "web": True, "rules": {}, "rules_active": False, "container": "sbx-anna",
+         "claude": OLD_CLAUDE},
         {"name": "boris", "telegram_id": 222, "port": 18102, "state": "missing", "enabled": False,
          "five_hour": {"used": 0, "limit": 5_000, "resets_at": 0},
          "seven_day": {"used": 0, "limit": 35_000, "resets_at": next_monday()},
          "url": None, "created": "2026-10-27 09:00:00",
-         "web": True, "rules": {}, "rules_active": False, "container": "sbx-boris"}]}
+         "web": True, "rules": {}, "rules_active": False, "container": "sbx-boris",
+         "claude": OLD_CLAUDE}],
+        "owner_key": {"set": False, "last4": None}, "owner_key_week_usd": 0}
 
 
 def test_list_line_shows_the_five_hours_and_the_week(data, monkeypatch, capsys):
@@ -318,7 +325,8 @@ def test_a_new_guest_gets_a_week_of_seven_old_days():
 
 def test_list_json_with_no_guests_yet(data, capsys):
     assert gc.main(["list", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out) == {"guests": []}
+    assert json.loads(capsys.readouterr().out) == {
+        "guests": [], "owner_key": {"set": False, "last4": None}, "owner_key_week_usd": 0}
 
 
 def test_container_state_is_missing_without_a_container(monkeypatch):
@@ -717,3 +725,290 @@ def test_rules_and_folders_are_commands():
     import inspect
     src = inspect.getsource(gc.main)
     assert '"rules"' in src and '"folders"' in src
+
+
+# --------------------------------------------------------------------------- #
+# Task 7: per-guest Claude, defaults for new guests, the owner's key
+# --------------------------------------------------------------------------- #
+import io  # noqa: E402
+import types  # noqa: E402
+
+import claudekeys  # noqa: E402
+import defaults as gdefaults  # noqa: E402
+
+API_KEY = "sk-ant-api03-" + "A" * 30 + "WXYZ"
+GUEST_KEY = "sk-ant-api03-" + "B" * 30 + "QRST"
+OAT_KEY = "sk-ant-oat01-" + "C" * 30 + "LMNO"
+
+
+def ns(**kw):
+    return types.SimpleNamespace(**kw)
+
+
+def stdin(monkeypatch, text):
+    monkeypatch.setattr(sys, "stdin", io.StringIO(text))
+
+
+def out_json(capsys):
+    return json.loads(capsys.readouterr().out)
+
+
+def fake_check(monkeypatch, ok=True, why="bad key"):
+    seen = []
+
+    def chk(kind, secret, **kw):
+        seen.append((kind, secret))
+        return (ok, "" if ok else why)
+    monkeypatch.setattr(gc, "key_check", chk)
+    return seen
+
+
+def fake_add_env(data, monkeypatch):
+    monkeypatch.setattr(gc, "domain", lambda: "example.test")
+    monkeypatch.setattr(gc, "new_public_key", lambda name: name + "-k3y")
+    monkeypatch.setattr(gc, "_public_folder", lambda k: None)
+    monkeypatch.setattr(gc, "_docker", lambda *a, **k: None)
+    monkeypatch.setattr(gc, "_wait_running", lambda *a, **k: None)
+    monkeypatch.setattr(gc, "container_args", lambda *a, **k: ["docker", "run"])
+    monkeypatch.setattr(gc, "seed_argv", lambda *a, **k: ["true"])
+    monkeypatch.setattr(gc.time, "sleep", lambda s: None)
+    monkeypatch.setattr(gc.subprocess, "run", lambda *a, **k: None)
+
+
+def add_args(name="newbie", **kw):
+    d = dict(name=name, tg=777, limit=None, image="img", disk_gb=0)
+    d.update(kw)
+    return ns(**d)
+
+
+def test_defaults_missing_file_is_the_release_defaults(tmp_path):
+    assert gdefaults.load(tmp_path) == {"claude_mode": "owner_key", "usd_week": 20,
+                                        "notify_at": 0.8, "week_limit": 140000000,
+                                        "web": True, "rules": {}}
+
+
+def test_defaults_save_validates_and_round_trips(tmp_path):
+    d = gdefaults.load(tmp_path)
+    d.update(usd_week=50, notify_at=0.5, claude_mode="owner_sub")
+    gdefaults.save(tmp_path, d)
+    assert gdefaults.load(tmp_path)["usd_week"] == 50
+    for bad in ({"usd_week": 0}, {"usd_week": 100001}, {"notify_at": 0}, {"notify_at": 1.5},
+                {"week_limit": 0}, {"week_limit": 1.5}, {"web": "yes"}, {"rules": []},
+                {"claude_mode": "own"}, {"bogus": 1}):
+        with pytest.raises(ValueError):
+            gdefaults.save(tmp_path, {**gdefaults.load(tmp_path), **bad})
+
+
+def test_add_without_defaults_file_is_owner_key_20_dollars(data, monkeypatch, capsys):
+    fake_add_env(data, monkeypatch)
+    assert gc.cmd_add(add_args()) == 0
+    g = gc.ts.GuestBook(data / "guests.json").get("newbie")
+    assert g.claude["mode"] == "owner_key" and g.claude["owner_mode"] == "owner_key"
+    assert g.claude["usd_week"] == 20 and g.claude["notify_at"] == 0.8
+    assert g.week_limit == 140_000_000
+
+
+def test_add_takes_the_saved_defaults(data, monkeypatch, capsys):
+    fake_add_env(data, monkeypatch)
+    gdefaults.save(data, {**gdefaults.load(data), "claude_mode": "owner_sub", "usd_week": 33,
+                          "week_limit": 70_000_000})
+    gc.cmd_add(add_args())
+    g = gc.ts.GuestBook(data / "guests.json").get("newbie")
+    assert g.claude["mode"] == "owner_sub" and g.claude["owner_mode"] == "owner_sub"
+    assert g.claude["usd_week"] == 33 and g.week_limit == 70_000_000
+
+
+def test_add_limit_given_wins_over_defaults(data, monkeypatch, capsys):
+    fake_add_env(data, monkeypatch)
+    gc.cmd_add(add_args(limit=5_000_000))
+    assert gc.ts.GuestBook(data / "guests.json").get("newbie").week_limit == 5_000_000
+
+
+def test_add_applies_rules_and_web_off_from_defaults(data, monkeypatch, capsys):
+    fake_add_env(data, monkeypatch)
+    gdefaults.save(data, {**gdefaults.load(data), "web": False, "rules": SITE_RULES})
+    gc.cmd_add(add_args())
+    g = gc.ts.GuestBook(data / "guests.json").get("newbie")
+    assert g.web is False and g.rules["work"] == SITE_RULES["work"]
+
+
+def test_add_warns_when_owner_key_default_has_no_key(data, monkeypatch, capsys):
+    fake_add_env(data, monkeypatch)
+    assert gc.cmd_add(add_args()) == 0
+    assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])["warning"] == "no_owner_key"
+
+
+def test_add_has_no_warning_with_a_saved_owner_key(data, monkeypatch, capsys):
+    fake_add_env(data, monkeypatch)
+    claudekeys.KeyStore(data).set_owner(API_KEY)
+    gc.cmd_add(add_args())
+    assert "no_owner_key" not in capsys.readouterr().out
+
+
+def test_claude_command_leaves_old_guests_alone_but_sets_the_asked_one(data, capsys):
+    book = gc.ts.GuestBook(data / "guests.json")
+    book.add("old", 10, 1)
+    book.add("anna", 10, 2)
+    book.add("zed", 10, 3)
+    gc.cmd_claude(ns(name="anna", json='{"mode": "owner_key", "usd_week": 40}'))
+    assert out_json(capsys)["ok"] is True
+    raw = json.loads((data / "guests.json").read_text())["guests"]
+    assert "claude" not in raw["old"] and "claude" not in raw["zed"]
+    assert raw["anna"]["claude"]["mode"] == "owner_key" and raw["anna"]["claude"]["usd_week"] == 40
+
+
+def test_claude_owner_sub_needs_understood(data, capsys):
+    gc.ts.GuestBook(data / "guests.json").add("anna", 10, 2, claude={"mode": "owner_key"})
+    assert gc.cmd_claude(ns(name="anna", json='{"mode": "owner_sub"}')) != 0
+    assert out_json(capsys)["ok"] is False
+    assert gc.ts.GuestBook(data / "guests.json").get("anna").claude["mode"] == "owner_key"
+    assert gc.cmd_claude(ns(name="anna", json='{"mode": "owner_sub", "understood": true}')) == 0
+    g = gc.ts.GuestBook(data / "guests.json").get("anna")
+    assert g.claude["mode"] == "owner_sub"
+    assert "understood" not in json.loads((data / "guests.json").read_text())["guests"]["anna"]["claude"]
+
+
+def test_claude_rejects_bad_json_unknown_guest_and_unknown_fields(data, capsys):
+    gc.ts.GuestBook(data / "guests.json").add("anna", 10, 2)
+    for name, body in (("anna", "nope"), ("ghost", '{"mode": "owner_key"}'),
+                       ("anna", '{"bogus": 1}'), ("anna", '{"usd_week": -1}')):
+        assert gc.cmd_claude(ns(name=name, json=body)) != 0
+        assert out_json(capsys)["ok"] is False
+
+
+def test_claude_secret_reads_stdin_and_switches_without_notifying(data, monkeypatch, capsys):
+    gc.ts.GuestBook(data / "guests.json").add("anna", 10, 2, claude={"mode": "owner_key"})
+    seen = fake_check(monkeypatch)
+    stdin(monkeypatch, GUEST_KEY + "\n")
+    told = []
+    monkeypatch.setattr(gc, "_owner_notify", lambda *a: told.append(a), raising=False)
+    assert gc.cmd_claude(ns(name="anna", json='{"secret": true}')) == 0
+    res = out_json(capsys)
+    assert res["ok"] is True and GUEST_KEY not in json.dumps(res)
+    assert seen == [("api", GUEST_KEY)]
+    assert gc.ts.GuestBook(data / "guests.json").get("anna").claude["mode"] == "own"
+    assert claudekeys.KeyStore(data).get("anna") == ("api", GUEST_KEY)
+    assert told == []
+
+
+def test_claude_secret_failing_check_changes_nothing(data, monkeypatch, capsys):
+    gc.ts.GuestBook(data / "guests.json").add("anna", 10, 2, claude={"mode": "owner_key"})
+    fake_check(monkeypatch, ok=False)
+    stdin(monkeypatch, GUEST_KEY)
+    assert gc.cmd_claude(ns(name="anna", json='{"secret": true}')) != 0
+    res = out_json(capsys)
+    assert res["ok"] is False and GUEST_KEY not in json.dumps(res)
+    assert gc.ts.GuestBook(data / "guests.json").get("anna").claude["mode"] == "owner_key"
+    assert claudekeys.KeyStore(data).get("anna") is None
+
+
+def test_owner_key_saves_after_the_check_and_prints_only_last4(data, monkeypatch, capsys):
+    seen = fake_check(monkeypatch)
+    stdin(monkeypatch, API_KEY + "\n")
+    assert gc.cmd_owner_key(ns(remove=False)) == 0
+    res = out_json(capsys)
+    assert res == {"ok": True, "last4": "WXYZ"}
+    assert seen == [("api", API_KEY)]
+    assert claudekeys.KeyStore(data).owner() == API_KEY
+    assert oct((data / "keys" / "_owner.json").stat().st_mode & 0o777) == "0o600"
+
+
+def test_owner_key_refuses_an_oauth_token_and_a_failed_check(data, monkeypatch, capsys):
+    seen = fake_check(monkeypatch)
+    stdin(monkeypatch, OAT_KEY)
+    assert gc.cmd_owner_key(ns(remove=False)) != 0
+    res = out_json(capsys)
+    assert res["ok"] is False and "token" in res["error"].lower() and seen == []
+    stdin(monkeypatch, "just words")
+    assert gc.cmd_owner_key(ns(remove=False)) != 0
+    assert out_json(capsys)["ok"] is False
+    fake_check(monkeypatch, ok=False, why="rejected")
+    stdin(monkeypatch, API_KEY)
+    assert gc.cmd_owner_key(ns(remove=False)) != 0
+    res = out_json(capsys)
+    assert res["ok"] is False and API_KEY not in json.dumps(res)
+    assert claudekeys.KeyStore(data).owner() is None
+
+
+def test_owner_key_remove(data, monkeypatch, capsys):
+    claudekeys.KeyStore(data).set_owner(API_KEY)
+    assert gc.cmd_owner_key(ns(remove=True)) == 0
+    assert out_json(capsys)["ok"] is True
+    assert claudekeys.KeyStore(data).owner() is None
+
+
+def test_defaults_prints_and_sets(data, capsys):
+    assert gc.cmd_defaults(ns(set=None)) == 0
+    assert out_json(capsys)["claude_mode"] == "owner_key"
+    claudekeys.KeyStore(data).set_owner(API_KEY)
+    assert gc.cmd_defaults(ns(set='{"usd_week": 45, "web": false}')) == 0
+    res = out_json(capsys)
+    assert res["usd_week"] == 45 and res["web"] is False
+    assert gdefaults.load(data)["usd_week"] == 45
+
+
+def test_defaults_owner_key_needs_a_saved_owner_key(data, capsys):
+    gdefaults.save(data, {**gdefaults.load(data), "claude_mode": "owner_sub"})
+    assert gc.cmd_defaults(ns(set='{"claude_mode": "owner_key"}')) != 0
+    assert out_json(capsys)["ok"] is False
+    assert gdefaults.load(data)["claude_mode"] == "owner_sub"
+    claudekeys.KeyStore(data).set_owner(API_KEY)
+    assert gc.cmd_defaults(ns(set='{"claude_mode": "owner_key"}')) == 0
+
+
+def test_defaults_owner_sub_needs_understood_and_it_is_not_stored(data, capsys):
+    assert gc.cmd_defaults(ns(set='{"claude_mode": "owner_sub"}')) != 0
+    capsys.readouterr()
+    assert gc.cmd_defaults(ns(set='{"claude_mode": "owner_sub", "understood": true}')) == 0
+    assert "understood" not in out_json(capsys)
+    assert "understood" not in json.loads((data / "new_guest_defaults.json").read_text())
+
+
+def test_defaults_rejects_unknown_keys_and_bad_values_and_bad_rules(data, capsys):
+    claudekeys.KeyStore(data).set_owner(API_KEY)
+    for body in ('{"bogus": 1}', '{"usd_week": 0}', '{"notify_at": 2}', '{"week_limit": -5}',
+                 '{"web": "no"}', '{"rules": {"on": true, "folders": ["/etc"]}}',
+                 '{"claude_mode": "own"}', "nope"):
+        assert gc.cmd_defaults(ns(set=body)) != 0, body
+        assert out_json(capsys)["ok"] is False
+    assert gdefaults.load(data) == {"claude_mode": "owner_key", "usd_week": 20, "notify_at": 0.8,
+                                    "week_limit": 140000000, "web": True, "rules": {}}
+
+
+def test_list_json_has_claude_rows_owner_key_and_no_secret(data, monkeypatch, capsys):
+    book = gc.ts.GuestBook(data / "guests.json")
+    book.add("anna", 10, 1, claude={"mode": "owner_key"})
+    book.add("bob", 10, 2, claude={"mode": "own"})
+    book.add("old", 10, 3)
+    keys = claudekeys.KeyStore(data)
+    keys.set_owner(API_KEY)
+    keys.put("bob", "api", GUEST_KEY)
+    monkeypatch.setattr(gc, "_registry", lambda: {n: {"port": 1} for n in ("anna", "bob", "old")})
+    monkeypatch.setattr(gc, "container_state", lambda n: "running")
+    monkeypatch.setattr(gc, "web_exists", lambda n: False)
+    gc.cmd_list(ns(json=True))
+    raw = capsys.readouterr().out
+    assert "sk-ant" not in raw
+    res = json.loads(raw)
+    assert isinstance(res["guests"], list)                       # the panel's parser still works
+    assert res["owner_key"] == {"set": True, "last4": "WXYZ"}
+    assert res["owner_key_week_usd"] == 0
+    rows = {r["name"]: r for r in res["guests"]}
+    assert rows["anna"]["claude"]["mode"] == "owner_key" and rows["anna"]["claude"]["usd"]
+    assert rows["bob"]["claude"]["mode"] == "own" and rows["bob"]["claude"]["last4"] == "QRST"
+    assert rows["old"]["claude"]["mode"] == "owner_sub"
+
+
+def test_list_json_without_an_owner_key(data, monkeypatch, capsys):
+    monkeypatch.setattr(gc, "_registry", lambda: {})
+    gc.cmd_list(ns(json=True))
+    res = json.loads(capsys.readouterr().out)
+    assert res["guests"] == [] and res["owner_key"] == {"set": False, "last4": None}
+    assert res["owner_key_week_usd"] == 0
+
+
+def test_new_commands_are_registered():
+    import inspect
+    src = inspect.getsource(gc.main)
+    for c in ('"claude"', '"defaults"', '"owner-key"'):
+        assert c in src

@@ -227,3 +227,23 @@ def test_a_welcome_that_fails_is_said_to_the_admin(book):
     assert '"masha-k" created' in text
     assert "telegram is down" in text and "/start" in text       # what to do about it
     assert book.get(MASHA)["state"] == "approved"
+
+
+# ── Task 7: the saved defaults say web: false -> the sandbox is let in without the browser ──
+def test_provisioner_skips_web_when_the_defaults_say_no(tmp_path, monkeypatch):
+    import types
+    (tmp_path / "new_guest_defaults.json").write_text(json.dumps({"web": False}))
+    ran = []
+    monkeypatch.setattr(invites.subprocess, "run", lambda argv, **k: (
+        ran.append(argv[2:]), types.SimpleNamespace(returncode=0, stdout="", stderr=""))[1])
+    assert invites.GuestctlProvisioner(data=tmp_path).provision("ivan", 5) == (True, "")
+    assert ran == [["add", "ivan", "--tg", "5"]]
+
+
+def test_provisioner_runs_add_and_web_by_default(tmp_path, monkeypatch):
+    import types
+    ran = []
+    monkeypatch.setattr(invites.subprocess, "run", lambda argv, **k: (
+        ran.append(argv[2:]), types.SimpleNamespace(returncode=0, stdout="", stderr=""))[1])
+    assert invites.GuestctlProvisioner(data=tmp_path).provision("ivan", 5) == (True, "")
+    assert ran == [["add", "ivan", "--tg", "5"], ["web", "ivan"]]
