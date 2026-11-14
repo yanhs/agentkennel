@@ -77,6 +77,32 @@ def five_hour_of(week_limit: int) -> int:
     return max(1, round(week_limit / 7)) if week_limit > 0 else 0
 
 
+MODES = ("owner_key", "own", "owner_sub")
+_OWNER_MODES = ("owner_key", "owner_sub")
+CLAUDE_DEFAULT = {"mode": "owner_sub", "owner_mode": "owner_sub", "usd_week": 20, "notify_at": 0.8}
+
+
+def validate_claude(d: Optional[Dict]) -> Dict:
+    """A guest's `claude` block, every field filled; ValueError when something is wrong.
+    `mode` alone sets `owner_mode` too (except "own": then the owner's mode is owner_key)."""
+    d = dict(d or {})
+    out = dict(CLAUDE_DEFAULT)
+    out.update(d)
+    if "mode" in d and "owner_mode" not in d:
+        out["owner_mode"] = d["mode"] if d["mode"] != "own" else "owner_key"
+    if out["mode"] not in MODES:
+        raise ValueError(f"bad claude mode {out['mode']!r}: one of {', '.join(MODES)}")
+    if out["owner_mode"] not in _OWNER_MODES:
+        raise ValueError(f"bad owner_mode {out['owner_mode']!r}: owner_key or owner_sub")
+    usd = out["usd_week"]
+    if isinstance(usd, bool) or not isinstance(usd, (int, float)) or not 0 < usd <= 100000:
+        raise ValueError("usd_week must be a number above 0 and up to 100000")
+    n = out["notify_at"]
+    if isinstance(n, bool) or not isinstance(n, (int, float)) or not 0 < n <= 1:
+        raise ValueError("notify_at must be a number above 0 and up to 1")
+    return {k: out[k] for k in CLAUDE_DEFAULT}
+
+
 @dataclass
 class Guest:
     name: str
@@ -87,6 +113,7 @@ class Guest:
     unlimited_until: float = 0.0   # unix time; until then both limits are lifted
     web: bool = True               # terminals in the browser (sb-<name>), /web, /newpassword
     rules: Dict = field(default_factory=dict)   # what its agent may do (rules_active)
+    claude: Dict = field(default_factory=lambda: dict(CLAUDE_DEFAULT))   # whose credential
 
     def limit_lifted(self, now: Optional[float] = None) -> bool:
         return self.unlimited_until > (time.time() if now is None else now)
@@ -133,9 +160,10 @@ class GuestBook:
         return {"five_hour_limit": five, "week_limit": week, "daily_limit": five}
 
     def add(self, name: str, week_limit: int, telegram_id: Optional[int] = None,
-            five_hour_limit: Optional[int] = None) -> str:
+            five_hour_limit: Optional[int] = None, claude: Optional[Dict] = None) -> str:
         if not NAME_RE.match(name):
             raise ValueError(f"bad guest name {name!r}: a-z, 0-9, '-', 2-31 chars")
+        checked = validate_claude(claude) if claude is not None else None
         with self._lock:
             self._load()
             if name in self._data["guests"]:
@@ -148,6 +176,8 @@ class GuestBook:
                 "enabled": True,
                 "created": datetime.now(DAY_TZ).isoformat(timespec="seconds"),
             }
+            if checked is not None:
+                self._data["guests"][name]["claude"] = checked
             self._save()
             return secret
 
@@ -158,6 +188,10 @@ class GuestBook:
         else:                       # a record from before 30.10.2026: only a daily limit
             five = int(rec.get("daily_limit") or 0)
             week = 7 * five
+        try:    # a hand-edited bad block must not crash the turnstile: it reads as before
+            claude = validate_claude(rec.get("claude"))
+        except ValueError:
+            claude = dict(CLAUDE_DEFAULT)
         return Guest(
             name=name,
             five_hour_limit=five,
@@ -167,6 +201,7 @@ class GuestBook:
             unlimited_until=float(rec.get("unlimited_until") or 0),
             web=bool(rec.get("web", True)),
             rules=dict(rec.get("rules") or {}),
+            claude=claude,
         )
 
     def lookup(self, secret: str) -> Optional[Guest]:
@@ -210,6 +245,24 @@ class GuestBook:
     def set_rules(self, name: str, rules: Dict) -> None:
         """What the guest's agent may do (owner, 12.11.2026); ValueError when malformed."""
         self._update(name, rules=validate_rules(rules))
+
+    def set_claude(self, name: str, **fields) -> None:
+        """Merge `fields` into the guest's `claude` settings; ValueError when malformed.
+        mode owner_key/owner_sub sets owner_mode too; "own" keeps it."""
+        with self._lock:
+            self._load()
+            rec = self._data["guests"].get(name)
+            if rec is None:
+                raise KeyError(name)
+            try:
+                merged = validate_claude(rec.get("claude"))
+            except ValueError:
+                merged = dict(CLAUDE_DEFAULT)
+            if fields.get("mode") in _OWNER_MODES and "owner_mode" not in fields:
+                fields["owner_mode"] = fields["mode"]
+            merged.update(fields)
+            rec["claude"] = validate_claude(merged)
+            self._save()
 
     def set_limit(self, name: str, week_limit: int, five_hour_limit: Optional[int] = None) -> None:
         """Set the weekly limit; the 5 hours get a seventh of it unless given apart."""
