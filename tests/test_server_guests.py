@@ -559,3 +559,490 @@ def test_rules_and_the_web_switch_on_a_phone(browser, site, fake):  # noqa: F811
         assert pg.errors == []
     finally:
         ctx.close()
+
+
+# ── whose Claude a guest runs on (owner, 13.11.2026; mockup parts 1–3) ──────────────
+OWNER_WEEK = 8_700_000          # 1% of the owner's subscription week, in weighted tokens
+WEEK_END = 1793689200
+CLAUDE = {
+    "masha": {"mode": "owner_key", "owner_mode": "owner_key", "has_key": False, "last4": None,
+              "usd": {"used": 6.1, "limit": 20, "resets_at": WEEK_END}},
+    "petya": {"mode": "own", "owner_mode": "owner_key", "has_key": True, "last4": "x4Fk", "usd": None},
+    "yan": {"mode": "owner_sub", "owner_mode": "owner_sub", "has_key": False, "last4": None, "usd": None},
+}
+SECRET = "sk-ant-api03-" + "Q" * 80 + "xY4k"
+
+
+class FakeClaudeGuests(FakeGuests):
+    """/api/guests with `claude` per guest (Task 9) and the routes behind the Claude form,
+    the "For new guests" settings and the owner's key."""
+
+    def __init__(self, key_set=True, mode="owner_key"):
+        super().__init__()
+        yan = copy.deepcopy(GUESTS[0])
+        yan.update(name="yan", url="https://sb-yan.example.com",
+                   seven_day={"used": OWNER_WEEK, "limit": 140_000_000, "resets_at": WEEK_END})
+        self.guests.append(yan)
+        for g in self.guests:
+            g["claude"] = copy.deepcopy(CLAUDE[g["name"]])
+        self.settings = {"claude_mode": mode, "usd_week": 20, "notify_at": 0.8,
+                         "week_limit": 140_000_000, "web": True, "rules": {}}
+        self.owner_key = {"set": key_set, "last4": "AbCd" if key_set else None}
+        self.key_error = None
+
+    def _json(self, route, status, body):
+        return route.fulfill(status=status, content_type="application/json", body=json.dumps(body))
+
+    def handle(self, route):
+        req = route.request
+        what = re.sub(r"^https?://[^/]+", "", req.url).split("?")[0].rsplit("/", 1)[1]
+        if req.method == "POST" and what in ("claude", "settings", "owner-key"):
+            body = json.loads(req.post_data or "{}")
+            self.posts.append(("/api/guests/" + what, body, req.headers.get("content-type", "")))
+            if what == "owner-key":
+                if self.key_error:
+                    return self._json(route, 400, {"error": self.key_error})
+                self.owner_key = {"set": True, "last4": body["key"][-4:]}
+                return self._json(route, 200, {"ok": True, "last4": body["key"][-4:]})
+            if what == "settings":
+                self.settings.update({k: v for k, v in body.items() if k != "understood"})
+                return self._json(route, 200, {"ok": True, "settings": self.settings})
+            g = next(x for x in self.guests if x["name"] == body["name"])
+            c = g["claude"]
+            c.pop("error", None)
+            if body.get("secret"):
+                c.update(mode="own", has_key=True, last4=body["secret"][-4:], usd=None)
+            elif "mode" in body:
+                c["mode"] = body["mode"]
+                if body["mode"] != "own":
+                    c["owner_mode"] = body["mode"]
+                c["usd"] = ({"used": 0, "limit": body.get("usd_week", 20), "resets_at": WEEK_END}
+                            if body["mode"] == "owner_key" else None)
+            if "usd_week" in body and c.get("usd"):
+                c["usd"]["limit"] = body["usd_week"]
+            return self._json(route, 200, {"ok": True, "claude": c})
+        if req.method == "GET":
+            state = {"installed": True, "configured": True, "dir": "/home/me/agentkennel/guests",
+                     "env": self.env, "admin": self.admin, "guests": self.guests, "list_error": None,
+                     "checks": self.checks, "checking": False, "jobs": self.jobs,
+                     "agents": self.agents or {}, "settings": self.settings,
+                     "owner_key": self.owner_key,
+                     "owner_key_week_usd": 9.4}
+            return self._json(route, 200, state)
+        return super().handle(route)
+
+
+@pytest.fixture
+def cfake():
+    return FakeClaudeGuests()
+
+
+@pytest.fixture
+def cpage(browser, site, cfake):  # noqa: F811
+    ctx, pg = open_page(browser, site, cfake)
+    yield pg
+    assert pg.errors == []
+    ctx.close()
+
+
+def row_text(pg, name):
+    return pg.inner_text(f'#guests .guest[data-name="{name}"] .gspend')
+
+
+def color_of(pg, sel):
+    return pg.eval_on_selector(sel, "e => getComputedStyle(e).color")
+
+
+def css_var(pg, name):
+    return pg.evaluate("n => { const d = document.createElement('span'); d.style.color = `var(${n})`;"
+                       " document.body.append(d); const c = getComputedStyle(d).color; d.remove(); return c; }",
+                       name)
+
+
+def test_rows_say_whose_claude_each_guest_runs_on(cpage):
+    guest_rows(cpage)
+    assert row_text(cpage, "masha") == "your key · $6.10 of $20"
+    assert bar_width(cpage, "masha") == pytest.approx(30.5)
+    assert row_text(cpage, "petya") == "own key"
+    assert row_text(cpage, "yan") == "your subscription ⚠ · wk 1%"
+    assert color_of(cpage, '#guests .guest[data-name="yan"] .gspend .v') == css_var(cpage, "--amber")
+    assert color_of(cpage, '#guests .guest[data-name="masha"] .gspend .v') != css_var(cpage, "--amber")
+    assert cpage.is_hidden('#guests .guest[data-name="petya"] .gspend .bar')
+    assert cpage.is_hidden('#guests .guest[data-name="yan"] .gspend .bar')
+    assert "your key this week: $9.40" in cpage.inner_text("#gSum")
+    shot(cpage, "server-guests-claude.png")
+
+
+def test_the_claude_button_replaces_limit(cpage):
+    guest_rows(cpage)
+    assert acts(cpage, "masha") == ["open", "web", "rules", "claude", "stop", "remove"]
+    assert acts(cpage, "petya") == ["web", "rules", "claude", "start", "remove"]
+
+
+def test_spend_column_lines_up_with_the_claude_button(cpage):
+    guest_rows(cpage)
+    xs = cpage.eval_on_selector_all("#guests .guest .gspend",
+                                    "els => els.map(e => Math.round(e.getBoundingClientRect().left))")
+    assert len(xs) == 3 and len(set(xs)) == 1, xs
+
+
+def test_no_owner_key_spend_without_owner_key_guests(cpage, cfake):
+    for g in cfake.guests:
+        if g["claude"]["mode"] == "owner_key":
+            g["claude"].update(mode="owner_sub", owner_mode="owner_sub", usd=None)
+    cpage.wait_for_function("() => !document.querySelector('#gSum').innerText.includes('your key')")
+
+
+def test_a_broken_claude_block_needs_attention(cpage, cfake):
+    cfake.guests[0]["claude"] = {"mode": "owner_sub", "owner_mode": "owner_sub", "has_key": False,
+                                 "last4": None, "usd": None, "error": True}
+    cpage.wait_for_function(
+        "() => (document.querySelector('#guests .guest[data-name=\"masha\"] .gspend') || {}).innerText"
+        " === 'settings need attention'")
+    assert color_of(cpage, '#guests .guest[data-name="masha"] .gspend .v') == css_var(cpage, "--amber")
+    btn(cpage, "masha", "claude").click()
+    form = cpage.wait_for_selector('#guests .guest[data-name="masha"] .gclaude')
+    # nothing is pre-chosen: the owner picks again and the save sends the mode
+    assert not form.query_selector("input[type=radio]:checked")
+    form.query_selector('input[value="owner_key"]').check()
+    form.query_selector(".gclaude-save").click()
+    cpage.wait_for_selector('#guests .guest[data-name="masha"] .gclaude', state="detached")
+    path, body, _ = cfake.posts[-1]
+    assert path == "/api/guests/claude" and body["name"] == "masha" and body["mode"] == "owner_key"
+
+
+def open_claude(pg, name):
+    guest_rows(pg)
+    btn(pg, name, "claude").click()
+    return pg.wait_for_selector(f'#guests .guest[data-name="{name}"] .gclaude')
+
+
+def shown(form, sel):
+    el = form.query_selector(sel)
+    return bool(el) and el.is_visible()
+
+
+def test_the_claude_form_opens_on_the_guests_mode(cpage):
+    form = open_claude(cpage, "masha")
+    text = form.inner_text()
+    assert "Claude for masha" in text
+    for words in ("Your API key", "Their own key or login", "Your subscription ⚠",
+                  "Paste it here, or they send it with /claude in the bot"):
+        assert words in text, words
+    assert form.query_selector('input[value="owner_key"]').is_checked()
+    assert form.query_selector("input.glim-usd-in").input_value() == "20"
+    assert "a week" in form.inner_text() and "spent $6.10" in text
+    assert btn(cpage, "masha", "claude").get_attribute("class") == "on"
+    shot(cpage, "server-guests-claude-form.png")
+
+
+def test_the_limit_follows_the_mode_in_the_claude_form(cpage):
+    form = open_claude(cpage, "masha")
+    assert shown(form, ".glim-usd") and not shown(form, ".glim-pct")
+    form.query_selector("input.glim-usd-in").fill("35")
+    form.query_selector('input[value="own"]').check()
+    assert not shown(form, ".glim-usd") and not shown(form, ".glim-pct")
+    form.query_selector('input[value="owner_sub"]').check()
+    assert shown(form, ".glim-pct") and not shown(form, ".glim-usd")
+    pct = form.query_selector("input.glim-pct-in")
+    assert pct.input_value() == "16.1"                    # 140M / 8.7M
+    assert "% of your week" in form.query_selector(".glim-pct").inner_text()
+    pct.fill("2")
+    form.query_selector('input[value="owner_key"]').check()
+    assert form.query_selector("input.glim-usd-in").input_value() == "35"     # both kept
+    form.query_selector('input[value="owner_sub"]').check()
+    assert pct.input_value() == "2"
+
+
+def test_the_subscription_warns_and_needs_i_understand(cpage, cfake):
+    form = open_claude(cpage, "masha")
+    save = form.query_selector(".gclaude-save")
+    assert not form.query_selector(".gwarn")
+    form.query_selector('input[value="owner_sub"]').check()
+    warn = form.wait_for_selector(".gwarn")
+    assert ("Anthropic's terms don't allow sharing one Claude subscription between several people. "
+            "Guests would use your Pro/Max plan and its limits. If you turn this on, it's your call.") in warn.inner_text()
+    assert "I understand" in warn.inner_text()
+    use = warn.query_selector(".gwarn-use")
+    assert use.inner_text() == "Use my subscription"
+    assert save.is_disabled() and use.is_disabled()
+    shot(cpage, "server-guests-claude-warning.png")
+    save.click(force=True)
+    cpage.wait_for_timeout(200)
+    assert not any(p[0] == "/api/guests/claude" for p in cfake.posts)
+    warn.query_selector("input.gwarn-ok").check()
+    assert not save.is_disabled() and not use.is_disabled()
+    form.query_selector("input.glim-pct-in").fill("2")
+    use.click()
+    cpage.wait_for_selector('#guests .guest[data-name="masha"] .gclaude', state="detached")
+    claude = [p for p in cfake.posts if p[0] == "/api/guests/claude"]
+    assert claude[-1][1] == {"name": "masha", "mode": "owner_sub", "understood": True}
+    assert claude[-1][2].startswith("application/json")
+    assert cfake.posts[-1][:2] == ("/api/guests/limit", {"name": "masha", "limit": 17_400_000})
+
+
+def test_cancel_on_the_warning_goes_back(cpage):
+    form = open_claude(cpage, "masha")
+    form.query_selector('input[value="owner_sub"]').check()
+    form.wait_for_selector(".gwarn").query_selector(".gwarn-cancel").click()
+    assert not form.query_selector(".gwarn")
+    assert form.query_selector('input[value="owner_key"]').is_checked()
+    assert not form.query_selector(".gclaude-save").is_disabled()
+
+
+def test_a_guest_already_on_the_subscription_is_not_warned_again(cpage, cfake):
+    form = open_claude(cpage, "yan")
+    assert form.query_selector('input[value="owner_sub"]').is_checked()
+    assert not form.query_selector(".gwarn")
+    form.query_selector("input.glim-pct-in").fill("3")
+    form.query_selector(".gclaude-save").click()
+    cpage.wait_for_selector('#guests .guest[data-name="yan"] .gclaude', state="detached")
+    assert cfake.posts[-1][:2] == ("/api/guests/limit", {"name": "yan", "limit": 26_100_000})
+    assert not any(p[0] == "/api/guests/claude" for p in cfake.posts)
+
+
+def test_dollar_limit_is_saved_with_the_mode(cpage, cfake):
+    form = open_claude(cpage, "masha")
+    form.query_selector("input.glim-usd-in").fill("35")
+    form.query_selector(".gclaude-save").click()
+    cpage.wait_for_selector('#guests .guest[data-name="masha"] .gclaude', state="detached")
+    assert cfake.posts[-1][:2] == ("/api/guests/claude", {"name": "masha", "usd_week": 35})
+    cpage.wait_for_function(
+        "() => document.querySelector('#guests .guest[data-name=\"masha\"] .gspend').innerText.includes('of $35')")
+
+
+def test_paste_a_key_for_a_guest(cpage, cfake):
+    form = open_claude(cpage, "masha")
+    form.query_selector('input[value="own"]').check()
+    key = form.query_selector("input.gcl-key")
+    assert key.is_visible()
+    assert key.get_attribute("type") == "password"
+    assert key.get_attribute("autocomplete") == "off" and key.get_attribute("spellcheck") == "false"
+    key.fill(SECRET)
+    form.query_selector(".gclaude-save").click()
+    cpage.wait_for_selector('#guests .guest[data-name="masha"] .gclaude', state="detached")
+    assert cfake.posts[-1][:2] == ("/api/guests/claude", {"name": "masha", "mode": "own", "secret": SECRET})
+    cpage.wait_for_function(
+        "() => document.querySelector('#guests .guest[data-name=\"masha\"] .gspend').innerText === 'own key'")
+    assert SECRET not in cpage.content()
+    assert SECRET[:30] not in cpage.evaluate("document.body.innerText")
+
+
+def test_a_refused_key_is_said_and_the_input_is_emptied(cpage, cfake):
+    form = open_claude(cpage, "masha")
+    orig = cfake.handle
+
+    def refuse(route):
+        if route.request.method == "POST" and route.request.url.endswith("/claude"):
+            cfake.posts.append(("/api/guests/claude", json.loads(route.request.post_data), ""))
+            return cfake._json(route, 400, {"error": "Anthropic: invalid x-api-key"})
+        return orig(route)
+    cpage.context.unroute(re.compile(r"/api/guests(/|\?|$)"))
+    cpage.context.route(re.compile(r"/api/guests(/|\?|$)"), refuse)
+    form.query_selector('input[value="own"]').check()
+    form.query_selector("input.gcl-key").fill(SECRET)
+    form.query_selector(".gclaude-save").click()
+    cpage.wait_for_function(
+        "() => document.querySelector('#guests .gclaude').innerText.includes('invalid x-api-key')")
+    assert form.query_selector("input.gcl-key").input_value() == ""
+    assert SECRET not in cpage.content()
+
+
+def test_a_guest_with_their_own_key_shows_only_its_last_four(cpage):
+    form = open_claude(cpage, "petya")
+    assert form.query_selector('input[value="own"]').is_checked()
+    assert "…x4Fk" in form.inner_text()
+
+
+# ── Settings → For new guests ──
+def open_settings(pg):
+    pg.wait_for_selector("#gSetup")
+    pg.click("#gSetup")
+    return pg.wait_for_selector("#gNew:not([hidden])")
+
+
+def test_settings_for_new_guests(cpage):
+    box = open_settings(cpage)
+    text = box.inner_text()
+    for words in ("For new guests", "Claude for new guests", "Your API key", "Their own key or login",
+                  "Your subscription ⚠", "Billed to your Anthropic account", "/claude",
+                  "Tell me in Telegram at 80%", "Web access", "What the agent may do",
+                  "Anything in its sandbox", "Only this work", "✓ checked, works · …AbCd"):
+        assert words in text, words
+    assert "/key" not in text
+    # it sits above the bot setup
+    assert cpage.evaluate("document.querySelector('#gNew').compareDocumentPosition("
+                          "document.querySelector('#gWizard .gstep[data-step=\"bot\"]')) & 4")
+    assert box.query_selector('input[name="gnew-mode"][value="owner_key"]').is_checked()
+    assert box.query_selector("input.glim-usd-in").input_value() == "20"
+    assert box.query_selector("input.gnew-notify").is_checked()
+    assert cpage.is_hidden("#gNoKey")
+    shot(cpage, "server-guests-settings.png")
+
+
+def test_settings_warn_before_the_subscription(cpage, cfake):
+    box = open_settings(cpage)
+    save = box.query_selector("#gNewSave")
+    box.query_selector('input[name="gnew-mode"][value="owner_sub"]').check()
+    warn = box.wait_for_selector(".gwarn")
+    assert "Anthropic's terms don't allow sharing one Claude subscription" in warn.inner_text()
+    assert save.is_disabled()
+    warn.query_selector("input.gwarn-ok").check()
+    assert not save.is_disabled()
+    save.click()
+    cpage.wait_for_function("() => document.querySelector('#gNewSaved') && !document.querySelector('#gNewSaved').hidden")
+    path, body, _ = cfake.posts[-1]
+    assert path == "/api/guests/settings"
+    assert body["claude_mode"] == "owner_sub" and body["understood"] is True
+
+
+def test_settings_limit_follows_the_mode(cpage, cfake):
+    box = open_settings(cpage)
+    usd = box.query_selector(".glim-usd")
+    assert usd.is_visible() and "a week" in usd.inner_text()
+    assert not box.query_selector(".glim-pct").is_visible()
+    box.query_selector("input.glim-usd-in").fill("25")
+    box.query_selector('input[name="gnew-mode"][value="owner_sub"]').check()
+    box.wait_for_selector(".gwarn").query_selector("input.gwarn-ok").check()
+    pct = box.query_selector(".glim-pct")
+    assert pct.is_visible() and "% of your week" in pct.inner_text()
+    assert not usd.is_visible()
+    assert box.query_selector("input.glim-pct-in").input_value() == "16.1"
+    box.query_selector("input.glim-pct-in").fill("10")
+    box.query_selector("#gNewSave").click()
+    cpage.wait_for_function("() => !document.querySelector('#gNewSaved').hidden")
+    body = cfake.posts[-1][1]
+    assert body["usd_week"] == 25 and body["week_limit"] == 87_000_000
+    assert body["claude_mode"] == "owner_sub"
+
+
+def test_unchanged_percent_does_not_drift(cpage, cfake):
+    box = open_settings(cpage)
+    box.query_selector("input.glim-usd-in").fill("30")
+    box.query_selector("#gNewSave").click()
+    cpage.wait_for_function("() => !document.querySelector('#gNewSaved').hidden")
+    body = cfake.posts[-1][1]
+    assert body["usd_week"] == 30
+    assert "week_limit" not in body and "claude_mode" not in body and "understood" not in body
+
+
+def test_check_and_save_the_owner_key(browser, site):  # noqa: F811
+    fake = FakeClaudeGuests(key_set=False)
+    ctx, pg = open_page(browser, site, fake)
+    try:
+        box = open_settings(pg)
+        key = box.query_selector("#gNewKey")
+        assert key.get_attribute("type") == "password"
+        assert key.get_attribute("autocomplete") == "off" and key.get_attribute("spellcheck") == "false"
+        key.fill(SECRET)
+        box.query_selector("#gNewKeySave").click()
+        pg.wait_for_function("() => document.querySelector('#gNewKeyState').innerText.includes('…xY4k')")
+        assert "✓ checked, works · …xY4k" in pg.inner_text("#gNewKeyState")
+        assert fake.posts[-1][:2] == ("/api/guests/owner-key", {"key": SECRET})
+        assert key.input_value() == ""
+        pg.wait_for_timeout(700)                      # a few polls later
+        assert SECRET not in pg.content() and SECRET[-20:] not in pg.content()
+        assert pg.errors == []
+    finally:
+        ctx.close()
+
+
+def test_a_refused_owner_key_says_why(browser, site):  # noqa: F811
+    fake = FakeClaudeGuests(key_set=False)
+    fake.key_error = "Anthropic did not accept the key: invalid x-api-key"
+    ctx, pg = open_page(browser, site, fake)
+    try:
+        box = open_settings(pg)
+        box.query_selector("#gNewKey").fill(SECRET)
+        box.query_selector("#gNewKeySave").click()
+        pg.wait_for_function("() => document.querySelector('#gNewKeyState').innerText.includes('invalid x-api-key')")
+        assert box.query_selector("#gNewKey").input_value() == ""
+        pg.wait_for_timeout(700)
+        assert "invalid x-api-key" in pg.inner_text("#gNewKeyState")      # the poll keeps it
+        assert SECRET not in pg.content()
+        assert pg.errors == []
+    finally:
+        ctx.close()
+
+
+def test_no_owner_key_yet(browser, site):  # noqa: F811
+    """Defaults say owner_key (the release default) but no key is saved: one line says so,
+    and "Your API key" can't be chosen until a key passed the check."""
+    fake = FakeClaudeGuests(key_set=False)
+    ctx, pg = open_page(browser, site, fake)
+    try:
+        pg.wait_for_selector("#gNoKey:not([hidden])")
+        assert pg.inner_text("#gNoKey") == "Add your API key in Settings — new guests run on it"
+        box = open_settings(pg)
+        assert "Add your API key in Settings — new guests run on it" in box.inner_text()
+        radio = box.query_selector('input[name="gnew-mode"][value="owner_key"]')
+        assert radio.is_disabled()
+        assert "Add and check your API key first" in box.inner_text()
+        shot(pg, "server-guests-settings-no-key.png")
+        # changing something else still saves, without the mode
+        box.query_selector("input.glim-usd-in").fill("15")
+        box.query_selector("#gNewSave").click()
+        pg.wait_for_function("() => !document.querySelector('#gNewSaved').hidden")
+        assert fake.posts[-1][0] == "/api/guests/settings" and "claude_mode" not in fake.posts[-1][1]
+        # a checked key turns the line off and the choice on
+        box.query_selector("#gNewKey").fill(SECRET)
+        box.query_selector("#gNewKeySave").click()
+        pg.wait_for_selector("#gNoKey", state="hidden")
+        pg.wait_for_function("() => !document.querySelector('#gNew input[value=\"owner_key\"]').disabled")
+        assert "Add and check your API key first" not in box.inner_text()
+        assert pg.errors == []
+    finally:
+        ctx.close()
+
+
+def test_no_line_when_new_guests_get_the_subscription(browser, site):  # noqa: F811
+    fake = FakeClaudeGuests(key_set=False, mode="owner_sub")
+    ctx, pg = open_page(browser, site, fake)
+    try:
+        guest_rows(pg)
+        pg.wait_for_timeout(400)
+        assert pg.is_hidden("#gNoKey")
+        assert pg.errors == []
+    finally:
+        ctx.close()
+
+
+def test_settings_web_and_rules_defaults(cpage, cfake):
+    box = open_settings(cpage)
+    web = box.query_selector("#gNewWeb")
+    assert web.get_attribute("aria-pressed") == "true"
+    web.click()
+    assert web.get_attribute("aria-pressed") == "false"
+    box.query_selector('input[name="gnew-rules"][value="only"]').check()
+    box.query_selector("#gNewWork").fill("The bakery site")
+    box.query_selector("#gNewSave").click()
+    cpage.wait_for_function("() => !document.querySelector('#gNewSaved').hidden")
+    body = cfake.posts[-1][1]
+    assert body["web"] is False
+    assert body["rules"]["on"] is True and body["rules"]["work"] == "The bakery site"
+
+
+def test_the_page_never_says_guests_run_on_your_subscription():
+    from tests.test_server_page import PAGE
+    html = PAGE.read_text(encoding="utf-8")
+    assert "on your subscription" not in html and "on your Claude subscription" not in html
+
+
+def test_claude_form_and_settings_on_a_phone(browser, site):  # noqa: F811
+    fake = FakeClaudeGuests()
+    ctx, pg = open_page(browser, site, fake, width=390, height=844, mobile=True)
+    try:
+        guest_rows(pg)
+        assert pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        shot(pg, "server-guests-claude-phone.png")
+        form = open_claude(pg, "masha")
+        form.query_selector('input[value="owner_sub"]').check()
+        form.wait_for_selector(".gwarn")
+        assert pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        shot(pg, "server-guests-claude-form-phone.png")
+        open_settings(pg)
+        assert pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        shot(pg, "server-guests-settings-phone.png")
+        assert pg.errors == []
+    finally:
+        ctx.close()

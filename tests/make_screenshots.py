@@ -410,23 +410,32 @@ def guests_payload(configured=True, checks=None) -> dict:
          "five_hour": {"used": 6_400_000, "limit": 20_000_000, "resets_at": 1793430000},
          "seven_day": {"used": 31_000_000, "limit": 140_000_000, "resets_at": 1793689200},
          "url": "https://sb-maria.example.com", "web": True, "rules": None, "rules_active": False,
-         "created": "2026-10-20 10:00:00"},
+         "created": "2026-10-20 10:00:00",
+         # whose Claude (owner, 13.11.2026): maria on your API key, a dollar limit
+         "claude": {"mode": "owner_key", "owner_mode": "owner_key", "has_key": False, "last4": None,
+                    "usd": {"used": 6.1, "limit": 20, "resets_at": 1793689200}}},
         {"name": "alex", "telegram_id": 7731, "port": 18102, "state": "running", "enabled": True,
          "five_hour": {"used": 17_200_000, "limit": 20_000_000, "resets_at": 1793430000},
          "seven_day": {"used": 88_000_000, "limit": 140_000_000, "resets_at": 1793689200},
          "url": None, "web": False, "rules": ALEX_RULES, "rules_active": True,
-         "created": "2026-10-22 16:30:00"},
+         "created": "2026-10-22 16:30:00",
+         "claude": {"mode": "own", "owner_mode": "owner_key", "has_key": True, "last4": "x4Fk", "usd": None}},
         {"name": "sam", "telegram_id": 9044, "port": 18103, "state": "exited", "enabled": False,
          "five_hour": {"used": 0, "limit": 10_000_000, "resets_at": 0},
          "seven_day": {"used": 12_000_000, "limit": 70_000_000, "resets_at": 1793689200},
          "url": "https://sb-sam.example.com", "web": True, "rules": None, "rules_active": False,
-         "created": "2026-10-24 08:10:00"},
+         "created": "2026-10-24 08:10:00",
+         "claude": {"mode": "owner_sub", "owner_mode": "owner_sub", "has_key": False, "last4": None, "usd": None}},
     ]
     return {"installed": True, "configured": configured, "dir": "/home/deck/agentkennel/guests",
             "env": ({"bot_token_set": True, "owner_id": "4412", "domain": "example.com"} if configured
                     else {"bot_token_set": True, "owner_id": "4412", "domain": ""}),
             "admin": {"bot_set": True, "owner_id": "4412"},
             "guests": guests if configured else None, "list_error": None,
+            "settings": ({"claude_mode": "owner_key", "usd_week": 20, "notify_at": 0.8,
+                          "week_limit": 140_000_000, "web": True, "rules": {}} if configured else None),
+            "owner_key": {"set": True, "last4": "xY4k"} if configured else None,
+            "owner_key_week_usd": 9.4 if configured else 0,
             "checks": checks, "checking": False, "jobs": {}}
 
 

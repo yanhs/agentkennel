@@ -249,9 +249,9 @@
     #gOff { color: var(--faint); font-size: 12px; line-height: 1.55; padding: 2px 2px 4px; max-width: 760px; }
     .guest + .guest { border-top: 1px solid var(--row-line); }
     .guest-main {
-      /* the buttons' column fits the longest set (Open Limit Stop Remove), so the spend
-         column lines up on every row whatever buttons a guest has */
-      display: grid; grid-template-columns: 10px minmax(0, 1fr) 190px minmax(372px, auto); align-items: center;
+      /* the buttons' column fits the longest set (Open Web Rules Claude Stop Remove), so the
+         spend column lines up on every row whatever buttons a guest has */
+      display: grid; grid-template-columns: 10px minmax(0, 1fr) 190px minmax(384px, auto); align-items: center;
       gap: 12px; padding: 6px 2px;
     }
     .guest-main .svc-btns { justify-content: flex-end; }
@@ -265,30 +265,61 @@
     .gspend .v { font-family: var(--mono); font-size: 10.5px; color: var(--dim); white-space: nowrap; }
     .gspend .bar { height: 5px; border-radius: 3px; background: var(--s2); overflow: hidden; }
     .gspend .bar i { display: block; height: 100%; border-radius: 3px; transition: width .6s ease; }
+    .gspend.warn .v { color: var(--amber); }
     /* web on/off (owner, 12.11.2026): a switch, not a word */
-    .svc-btns button[data-act="web"]::before {
+    .svc-btns button[data-act="web"]::before, .gform button.gsw::before {
       content: ""; display: inline-block; width: 20px; height: 11px; margin-right: 5px; vertical-align: -1px;
       border-radius: 6px; background: radial-gradient(circle at 5.5px 5.5px, var(--bg) 3.5px, transparent 4px), var(--off);
     }
-    .svc-btns button[data-act="web"][aria-pressed="true"]::before {
+    .svc-btns button[data-act="web"][aria-pressed="true"]::before, .gform button.gsw[aria-pressed="true"]::before {
       background: radial-gradient(circle at 14.5px 5.5px, var(--bg) 3.5px, transparent 4px), var(--green);
     }
-    /* the agent's rules while web access is off */
-    .grules { margin: 0 0 10px 22px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px;
+    /* the forms that open in the block: the agent's rules while web access is off, whose
+       Claude a guest runs on, and Settings → For new guests (one look for all three) */
+    .gform { margin: 0 0 10px 22px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px;
       background: var(--s2); font-size: 12.5px; max-width: 760px; }
-    .grules h4 { margin: 0 0 10px; font-size: 12.5px; font-weight: 600; }
-    .grules .grf { margin-bottom: 12px; }
-    .grules .grl { font-size: 11.5px; color: var(--faint); margin-bottom: 4px; }
-    .grules label.grc { display: flex; gap: 8px; align-items: flex-start; margin: 3px 0; cursor: pointer; }
-    .grules label.grc input { margin: 3px 0 0; accent-color: var(--accent); flex: none; }
-    .grules textarea { width: 100%; min-height: 54px; resize: vertical; background: var(--bg); color: var(--text);
+    #gNew.gform { margin: 0 0 12px; }
+    .gform h4 { margin: 0 0 10px; font-size: 12.5px; font-weight: 600; }
+    .gform .grf { margin-bottom: 12px; }
+    .gform .grl { font-size: 11.5px; color: var(--faint); margin-bottom: 4px; }
+    .gform label.grc { display: flex; gap: 8px; align-items: flex-start; margin: 3px 0; cursor: pointer; }
+    .gform label.grc input { margin: 3px 0 0; accent-color: var(--accent); flex: none; }
+    .gform label.grc:has(input:disabled) { cursor: default; color: var(--faint); }
+    .gform textarea { width: 100%; min-height: 54px; resize: vertical; background: var(--bg); color: var(--text);
       border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 12.5px; }
-    .grules textarea:focus { outline: none; border-color: var(--accent); }
-    .grules .grfolders { display: flex; flex-wrap: wrap; gap: 4px 14px; }
-    .grules .grfolders label.grc { font-family: var(--mono); font-size: 11.5px; }
-    .grules .grnote { color: var(--dim); }
-    .grules .grules-err { color: var(--red); font-size: 11.5px; margin-bottom: 8px; }
-    .grules .gracts { display: flex; gap: 8px; }
+    .gform textarea:focus { outline: none; border-color: var(--accent); }
+    .gform .grfolders { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+    .gform .grfolders label.grc { font-family: var(--mono); font-size: 11.5px; }
+    .gform .grnote { color: var(--dim); }
+    .gform .grules-err { color: var(--red); font-size: 11.5px; margin-bottom: 8px; }
+    .gform .gracts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .gform .grsub { font-size: 11.5px; color: var(--faint); margin: 0 0 6px 21px; line-height: 1.5; }
+    .gform .grsub code { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+    .gform .glim { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; color: var(--dim); }
+    .gform .glim .grc { margin: 0; }
+    .gform .glim > span { white-space: nowrap; }
+    .gform input.gin {
+      background: var(--bg); border: 1px solid var(--line); border-radius: 6px; color: var(--text);
+      font: inherit; font-family: var(--mono); font-size: 11.5px; padding: 4px 7px; min-width: 0;
+    }
+    .gform input.gin:focus { outline: none; border-color: var(--accent); }
+    .gform input.glim-usd-in, .gform input.glim-pct-in { width: 64px; }
+    .gform input.gkey { width: 300px; max-width: 100%; }
+    .gform .gkeyrow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+    .gkeystate { font-size: 11.5px; }
+    .gkeystate.ok { color: var(--green); }
+    .gkeystate.err { color: var(--red); }
+    .gneed { color: var(--amber); font-size: 11.5px; line-height: 1.5; }
+    .gform .gneed { margin-bottom: 8px; }
+    .gform .grsub.gneed { margin-bottom: 6px; }
+    #gNoKey { padding: 0 2px 8px; font-size: 12px; }
+    #gNewSaved { color: var(--green); font-size: 11.5px; }
+    /* "Your subscription": asked once, before it is saved */
+    .gwarn { margin: 4px 0 8px 21px; padding: 10px 12px; border: 1px solid rgba(251,191,36,.45);
+      border-radius: 8px; background: rgba(251,191,36,.07); max-width: 560px; }
+    .gwarn h4 { margin: 0 0 6px; color: var(--amber); }
+    .gwarn p { font-size: 12px; line-height: 1.5; margin-bottom: 6px; }
+    .gwarn .gracts { margin-top: 8px; }
     .gjob { font-size: 11.5px; color: var(--faint); padding: 0 0 6px 22px; }
     .gjob.err { color: var(--red); }
     .glimit { display: flex; align-items: center; gap: 6px; padding: 0 0 8px 22px; font-size: 11.5px; color: var(--dim); }
@@ -372,7 +403,8 @@
       .gspend { grid-area: spend; }
       .guest-main .svc-btns { grid-area: btns; justify-content: flex-start; }
       .gjob, .glimit { padding-left: 20px; }
-      .grules { margin-left: 0; }
+      .gform { margin-left: 0; }
+      .gform .grsub, .gwarn { margin-left: 0; }
     }
     @media (prefers-reduced-motion: reduce) {
       * { animation: none !important; transition: none !important; }
@@ -439,15 +471,17 @@
 
   <section class="card" id="guests" hidden>
     <div class="card-h">
-      <h3 title="Other people working on this server, each in their own sandbox, on your subscription with a 5-hour and a weekly limit, like the subscription's own">Guests</h3>
+      <h3 title="Other people working on this server, each in their own sandbox. Their Claude runs on your Anthropic API key with a dollar limit a week, or on their own key or login">Guests</h3>
       <span id="gSum"></span>
       <button type="button" class="gbtn" id="gSetup">Set up guests</button>
     </div>
-    <div id="gOff" hidden>Off. Let other people work on this server: each gets their own sandbox (an AgentKennel of their own, in Docker), works on your Claude subscription with a 5-hour and a weekly limit, and talks to it through one shared Telegram bot. Someone writes to the bot, you get “Let in?” with a button.</div>
+    <div id="gOff" hidden>Off. Let other people work on this server: each gets their own sandbox (an AgentKennel of their own, in Docker), runs Claude on your Anthropic API key with a dollar limit a week (or on their own key or login), and talks to it through one shared Telegram bot. Someone writes to the bot, you get “Let in?” with a button.</div>
+    <div id="gNoKey" class="gneed" hidden>Add your API key in Settings — new guests run on it</div>
     <div id="gList"></div>
     <div class="empty" id="gEmpty" hidden></div>
     <div id="gErr" class="gjob err" hidden></div>
     <div id="gWizard" hidden>
+      <div id="gNew" class="gform" hidden></div>
       <div class="gw-intro">Four steps; each is checked on this server. Nothing changes for anyone until step 4.</div>
       <div class="gstep" data-step="docker">
         <span class="gmark">1</span><h4>Docker</h4>
@@ -1062,6 +1096,20 @@
     ['services', 'Set up other services (bots, tunnels, scheduled jobs)']];
   const G_RULE_DEFAULTS = { edit: true, restart: true, packages: true, publish: false, services: false };
   let gLast = null, gWizardOpen = false, gChecksAsked = false, gActErr = '';
+  // whose Claude a guest runs on (owner, 13.11.2026): owner_key / own / owner_sub
+  const gClaudeOpen = new Set();          // names with the Claude form open
+  const OWNER_WEEK = 8_700_000;           // 1% of your subscription's week, in weighted tokens
+  const G_WARN = "Anthropic's terms don't allow sharing one Claude subscription between several people. "
+    + "Guests would use your Pro/Max plan and its limits. If you turn this on, it's your call.";
+  const G_NOKEY = 'Add your API key in Settings — new guests run on it';
+  let gKeyErr = '', gNewBuilt = false, gNewSync = null;
+  const fmtUsd = v => '$' + (Number.isInteger(v) ? String(v) : (v || 0).toFixed(2));
+  // a weekly token limit as a share of your subscription's week, one decimal ("16.1")
+  const gWeekPct = t => String(Math.round(t / OWNER_WEEK * 10) / 10);
+  const gKeySet = () => !!(gLast && gLast.owner_key && gLast.owner_key.set);
+  // the defaults say "Your API key" but no key is saved yet (Settings and the block say so)
+  const gNoKey = d => !!(d && d.configured && d.settings && d.settings.claude_mode === 'owner_key'
+    && !(d.owner_key && d.owner_key.set));
   const STEP_CHECKS = { docker: ['docker'], bot: ['bot', 'owner'], domain: ['domain'], services: ['services'] };
   function fmtTok(n) {
     if (!isFinite(n) || n <= 0) return '0';
@@ -1084,7 +1132,7 @@
   }
   function gButtons(g) {
     return [...(g.url && g.state === 'running' ? [['open', 'Open']] : []),
-      ['web', 'Web'], ['rules', 'Rules'], ['limit', 'Limit'], g.enabled && g.state === 'running' ? ['stop', 'Stop'] : ['start', 'Start'], ['remove', 'Remove']];
+      ['web', 'Web'], ['rules', 'Rules'], g.claude ? ['claude', 'Claude'] : ['limit', 'Limit'], g.enabled && g.state === 'running' ? ['stop', 'Stop'] : ['start', 'Start'], ['remove', 'Remove']];
   }
   function gRow(name) {
     let r = gRows.get(name);
@@ -1106,6 +1154,8 @@
       if (e.target.closest('.glimit-cancel')) { gLimitOpen.delete(name); gRender(); }
       if (e.target.closest('.grules-save')) gSaveRules(name);
       if (e.target.closest('.grules-cancel')) { gRulesOpen.delete(name); gRender(); }
+      if (e.target.closest('.gclaude-save')) gSaveClaude(name);
+      if (e.target.closest('.gclaude-cancel')) { gClaudeOpen.delete(name); gRender(); }
     });
     r.addEventListener('keydown', e => {
       if (e.key === 'Enter' && e.target.matches('input.glimit-in')) gSaveLimit(name);
@@ -1144,18 +1194,7 @@
     const noWeb = g.web === false;
     note.textContent = [noWeb && 'Telegram only', noWeb && g.rules_active && 'rules on',
       on ? said : g.state === 'missing' ? 'off · no container' : 'off'].filter(Boolean).join(' · ');
-    // a 5-hour and a weekly limit, like the subscription's (30.10.2026); the bar is the fuller
-    const five = g.five_hour || {}, week = g.seven_day || {};
-    const p5 = gPct(five), pw = gPct(week), pct = Math.max(p5, pw);
-    const spend = r.querySelector('.gspend');
-    spend.querySelector('.v').textContent = `5h ${Math.round(p5)}% · wk ${Math.round(pw)}%`;
-    spend.title = `5 hours: ${fmtTok(five.used)} of ${fmtTok(five.limit)} tokens, `
-      + (five.resets_at ? `resets ${gWhen(five.resets_at)}` : 'no window open')
-      + `\nWeek: ${fmtTok(week.used)} of ${fmtTok(week.limit)} tokens`
-      + (week.resets_at ? `, resets ${gWhen(week.resets_at)}` : '');
-    const bar = spend.querySelector('.bar i');
-    bar.style.width = pct.toFixed(1) + '%';
-    bar.style.background = level(pct);
+    gSpend(r.querySelector('.gspend'), g);
     const want = gButtons(g), box = r.querySelector('.svc-btns');
     if (box.dataset.acts !== want.map(a => a[0]).join()) {
       box.replaceChildren(...want.map(([act, label]) => {
@@ -1180,6 +1219,11 @@
       : `Rules work only with web access off: in a terminal ${g.name} types commands themselves, nothing can hold them`;
     rb.classList.toggle('on', gRulesOpen.has(g.name));
     if (!noWeb) gRulesOpen.delete(g.name);
+    const cb = box.querySelector('button[data-act="claude"]');
+    if (cb) {
+      cb.classList.toggle('on', gClaudeOpen.has(g.name));
+      cb.title = `Whose Claude ${g.name} runs on: your API key, their own key or login, or your subscription; and the limit`;
+    } else gClaudeOpen.delete(g.name);           // an older server: no claude per guest
     const jl = r.querySelector('.gjob');
     jl.className = 'gjob' + (job && job.done && !job.ok ? ' err' : '');
     jl.textContent = !job ? '' : busy ? { stop: 'Stopping…', start: 'Starting…', remove: 'Removing… (takes about a minute and a half)', limit: 'Saving the limit…',
@@ -1201,12 +1245,208 @@
     let rules = r.querySelector('.grules');
     if (gRulesOpen.has(g.name) && !rules) r.append(gRulesForm(g));
     else if (!gRulesOpen.has(g.name) && rules) rules.remove();
+    const cf = r.querySelector('.gclaude');
+    if (gClaudeOpen.has(g.name) && !cf) r.append(gClaudeForm(g));
+    else if (!gClaudeOpen.has(g.name) && cf) cf.remove();
+  }
+  // The spend column. With `claude` (owner, 13.11.2026) it says whose Claude the guest runs
+  // on and what that costs: your key in dollars with a bar, their own key (nothing to count),
+  // your subscription in amber with its share of your week. Without it (an older server):
+  // the 5-hour and weekly limit, like the subscription's (30.10.2026); the bar is the fuller.
+  function gSpend(spend, g) {
+    const v = spend.querySelector('.v'), barBox = spend.querySelector('.bar'), bar = barBox.querySelector('i');
+    const five = g.five_hour || {}, week = g.seven_day || {}, c = g.claude;
+    const tokens = `5 hours: ${fmtTok(five.used)} of ${fmtTok(five.limit)} tokens, `
+      + (five.resets_at ? `resets ${gWhen(five.resets_at)}` : 'no window open')
+      + `\nWeek: ${fmtTok(week.used)} of ${fmtTok(week.limit)} tokens`
+      + (week.resets_at ? `, resets ${gWhen(week.resets_at)}` : '');
+    let text, title, pct = null, warn = false;
+    if (!c) {
+      const p5 = gPct(five), pw = gPct(week);
+      pct = Math.max(p5, pw);
+      text = `5h ${Math.round(p5)}% · wk ${Math.round(pw)}%`;
+      title = tokens;
+    } else if (c.error) {
+      text = 'settings need attention'; warn = true;
+      title = `${g.name}'s Claude settings could not be read, so their requests are refused. Click Claude and choose again.`;
+    } else if (c.mode === 'owner_key') {
+      const u = c.usd || { used: 0, limit: 0 };
+      if (!gKeySet()) {
+        text = 'your key · not added yet'; warn = true;
+        title = `${g.name} runs on your API key, but none is saved: their requests are refused until you add it in Settings`;
+      } else {
+        text = `your key · $${(u.used || 0).toFixed(2)} of ${fmtUsd(u.limit)}`;
+        pct = u.limit > 0 ? Math.min(100, (u.used || 0) / u.limit * 100) : 100;
+        title = `Your API key: $${(u.used || 0).toFixed(2)} of ${fmtUsd(u.limit)} this week`
+          + (u.resets_at ? `, resets ${gWhen(u.resets_at)}` : '');
+      }
+    } else if (c.mode === 'own') {
+      text = c.has_key ? 'own key' : 'own key · not sent yet'; warn = !c.has_key;
+      title = c.has_key ? `${g.name} runs on their own key or login (…${c.last4 || ''}): they pay, nothing is counted against you`
+        : `${g.name} chose their own key but hasn't sent one yet: their requests are refused until they do (/claude in the bot)`;
+    } else {
+      text = `your subscription ⚠ · wk ${fmtPct((week.used || 0) / OWNER_WEEK)}`; warn = true;
+      title = `Your subscription: ≈ ${fmtPct((week.used || 0) / OWNER_WEEK)} of your week used by ${g.name}\n` + tokens;
+    }
+    v.textContent = text;
+    spend.title = title;
+    spend.classList.toggle('warn', warn);
+    barBox.hidden = pct === null;
+    if (pct !== null) { bar.style.width = pct.toFixed(1) + '%'; bar.style.background = level(pct); }
+  }
+  // ── the Claude form (per guest) and Settings → For new guests ──
+  function gChoice(type, name, value, text, checked, cls) {
+    const l = el('label', 'grc'), i = el('input', cls || null);
+    i.type = type; i.name = name; i.value = value; i.checked = !!checked;
+    l.append(i, el('span', null, text));
+    return l;
+  }
+  function gGrf(label, ...kids) {
+    const d = el('div', 'grf');
+    if (label) d.append(el('div', 'grl', label));
+    d.append(...kids);
+    return d;
+  }
+  function gNumIn(cls, value, placeholder) {
+    const i = el('input', 'gin ' + cls);
+    i.type = 'number'; i.min = '0'; i.step = 'any'; i.inputMode = 'decimal';
+    i.value = value; i.dataset.was = value;
+    if (placeholder) i.placeholder = placeholder;
+    return i;
+  }
+  // A key field: never filled from the server, emptied right after it is sent.
+  function gKeyIn(cls, placeholder) {
+    const i = el('input', 'gin gkey ' + cls);
+    i.type = 'password'; i.autocomplete = 'off'; i.spellcheck = false;
+    i.setAttribute('autocomplete', 'off'); i.setAttribute('spellcheck', 'false');
+    i.placeholder = placeholder;
+    return i;
+  }
+  // "Your subscription" is asked about before it is saved; `use` saves, `back` undoes the pick.
+  function gWarnBox(use, back) {
+    const w = el('div', 'gwarn');
+    const ok = gChoice('checkbox', '', '1', 'I understand', false, 'gwarn-ok');
+    const go = el('button', 'gbtn primary gwarn-use', 'Use my subscription'); go.type = 'button'; go.disabled = true;
+    const cancel = el('button', 'gbtn gwarn-cancel', 'Cancel'); cancel.type = 'button';
+    ok.querySelector('input').addEventListener('change', e => { go.disabled = !e.target.checked; });
+    go.addEventListener('click', use);
+    cancel.addEventListener('click', back);
+    const acts = el('div', 'gracts'); acts.append(go, cancel);
+    w.append(el('h4', null, '⚠ Your subscription for guests'), el('p', null, G_WARN), ok, acts);
+    return w;
+  }
+  // The radios, the limit that follows them and the warning, wired to a Save button.
+  // `saved` is the choice on the server (null: none can be read); returns a refresh().
+  function gModeWire(box, radio, saved, parts, save) {
+    let prev = saved;
+    const picked = () => (box.querySelector(`input[name="${CSS.escape(radio)}"]:checked`) || {}).value;
+    const refresh = () => {
+      const v = picked();
+      if (parts.usd) parts.usd.hidden = v !== 'owner_key';
+      if (parts.pct) parts.pct.hidden = v !== 'owner_sub';
+      if (parts.key) parts.key.hidden = v !== 'own';
+      if (parts.limit) parts.limit.hidden = v !== 'owner_key' && v !== 'owner_sub';
+      if (parts.limitLabel) parts.limitLabel.textContent = v === 'owner_sub'
+        ? 'Limit for a guest · Your subscription' : 'Limit for a guest on your key';
+      const ask = v === 'owner_sub' && saved !== 'owner_sub';
+      if (ask && !parts.warn.firstChild) {
+        parts.warn.append(gWarnBox(() => save.click(), () => {
+          const back = prev && box.querySelector(`input[name="${CSS.escape(radio)}"][value="${prev}"]`);
+          if (back) back.checked = true;
+          else box.querySelectorAll(`input[name="${CSS.escape(radio)}"]`).forEach(i => { i.checked = false; });
+          refresh();
+        }));
+      } else if (!ask) parts.warn.replaceChildren();
+      const ok = parts.warn.querySelector('input.gwarn-ok');
+      save.disabled = !v || (ask && !(ok && ok.checked));
+      if (v && v !== 'owner_sub') prev = v;
+    };
+    box.addEventListener('change', e => { if (e.target.matches(`input[name="${CSS.escape(radio)}"], input.gwarn-ok`)) refresh(); });
+    return refresh;
+  }
+  // Built once when opened (the poll never wipes what is being typed), like the rules form.
+  function gClaudeForm(g) {
+    const c = g.claude || {}, saved = c.error ? null : c.mode, radio = `gcl-${g.name}`;
+    const box = el('div', 'gclaude gform');
+    const s = (gLast && gLast.settings) || {};
+    const usdIn = gNumIn('glim-usd-in', c.usd && c.usd.limit > 0 ? String(c.usd.limit) : '', String(s.usd_week || 20));
+    const usd = el('div', 'grsub glim glim-usd');
+    usd.append('Limit $', usdIn, ' a week' + (c.usd ? ` · spent $${(c.usd.used || 0).toFixed(2)}`
+      + (c.usd.resets_at ? ` · resets ${gWhen(c.usd.resets_at)}` : '') : ''));
+    const week = (g.seven_day || {}).limit;
+    const pct = el('div', 'grsub glim glim-pct');
+    pct.append('Limit', gNumIn('glim-pct-in', week > 0 ? gWeekPct(week) : ''), el('span', null, '% of your week'),
+      el('span', null, '· 5 hours: a seventh'));
+    const key = el('div', 'grsub gkeyrow');
+    key.append(gKeyIn('gcl-key', 'sk-ant-api03-…, or a token from claude setup-token'));
+    const warn = el('div');
+    const err = el('div', 'grules-err gclaude-err'); err.hidden = true;
+    const save = el('button', 'gbtn primary gclaude-save', 'Save'); save.type = 'button';
+    const cancel = el('button', 'gbtn gclaude-cancel', 'Cancel'); cancel.type = 'button';
+    const btns = el('div', 'gracts'); btns.append(save, cancel);
+    box.append(el('h4', null, `Claude for ${g.name}`),
+      ...(c.error ? [el('div', 'gneed', `${g.name}'s Claude settings could not be read: choose again and save.`)] : []),
+      gGrf(null, gChoice('radio', radio, 'owner_key', 'Your API key', saved === 'owner_key'), usd,
+        gChoice('radio', radio, 'own', 'Their own key or login', saved === 'own'),
+        el('div', 'grsub', 'Paste it here, or they send it with /claude in the bot.'
+          + (c.has_key && c.last4 ? ` Their key now: …${c.last4}` : '')), key,
+        gChoice('radio', radio, 'owner_sub', 'Your subscription ⚠', saved === 'owner_sub'), warn, pct),
+      err, btns);
+    gModeWire(box, radio, saved, { usd, pct, key, warn }, save)();
+    return box;
+  }
+  async function gSaveClaude(name) {
+    const box = gRows.get(name) && gRows.get(name).querySelector('.gclaude');
+    const g = ((gLast && gLast.guests) || []).find(x => x.name === name);
+    if (!box || !g) return;
+    const c = g.claude || {}, saved = c.error ? null : c.mode;
+    const err = box.querySelector('.gclaude-err');
+    const say = msg => { err.textContent = msg; err.hidden = !msg; };
+    const save = box.querySelector('.gclaude-save');
+    if (save.disabled) return;
+    const v = (box.querySelector(`input[name="gcl-${CSS.escape(name)}"]:checked`) || {}).value;
+    const keyIn = box.querySelector('input.gcl-key'), usdIn = box.querySelector('input.glim-usd-in'),
+      pctIn = box.querySelector('input.glim-pct-in');
+    const secret = keyIn.value.trim();
+    const calls = [];
+    if (v === 'own') {
+      if (secret) calls.push(['claude', { name, mode: 'own', secret }]);
+      else if (saved !== 'own') calls.push(['claude', { name, mode: 'own' }]);
+    } else if (v === 'owner_key') {
+      const body = { name };
+      if (saved !== 'owner_key') body.mode = 'owner_key';
+      if (usdIn.value.trim() !== usdIn.dataset.was) {
+        const usd = parseFloat(usdIn.value);
+        if (!(usd > 0)) { keyIn.value = ''; say('The limit: dollars a week, above 0.'); return usdIn.focus(); }
+        body.usd_week = usd;
+      }
+      if (Object.keys(body).length > 1) calls.push(['claude', body]);
+    } else if (v === 'owner_sub') {
+      if (saved !== 'owner_sub') calls.push(['claude', { name, mode: 'owner_sub', understood: true }]);
+      if (pctIn.value.trim() !== pctIn.dataset.was) {
+        const p = parseFloat(pctIn.value);
+        if (!(p > 0)) { keyIn.value = ''; say('The limit: a share of your week, above 0%.'); return pctIn.focus(); }
+        calls.push(['limit', { name, limit: Math.round(p * OWNER_WEEK) }]);
+      }
+    }
+    save.disabled = true;
+    try {
+      for (const [what, body] of calls) await gPost(what, body);
+    } catch (e) {
+      save.disabled = false;
+      return say(e.message);
+    } finally {
+      keyIn.value = '';                   // never kept on the page, whatever the answer
+    }
+    gClaudeOpen.delete(name);
+    gFailed('');
+    await pollGuests();
   }
   // The rules form (owner, 12.11.2026): built once when opened, so the poll never wipes
   // what is being typed; the sandbox's folders are asked for when it opens.
   function gRulesForm(g) {
     const R = g.rules || {}, acts = Object.assign({}, G_RULE_DEFAULTS, R.actions || {});
-    const box = el('div', 'grules');
+    const box = el('div', 'grules gform');
     const f = (label, ...kids) => { const d = el('div', 'grf'); if (label) d.append(el('div', 'grl', label)); d.append(...kids); return d; };
     const check = (type, text, attrs, checked) => {
       const l = el('label', 'grc'), i = el('input');
@@ -1294,12 +1534,17 @@
     $('#gSetup').hidden = gWizardOpen;
     const sum = $('#gSum');
     if (d.configured && guests.length) {
-      const spent = guests.reduce((a, g) => a + ((g.seven_day || {}).used || 0), 0);
+      const spent = guests.filter(g => !g.claude || g.claude.mode === 'owner_sub')
+        .reduce((a, g) => a + ((g.seven_day || {}).used || 0), 0);
       const on = guests.filter(g => g.enabled && g.state === 'running').length;
       sum.replaceChildren(el('b', null, String(guests.length)), document.createTextNode(guests.length === 1 ? ' guest' : ' guests'),
         document.createTextNode(' · on '), el('b', null, String(on)),
         ...(d.agents && Object.keys(d.agents).length ? [document.createTextNode(' · agents '), el('b', null, String(Object.values(d.agents).reduce((a, x) => a + (x.agents || 0), 0)))] : []),
-        document.createTextNode(' · week '), el('b', null, fmtTok(spent)), document.createTextNode(' tokens'));
+        // tokens are counted for owner_sub guests, dollars for owner_key ones (owner, 13.11.2026)
+        ...(guests.some(g => !g.claude || g.claude.mode === 'owner_sub')
+          ? [document.createTextNode(' · week '), el('b', null, fmtTok(spent)), document.createTextNode(' tokens')] : []),
+        ...(guests.some(g => g.claude && g.claude.mode === 'owner_key')
+          ? [document.createTextNode(' · your key this week: '), el('b', null, '$' + (d.owner_key_week_usd || 0).toFixed(2))] : []));
     } else sum.textContent = d.configured ? 'on' : '';
     const empty = $('#gEmpty');
     empty.textContent = d.configured && Array.isArray(d.guests) && !guests.length
@@ -1315,7 +1560,9 @@
       gFillRow(r, g, (d.jobs || {})[g.name], d.agents ? d.agents[g.name] : null);
       if (list.children[i] !== r) list.insertBefore(r, list.children[i] || null);
     });
-    for (const [n, r] of gRows) if (!seen.has(n)) { r.remove(); gRows.delete(n); gLimitOpen.delete(n); gRulesOpen.delete(n); }
+    for (const [n, r] of gRows) if (!seen.has(n)) { r.remove(); gRows.delete(n); gLimitOpen.delete(n); gRulesOpen.delete(n); gClaudeOpen.delete(n); }
+    $('#gNoKey').hidden = !gNoKey(d);
+    gNewRender(d);
     const wiz = $('#gWizard');
     wiz.hidden = !gWizardOpen;
     if (gWizardOpen) {
@@ -1339,6 +1586,160 @@
       $('#gChecking').hidden = !d.checking;
     }
   }
+  // Settings → For new guests (owner, 13.11.2026): what a guest gets when created; each can be
+  // changed per guest afterwards. Built once per opening; the key's state follows the poll.
+  function gNewRender(d) {
+    const box = $('#gNew');
+    if (!gWizardOpen || !d.configured || !d.settings) { box.hidden = true; gNewBuilt = false; return; }
+    box.hidden = false;
+    if (!gNewBuilt) { gNewForm(box, d.settings); gNewBuilt = true; }
+    gNewSync(d);
+  }
+  function gNewForm(box, raw) {
+    const s = Object.assign({ claude_mode: 'owner_key', usd_week: 20, notify_at: 0.8, week_limit: 140000000,
+      web: true, rules: {} }, raw);
+    const R = s.rules || {};
+    const save = el('button', 'gbtn primary', 'Save'); save.type = 'button'; save.id = 'gNewSave';
+    const cancel = el('button', 'gbtn', 'Cancel'); cancel.type = 'button'; cancel.id = 'gNewCancel';
+    const saved = el('span', null, 'Saved'); saved.id = 'gNewSaved'; saved.hidden = true;
+    const err = el('div', 'grules-err'); err.id = 'gNewErr'; err.hidden = true;
+    const nokey = el('div', 'gneed gnew-nokey', G_NOKEY);
+    const keyFirst = el('div', 'grsub gneed gnew-keyfirst', 'Add and check your API key first');
+    const own = el('div', 'grsub');
+    own.append('The guest sends it to the bot with /claude: an API key, or a token from ',
+      el('code', null, 'claude setup-token'), '. Each guest switches to it themselves, so it is not a default.');
+    const warn = el('div');
+    const radio = 'gnew-mode';
+    const modes = gGrf('Claude for new guests',
+      gChoice('radio', radio, 'owner_key', 'Your API key', s.claude_mode === 'owner_key'),
+      el('div', 'grsub', 'Billed to your Anthropic account, by the token. A dollar limit for each guest.'), keyFirst,
+      gChoice('radio', radio, 'own', 'Their own key or login', false), own,
+      gChoice('radio', radio, 'owner_sub', 'Your subscription ⚠', s.claude_mode === 'owner_sub'),
+      el('div', 'grsub', "Anthropic's terms don't allow one subscription for several people. Asks you to confirm."), warn);
+    modes.querySelector('input[value="own"]').disabled = true;
+    // the owner's key: checked with Anthropic before it is kept; only its last 4 come back
+    const keyIn = gKeyIn('', 'sk-ant-api03-…'); keyIn.id = 'gNewKey';
+    const keySave = el('button', 'gbtn', 'Check and save'); keySave.type = 'button'; keySave.id = 'gNewKeySave';
+    const keyState = el('span', 'gkeystate'); keyState.id = 'gNewKeyState';
+    const keyRow = el('div', 'gkeyrow'); keyRow.append(keyIn, keySave, keyState);
+    const notifyAt = s.notify_at < 1 ? s.notify_at : 0.8;
+    const usdIn = gNumIn('glim-usd-in', String(s.usd_week));
+    const usd = el('div', 'glim glim-usd');
+    usd.append('$', usdIn, 'a week', gChoice('checkbox', '', '1', `Tell me in Telegram at ${Math.round(notifyAt * 100)}%`,
+      s.notify_at < 1, 'gnew-notify'));
+    const pct = el('div', 'glim glim-pct');
+    pct.append(gNumIn('glim-pct-in', gWeekPct(s.week_limit)), el('span', null, '% of your week'),
+      el('span', null, '· 5 hours: a seventh'));
+    const limitLabel = el('div', 'grl');
+    const limit = el('div', 'grf'); limit.append(limitLabel, usd, pct);
+    const web = el('button', 'gbtn gsw', 'Web'); web.type = 'button'; web.id = 'gNewWeb';
+    web.setAttribute('aria-pressed', s.web !== false ? 'true' : 'false');
+    web.addEventListener('click', () => web.setAttribute('aria-pressed', web.getAttribute('aria-pressed') === 'true' ? 'false' : 'true'));
+    const webRow = el('div', 'glim'); webRow.append(web, el('span', 'grsub', 'off = Telegram only'));
+    webRow.lastChild.style.margin = '0';
+    const work = el('textarea'); work.id = 'gNewWork';
+    work.value = R.work || '';
+    work.placeholder = 'For example: the website example.com — its pages, texts, photos, prices';
+    const rules = gGrf('What the agent may do',
+      gChoice('radio', 'gnew-rules', 'any', 'Anything in its sandbox', !R.on),
+      gChoice('radio', 'gnew-rules', 'only', 'Only this work…', !!R.on), work,
+      el('div', 'grsub', 'Applies while web access is off.'));
+    const acts = el('div', 'gracts'); acts.append(save, cancel, saved);
+    const f = el('div');                  // a new element per build: its listeners go with it
+    f.append(el('h4', null, 'For new guests'), nokey,
+      ...(s.error ? [el('div', 'gneed', `Your saved settings could not be read (${s.error}); new guests get these until you save.`)] : []),
+      modes, gGrf('Your API key (from console.anthropic.com · stays on this server, never in a sandbox)', keyRow),
+      limit, gGrf('Web access', webRow), rules, err, acts);
+    box.replaceChildren(f);
+    const wired = gModeWire(f, radio, s.claude_mode, { usd, pct, limit, limitLabel, warn }, save);
+    const refresh = () => {
+      wired();
+      work.hidden = (f.querySelector('input[name="gnew-rules"]:checked') || {}).value !== 'only';
+    };
+    f.addEventListener('change', refresh);
+    f.addEventListener('input', () => { saved.hidden = true; });
+    web.addEventListener('click', () => { saved.hidden = true; });
+    save.addEventListener('click', () => gNewSave(s));
+    cancel.addEventListener('click', () => { gNewBuilt = false; gRender(); });
+    keySave.addEventListener('click', gNewKeySave);
+    keyIn.addEventListener('keydown', e => { if (e.key === 'Enter') gNewKeySave(); });
+    gNewSync = d => {
+      const keySet = !!(d.owner_key && d.owner_key.set), last4 = (d.owner_key || {}).last4;
+      modes.querySelector('input[value="owner_key"]').disabled = !keySet;
+      keyFirst.hidden = keySet;
+      nokey.hidden = !gNoKey(d);
+      keyState.className = 'gkeystate' + (gKeyErr ? ' err' : keySet ? ' ok' : '');
+      keyState.textContent = gKeyErr || (keySet ? `✓ checked, works · …${last4 || ''}` : '');
+      keyIn.placeholder = keySet ? `…${last4 || ''} saved · paste a new key to replace` : 'sk-ant-api03-…';
+      refresh();
+    };
+  }
+  async function gNewSave(s) {
+    const box = $('#gNew'), save = $('#gNewSave'), err = $('#gNewErr');
+    if (save.disabled) return;
+    const say = msg => { err.textContent = msg; err.hidden = !msg; };
+    const R = s.rules || {}, patch = {};
+    const mode = (box.querySelector('input[name="gnew-mode"]:checked') || {}).value;
+    if (mode && mode !== s.claude_mode) {
+      patch.claude_mode = mode;
+      if (mode === 'owner_sub') patch.understood = true;       // the warning was ticked
+    }
+    const usdIn = box.querySelector('input.glim-usd-in'), pctIn = box.querySelector('input.glim-pct-in');
+    if (usdIn.value.trim() !== usdIn.dataset.was) {
+      const usd = parseFloat(usdIn.value);
+      if (!(usd > 0)) { say('The limit on your key: dollars a week, above 0.'); return usdIn.focus(); }
+      patch.usd_week = usd;
+    }
+    if (pctIn.value.trim() !== pctIn.dataset.was) {          // unchanged: no rounding drift
+      const p = parseFloat(pctIn.value);
+      if (!(p > 0)) { say('The limit for “Your subscription”: a share of your week, above 0%.'); return pctIn.focus(); }
+      patch.week_limit = Math.round(p * OWNER_WEEK);
+    }
+    const notify = box.querySelector('input.gnew-notify').checked ? (s.notify_at < 1 ? s.notify_at : 0.8) : 1;
+    if (notify !== s.notify_at) patch.notify_at = notify;
+    const web = $('#gNewWeb').getAttribute('aria-pressed') === 'true';
+    if (web !== (s.web !== false)) patch.web = web;
+    const only = (box.querySelector('input[name="gnew-rules"]:checked') || {}).value === 'only';
+    const work = $('#gNewWork').value.trim();
+    if (only && !work) { say('Say what the work is: the agent keeps to it.'); return $('#gNewWork').focus(); }
+    const rules = only ? Object.assign({}, R, { on: true, work, actions: R.actions || G_RULE_DEFAULTS, flag: R.flag !== false })
+      : R.on ? Object.assign({}, R, { on: false }) : R;
+    if (JSON.stringify(rules) !== JSON.stringify(R)) patch.rules = rules;
+    say('');
+    if (!Object.keys(patch).length) { $('#gNewSaved').textContent = 'Nothing changed'; $('#gNewSaved').hidden = false; return; }
+    save.disabled = true;
+    let res;
+    try {
+      res = await gPost('settings', patch);
+    } catch (e) {
+      save.disabled = false;
+      return say(e.message);
+    }
+    if (gLast && res.settings) gLast.settings = res.settings;
+    gNewBuilt = false;
+    gRender();
+    $('#gNewSaved').hidden = false;
+    await pollGuests();
+  }
+  async function gNewKeySave() {
+    const inp = $('#gNewKey'), btn = $('#gNewKeySave'), key = inp.value.trim();
+    if (!key) return inp.focus();
+    btn.disabled = true;
+    $('#gNewKeyState').className = 'gkeystate';
+    $('#gNewKeyState').textContent = 'Checking with Anthropic…';
+    try {
+      const res = await gPost('owner-key', { key });
+      gKeyErr = '';
+      if (gLast) gLast.owner_key = { set: true, last4: res.last4 || null };
+    } catch (e) {
+      gKeyErr = e.message;
+    } finally {
+      inp.value = '';                     // never kept on the page, whatever the answer
+      btn.disabled = false;
+    }
+    if (gLast) gRender();
+    await pollGuests();
+  }
   async function pollGuests() {
     try {
       const r = await fetch(G_API, { cache: 'no-store', credentials: 'same-origin' });
@@ -1355,6 +1756,10 @@
       return gRender();
     }
     if (act === 'open') return gOpen(name);
+    if (act === 'claude') {
+      if (gClaudeOpen.has(name)) gClaudeOpen.delete(name); else gClaudeOpen.add(name);
+      return gRender();
+    }
     if (act === 'rules') {
       if (gRulesOpen.has(name)) gRulesOpen.delete(name); else gRulesOpen.add(name);
       return gRender();
@@ -1416,7 +1821,7 @@
     gRender();
     if (!gChecksAsked) { gChecksAsked = true; gCheck(); }
   });
-  $('#gClose').addEventListener('click', () => { gWizardOpen = false; gRender(); });
+  $('#gClose').addEventListener('click', () => { gWizardOpen = false; gKeyErr = ''; gRender(); });
   $('#gRecheck').addEventListener('click', gCheck);
   $('#gCopy').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText($('#gCmd').textContent); $('#gCopy').textContent = 'Copied'; }
