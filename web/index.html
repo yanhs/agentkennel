@@ -3023,6 +3023,8 @@
       claudeEl('claudeEdit').hidden = broken;
       claudeEl('claudeSave').hidden = broken;
       claudeEl('claudeBack').hidden = broken || !(c.mode === 'own' && c.owner_mode);
+      claudeEl('claudeBack').textContent = c.owner_mode === 'owner_sub'
+        ? "Back to the owner's subscription" : "Back to the owner's key";
       if (broken) return;
       const now = claudeEl('claudeNow'), line = document.createElement('div');
       line.textContent = claudeNowText(c);
@@ -3055,6 +3057,28 @@
         : typeof e === 'string' ? e : `The server answered HTTP ${r.status}`;
       return [text, 'bad'];
     }
+    // POST answers 202 {"job"} at once (the panel's server never waits on the check);
+    // the answer is asked for every second, up to 35 s
+    const CLAUDE_POLL_MS = 1000, CLAUDE_WAIT_MS = 35000;
+    const claudeSleep = ms => new Promise(res => setTimeout(res, ms));
+    async function claudeJSON(r) { try { return await r.json(); } catch { return null; } }
+    async function claudeJob(job) {          // -> [Response-like, body] or null on time-out
+      const until = Date.now() + CLAUDE_WAIT_MS;
+      while (Date.now() < until) {
+        await claudeSleep(CLAUDE_POLL_MS);
+        let r;
+        try {
+          r = await fetch('/api/quota/claude?job=' + encodeURIComponent(job),
+                          {cache: 'no-store', credentials: 'same-origin'});
+        } catch { continue; }                 // a blip: ask again
+        const j = await claudeJSON(r);
+        if (r.ok && j && j.pending) continue;
+        if (r.ok && j && Number.isInteger(j.status))
+          return [{ok: j.status >= 200 && j.status < 300, status: j.status}, j.body];
+        return [r, j];                        // 404: the check expired or was lost
+      }
+      return null;
+    }
     async function claudePost(body) {
       if (_claudeBusy) return;
       const save = claudeEl('claudeSave'), back = claudeEl('claudeBack'), key = claudeEl('claudeKey');
@@ -3066,16 +3090,23 @@
         const r = await fetch('/api/quota/claude', {
           method: 'POST', cache: 'no-store', credentials: 'same-origin',
           headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-        let j = null;
-        try { j = await r.json(); } catch {}
-        said = claudeAnswerText(r, j);
-        if (r.ok && j && j.claude && typeof j.claude === 'object' && _quotaLast) {
-          _quotaLast = Object.assign({}, _quotaLast, {claude: j.claude});
-          document.getElementById('quotaChip').hidden = renderClaude(_quotaLast);
+        key.value = '';                      // the page never keeps the key
+        const j = await claudeJSON(r);
+        if (r.status === 202 && j && typeof j.job === 'string') {
+          const got = await claudeJob(j.job);
+          said = got ? claudeAnswerText(...got)
+            : ['No answer from Anthropic yet. Look again in a minute, or try again.', 'bad'];
+          const a = got && got[1];
+          if (got && got[0].ok && a && a.claude && typeof a.claude === 'object' && _quotaLast) {
+            _quotaLast = Object.assign({}, _quotaLast, {claude: a.claude});
+            document.getElementById('quotaChip').hidden = renderClaude(_quotaLast);
+          }
+        } else {
+          said = claudeAnswerText(r, j);
         }
       } catch {}
       finally {
-        key.value = '';                      // the page never keeps the key
+        key.value = '';
         _claudeBusy = false;
         save.disabled = back.disabled = false;
       }

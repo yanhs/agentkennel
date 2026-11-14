@@ -5,6 +5,7 @@ GET  /  — live status + auto-detected project/task
 POST /  — update manual overrides  { "id": "1", "project": "...", "task": "..." }
 """
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
+import http.client
 import json
 import signal
 import subprocess
@@ -1963,12 +1964,16 @@ def quota_claude_post(base, token, raw, secret):
             status, text = r.status, r.read(65536)
     except urllib.error.HTTPError as e:
         status, text = e.code, e.read(65536)
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, http.client.HTTPException) as e:
         return 502, {"error": f"the turnstile did not answer ({type(e).__name__})"}
+    if status == 204 or not 200 <= status <= 599:
+        return 502, {"error": f"the turnstile answered HTTP {status}"}
     try:
         answer = json.loads(text)
     except ValueError:
         return 502, {"error": f"the turnstile's answer ({status}) is not JSON"}
+    if isinstance(answer, dict) and "claude" in answer:     # the same view as GET /api/quota
+        answer = dict(answer, claude=quota_claude_view(answer["claude"]))
     out = json.dumps(answer, ensure_ascii=False)
     for s in (token, secret):
         if s and len(s) >= 8:
@@ -1977,6 +1982,63 @@ def quota_claude_post(base, token, raw, secret):
         return status, json.loads(out)
     except ValueError:
         return 502, {"error": "the turnstile's answer could not be passed on"}
+
+
+class ClaudeJobs:
+    """The key checks behind POST /api/quota/claude. The panel's server has one thread and
+    a check takes up to 20 s, so each runs in its own daemon thread and the page asks
+    GET /api/quota/claude?job=<id>. A job record holds only {at, done, status, body}: the
+    secret lives in the thread's locals alone. Results are kept JOB_TTL seconds; at most
+    MAX_PENDING checks run at once."""
+    JOB_TTL = 120
+    MAX_PENDING = 3
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.jobs = {}
+        self.clock = time.monotonic       # tests put a fake clock here
+        self.post = quota_claude_post     # … and may put a fake turnstile call here
+
+    def _prune(self, now):
+        for k in [k for k, j in self.jobs.items() if now - j["at"] > self.JOB_TTL]:
+            del self.jobs[k]
+
+    def start(self, base, token, raw, secret):
+        """A new job's id, or None when MAX_PENDING checks already run."""
+        with self.lock:
+            now = self.clock()
+            self._prune(now)
+            if sum(1 for j in self.jobs.values() if not j["done"]) >= self.MAX_PENDING:
+                return None
+            job = secrets.token_urlsafe(16)
+            self.jobs[job] = {"at": now, "done": False, "status": None, "body": None}
+        threading.Thread(target=self._run, args=(job, base, token, raw, secret),
+                         daemon=True, name="quota-claude").start()
+        return job
+
+    def _run(self, job, base, token, raw, secret):
+        try:
+            status, body = self.post(base, token, raw, secret)
+        except Exception as e:                       # never the body: only what failed
+            status, body = 502, {"error": f"the check failed ({type(e).__name__})"}
+        del raw, secret
+        if status == 200 and isinstance(body, dict):
+            QUOTA.put_claude(body.get("claude"))
+        with self.lock:
+            if job in self.jobs:
+                self.jobs[job].update(at=self.clock(), done=True, status=status, body=body)
+
+    def get(self, job):
+        """{"pending": True}, {"status", "body"}, or None (unknown or expired)."""
+        with self.lock:
+            self._prune(self.clock())
+            j = self.jobs.get(job or "")
+            if j is None:
+                return None
+            return {"status": j["status"], "body": j["body"]} if j["done"] else {"pending": True}
+
+
+CLAUDE_JOBS = ClaudeJobs()
 
 
 class Quota:
@@ -2394,6 +2456,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._server_get()
         if self._route() == QUOTA_ROUTE:
             return self._lib_json(200, QUOTA.get())
+        if self._route() == QUOTA_CLAUDE_ROUTE:
+            return self._quota_claude_job()
         if self._route() == QUOTA_TERMS_ROUTE:
             return self._lib_json(200, quota_terminals())
         if self._is_services():
@@ -2548,15 +2612,26 @@ class Handler(BaseHTTPRequestHandler):
             if origin is not None and not lib_origin_ok(origin, self.headers):
                 raise LibError(403, "cross-origin request refused")
             raw = self.rfile.read(length) if length > 0 else b""
-            secret = quota_claude_body(raw)
-            code, answer = quota_claude_post(src[1], src[2], raw, secret)
-            if code == 200 and isinstance(answer, dict):
-                QUOTA.put_claude(answer.get("claude"))
-            self._lib_json(code, answer)
+            job = CLAUDE_JOBS.start(src[1], src[2], raw, quota_claude_body(raw))
+            del raw
+            if job is None:
+                raise LibError(429, "too many checks at once; try again in a moment")
+            self._lib_json(202, {"job": job})
         except LibError as e:
             self._lib_json(e.code, {"error": str(e)})
         except Exception as e:                       # never the body: only what failed
             self._lib_json(500, {"error": f"failed ({type(e).__name__})"})
+
+    def _quota_claude_job(self):
+        """GET /api/quota/claude?job=<id>: {"pending": true} or {"status", "body"}."""
+        src = Quota.source()
+        if src is None or src[0] != "guest":
+            return self._lib_json(404, {"error": "not found"})
+        job = parse_qs(urlparse(self.path).query).get("job", [""])[0]
+        d = CLAUDE_JOBS.get(job) if job else None
+        if d is None:
+            return self._lib_json(404, {"error": "no such check (it may have expired)"})
+        return self._lib_json(200, d)
 
     def do_POST(self):
         if self._route() == QUOTA_CLAUDE_ROUTE:

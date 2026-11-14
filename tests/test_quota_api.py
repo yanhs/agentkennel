@@ -20,8 +20,12 @@ pr/terminal-dev/.progress-usage-limits-disk.md.
     turnstile sends one; an older turnstile sends none and nothing new shows.
 
     POST /api/quota/claude {"secret": str} | {"back": true}   (a guest only; 404 elsewhere)
-  -> forwarded as it is to <base>/guest/claude with the pass (30 s); the turnstile's status
-     and JSON come back, never the pass. Same-origin JSON only, 8 KB, never logged.
+  -> checked here (same-origin JSON, 8 KB, the shape), then 202 {"job": id} at once: a
+     thread forwards it as it is to <base>/guest/claude with the pass (30 s) — the panel's
+     one-threaded server never waits on the key check (fix round 1).
+    GET /api/quota/claude?job=<id> -> {"pending": true} | {"status", "body"}: the turnstile's
+     status (204 or outside 200..599 -> 502) and JSON, its `claude` sanitized; never the
+     pass or the key. Kept 2 minutes; at most 3 checks at once (429). Never logged.
      Every proxy already routes it: Caddy's `handle /api/quota*` (docker/Caddyfile is the
      guest image's) and nginx's `location /api/quota` are prefixes.
 
@@ -78,6 +82,7 @@ class FakeTurnstile:
         self.posts = []                 # POST /guest/claude: (path, authorization, body bytes)
         self.status, self.body = 200, b"{}"
         self.post_status, self.post_body = 200, b"{}"
+        self.post_gate = None           # a threading.Event: hold POST /guest/claude until set
         me = self
 
         class H(BaseHTTPRequestHandler):
@@ -93,6 +98,8 @@ class FakeTurnstile:
                 n = int(self.headers.get("content-length") or 0)
                 me.posts.append((self.path, self.headers.get("authorization"),
                                  self.rfile.read(n), self.headers.get("content-type")))
+                if me.post_gate is not None:
+                    me.post_gate.wait(20)
                 self.send_response(me.post_status)
                 self.send_header("content-type", "application/json")
                 self.send_header("content-length", str(len(me.post_body)))
@@ -642,8 +649,9 @@ def test_the_proxies_route_quota_to_the_status_server():
 
 # ── a guest's own Claude: POST /api/quota/claude (task 11, 13.11.2026) ──────
 # The panel's "Your Claude" dialog posts {"secret": ...} or {"back": true}; status_server
-# forwards exactly that to the turnstile's POST /guest/claude with the pass and returns
-# the turnstile's status and JSON — never the pass. Only behind a turnstile ("guest").
+# checks it, answers 202 {"job"} at once and forwards it in a thread to the turnstile's
+# POST /guest/claude with the pass; the page asks GET ?job=<id> until it is done. Only
+# behind a turnstile ("guest").
 KEY = "sk-ant-api03-" + "k" * 80 + "x4Fk"
 CLAUDE_OWN = {"mode": "own", "owner_mode": "owner_key", "has_key": True, "last4": "x4Fk",
               "usd": None, "usd_week": 20}
@@ -663,17 +671,34 @@ def post(base, body, path="/api/quota/claude", ctype="application/json", headers
         return e.code, e.read().decode()
 
 
+def run_job(base, body, seconds=10):
+    """POST, then ask for the job until it is done -> (result dict, every raw answer)."""
+    code, raw = post(base, body)
+    assert code == 202, (code, raw)
+    job = json.loads(raw)["job"]
+    assert isinstance(job, str) and len(job) >= 16
+    raws, deadline = [raw], time.time() + seconds
+    while True:
+        code, r = get(base, f"/api/quota/claude?job={job}")
+        raws.append(r)
+        assert code == 200, (code, r)
+        d = json.loads(r)
+        if not d.get("pending"):
+            return d, "\n".join(raws)
+        assert time.time() < deadline, "the job never finished"
+        time.sleep(0.05)
+
+
 def test_the_dialog_forwards_the_key_with_the_pass_and_returns_the_answer(q, capfd):
     q.guest()
     answer = {"ok": True, "message": "Checked: the key works. Claude now runs on it.",
               "claude": CLAUDE_OWN}
     q.turnstile.answer_post(answer)
     body = json.dumps({"secret": KEY}).encode()
-    code, raw = post(q.base, body)
-    assert code == 200
-    assert json.loads(raw) == answer
+    d, raws = run_job(q.base, body)
+    assert d == {"status": 200, "body": answer}
     assert q.turnstile.posts == [("/guest/claude", f"Bearer {PASS}", body, "application/json")]
-    assert PASS not in raw and KEY not in raw
+    assert PASS not in raws and KEY not in raws
     assert KEY not in capfd.readouterr().err                 # never logged
 
 
@@ -681,8 +706,8 @@ def test_back_to_the_owner_is_forwarded_too(q):
     q.guest()
     q.turnstile.answer_post({"ok": True, "message": "Back on the owner's key.",
                              "claude": CLAUDE_OWNER_KEY})
-    code, raw = post(q.base, {"back": True})
-    assert code == 200 and json.loads(raw)["claude"]["mode"] == "owner_key"
+    d, _ = run_job(q.base, {"back": True})
+    assert d["status"] == 200 and d["body"]["claude"]["mode"] == "owner_key"
     assert json.loads(q.turnstile.posts[0][2]) == {"back": True}
 
 
@@ -690,10 +715,18 @@ def test_the_pass_never_comes_back_even_if_the_turnstile_says_it(q):
     q.guest()
     q.turnstile.answer_post({"ok": False, "message": f"pass {PASS} key {KEY}",
                              "claude": CLAUDE_OWNER_KEY})
-    code, raw = post(q.base, {"secret": KEY})
-    assert code == 200
-    assert PASS not in raw and KEY not in raw
-    assert json.loads(raw)["ok"] is False
+    d, raws = run_job(q.base, {"secret": KEY})
+    assert d["status"] == 200 and d["body"]["ok"] is False
+    assert PASS not in raws and KEY not in raws
+
+
+def test_the_claude_block_of_the_result_is_sanitized(q):
+    q.guest()
+    q.turnstile.answer_post({"ok": True, "message": "ok",
+                             "claude": dict(CLAUDE_OWN, secret="never-this", extra=1)})
+    d, raws = run_job(q.base, {"secret": KEY})
+    assert d["body"]["claude"] == CLAUDE_OWN
+    assert "never-this" not in raws
 
 
 @pytest.mark.parametrize("status", [400, 401, 403, 413, 429])
@@ -702,27 +735,106 @@ def test_the_turnstiles_refusal_comes_back_as_it_is(q, status):
     refusal = {"type": "error", "error": {"type": "rate_limit_error",
                                           "message": "Too many tries; wait an hour."}}
     q.turnstile.answer_post(refusal, status)
-    code, raw = post(q.base, {"secret": KEY})
-    assert code == status and json.loads(raw) == refusal
-    assert PASS not in raw
+    d, raws = run_job(q.base, {"secret": KEY})
+    assert d == {"status": status, "body": refusal}
+    assert PASS not in raws
+
+
+@pytest.mark.parametrize("status", [204, 600, 999])
+def test_an_odd_turnstile_status_is_a_502(q, status):
+    q.guest()
+    q.turnstile.answer_post({"ok": True, "message": "odd", "claude": CLAUDE_OWN}, status)
+    d, _ = run_job(q.base, {"secret": KEY})
+    assert d["status"] == 502 and d["body"]["error"]
 
 
 def test_a_turnstile_that_does_not_answer_is_a_502(q, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9")
     monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", PASS)
-    code, raw = post(q.base, {"secret": KEY})
-    assert code == 502 and json.loads(raw)["error"]
-    assert PASS not in raw and KEY not in raw
+    d, raws = run_job(q.base, {"secret": KEY})
+    assert d["status"] == 502 and d["body"]["error"]
+    assert PASS not in raws and KEY not in raws
 
 
 def test_the_turnstile_gets_thirty_seconds(q):
     assert q.mod.QUOTA_CLAUDE_TIMEOUT == 30          # the key check alone can take 20 s
 
 
+def test_the_panel_api_keeps_answering_while_a_key_is_checked(q):
+    """The panel's server has one thread: the up-to-20-s check must not freeze it."""
+    now = int(time.time())
+    q.guest()
+    q.turnstile.answer(dict(usage_body(now + 60, now + 600), claude=CLAUDE_OWNER_KEY))
+    settled(q.base)
+    q.turnstile.post_gate = threading.Event()
+    q.turnstile.answer_post({"ok": True, "message": "ok", "claude": CLAUDE_OWN})
+    try:
+        t0 = time.time()
+        code, raw = post(q.base, {"secret": KEY})
+        assert code == 202 and time.time() - t0 < 1
+        job = json.loads(raw)["job"]
+        deadline = time.time() + 5
+        while not q.turnstile.posts and time.time() < deadline:   # the turnstile holds it now
+            time.sleep(0.02)
+        assert q.turnstile.posts
+        for path in ("/api/quota", "/api/library", f"/api/quota/claude?job={job}"):
+            t0 = time.time()
+            code, raw = get(q.base, path)
+            assert code == 200 and time.time() - t0 < 1, (path, time.time() - t0)
+        assert json.loads(raw) == {"pending": True}
+        held = repr(q.mod.CLAUDE_JOBS.jobs)
+        assert KEY not in held and PASS not in held          # the job record has no secret
+    finally:
+        q.turnstile.post_gate.set()
+    deadline = time.time() + 5
+    while json.loads(get(q.base, f"/api/quota/claude?job={job}")[1]).get("pending"):
+        assert time.time() < deadline
+        time.sleep(0.05)
+    assert KEY not in repr(q.mod.CLAUDE_JOBS.jobs)
+
+
+def test_at_most_three_checks_at_once(q):
+    q.guest()
+    q.turnstile.post_gate = threading.Event()
+    try:
+        for _ in range(3):
+            assert post(q.base, {"secret": KEY})[0] == 202
+        code, raw = post(q.base, {"secret": KEY})
+        assert code == 429 and json.loads(raw)["error"] and KEY not in raw
+    finally:
+        q.turnstile.post_gate.set()
+
+
+def test_a_result_is_kept_two_minutes(q):
+    q.guest()
+    clock = {"t": 1000.0}
+    q.mod.CLAUDE_JOBS.clock = lambda: clock["t"]
+    q.turnstile.answer_post({"ok": True, "message": "ok", "claude": CLAUDE_OWN})
+    code, raw = post(q.base, {"secret": KEY})
+    job = json.loads(raw)["job"]
+    path = f"/api/quota/claude?job={job}"
+    deadline = time.time() + 5
+    while json.loads(get(q.base, path)[1]).get("pending"):
+        assert time.time() < deadline
+        time.sleep(0.05)
+    clock["t"] += 119
+    assert json.loads(get(q.base, path)[1])["status"] == 200
+    clock["t"] += 2
+    assert get(q.base, path)[0] == 404
+
+
+@pytest.mark.parametrize("path", ["/api/quota/claude?job=nope", "/api/quota/claude",
+                                  "/api/quota/claude?job="])
+def test_an_unknown_job_is_a_404(q, path):
+    q.guest()
+    assert get(q.base, path)[0] == 404
+
+
 def test_not_on_the_owners_own_install(q, monkeypatch):
     q.owner()                                        # his subscription: no turnstile
     code, raw = post(q.base, {"secret": KEY})
     assert code == 404 and KEY not in raw
+    assert get(q.base, "/api/quota/claude?job=x")[0] == 404
     monkeypatch.setenv("ANTHROPIC_BASE_URL", q.turnstile.base)   # a proxy without a pass
     code, _ = post(q.base, {"secret": KEY})
     assert code == 404
@@ -740,6 +852,7 @@ def test_a_bad_shape_is_refused_here(q, body):
     code, raw = post(q.base, body)
     assert code == 400 and json.loads(raw)["error"]
     assert "sk-ant-x" not in raw
+    time.sleep(0.1)
     assert q.turnstile.posts == []
 
 
@@ -757,6 +870,7 @@ def test_an_oversized_body_is_refused_before_it_is_read(q):
     conn.send(b"{}")
     assert conn.getresponse().status == 413
     conn.close()
+    time.sleep(0.1)
     assert q.turnstile.posts == []
 
 
@@ -767,10 +881,11 @@ def test_same_origin_json_writes_only(q, monkeypatch):
     assert post(q.base, {"secret": KEY}, ctype="text/plain")[0] == 415
     code, _ = post(q.base, {"secret": KEY}, headers={"Origin": "https://evil.example"})
     assert code == 403
+    time.sleep(0.1)
     assert q.turnstile.posts == []
     q.turnstile.answer_post({"ok": True, "message": "ok", "claude": CLAUDE_OWN})
     code, _ = post(q.base, {"secret": KEY}, headers={"Origin": q.base})
-    assert code == 200
+    assert code == 202
 
 
 def test_quota_carries_the_turnstiles_claude_view(q):
@@ -795,5 +910,5 @@ def test_after_a_switch_quota_says_the_new_claude_at_once(q):
     q.turnstile.answer(dict(usage_body(now + 60, now + 600), claude=CLAUDE_OWNER_KEY))
     assert settled(q.base)[2]["claude"]["mode"] == "owner_key"
     q.turnstile.answer_post({"ok": True, "message": "ok", "claude": CLAUDE_OWN})
-    assert post(q.base, {"secret": KEY})[0] == 200
+    assert run_job(q.base, {"secret": KEY})[0]["status"] == 200
     assert json.loads(get(q.base)[1])["claude"] == CLAUDE_OWN

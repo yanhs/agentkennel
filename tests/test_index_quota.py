@@ -52,8 +52,8 @@ def open_with(browser, site, answer, terms=TERMS, clock=False, **kw):  # noqa: F
         route.fulfill(status=200, content_type="application/json", body=json.dumps(terms))
     pg.route(re.compile(r"/api/quota(\?|$)"), handle)
     pg.route(re.compile(r"/api/quota/terminals(\?|$)"), handle_terms)
-    pg.claude_posts = []                          # POST /api/quota/claude, held until answered
-    pg.route(re.compile(r"/api/quota/claude(\?|$)"), lambda r: pg.claude_posts.append(r))
+    pg.claude = FakeClaudeJobs()                  # POST /api/quota/claude + GET ?job=
+    pg.route(re.compile(r"/api/quota/claude(\?|$)"), pg.claude.handle)
     if clock:
         pg.clock.install()
     pg.reload()
@@ -205,9 +205,11 @@ def test_the_dashboard_pages_stay_the_same_file():
 # key $6.10/$20" (owner_key) or "Claude · own key …x4Fk" (own) in place of the chip; for
 # owner_sub today's chip stays and a small "Claude" sits beside it; a broken setup reads
 # "Claude · needs the owner". Without `claude` (an older turnstile, the owner) nothing new.
-# The dialog (mockup part 5) posts {"secret"} / {"back": true} to POST /api/quota/claude
-# and never keeps the key: the input is cleared whatever the answer.
+# The dialog (mockup part 5) posts {"secret"} / {"back": true} to POST /api/quota/claude,
+# which answers 202 {"job"} at once; the page asks GET ?job=<id> every second, up to 35 s,
+# showing "Checking with Anthropic…". The key field is emptied right after the POST.
 KEY = "sk-ant-api03-" + "k" * 60 + "x4Fk"
+JOB = "job-" + "j" * 20
 OWNER_KEY = {"mode": "owner_key", "owner_mode": None, "has_key": False, "last4": None,
              "usd": {"used": 6.1, "limit": 20, "resets_at": 1_900_000_000}, "usd_week": 20}
 OWN = {"mode": "own", "owner_mode": "owner_key", "has_key": True, "last4": "x4Fk",
@@ -217,21 +219,47 @@ OWNER_SUB = {"mode": "owner_sub", "owner_mode": None, "has_key": False, "last4":
 BROKEN = dict(OWNER_SUB, error=True)
 
 
+class FakeClaudeJobs:
+    """status_server's POST /api/quota/claude (202 {"job"}) and GET ?job= (pending until
+    the test sets `result` = (status, body), or "gone" for an expired job)."""
+
+    def __init__(self):
+        self.posts, self.polls = [], []
+        self.post_answer = (202, {"job": JOB})
+        self.result = None
+
+    def handle(self, route):
+        req = route.request
+        if req.method == "POST":
+            self.posts.append((json.loads(req.post_data), req.headers))
+            status, body = self.post_answer
+        else:
+            self.polls.append(req.url)
+            if self.result is None:
+                status, body = 200, {"pending": True}
+            elif self.result == "gone":
+                status, body = 404, {"error": "no such check (it may have expired)"}
+            else:
+                status, body = 200, {"status": self.result[0], "body": self.result[1]}
+        route.fulfill(status=status, content_type="application/json", body=json.dumps(body))
+
+
 def with_claude(claude):
     return dict(quota(source="guest"), claude=claude)
 
 
-def answer_post(pg, body, status=200, wait=True):
-    """Answer the held POST /api/quota/claude (the page shows "Checking…" until then)."""
-    if wait:
-        pg.wait_for_function("() => document.getElementById('claudeSave').disabled")
+def wait_post(pg):
     deadline = time.time() + 10
-    while not pg.claude_posts and time.time() < deadline:
+    while not pg.claude.posts and time.time() < deadline:
         pg.wait_for_timeout(50)
-    route = pg.claude_posts.pop(0)
-    sent = route.request
-    route.fulfill(status=status, content_type="application/json", body=json.dumps(body))
-    return json.loads(sent.post_data), sent.headers
+    assert pg.claude.posts, "the page never posted"
+    return pg.claude.posts[-1]
+
+
+def finish(pg, body, status=200):
+    """The turnstile's answer arrives: the next poll gets it; the page settles."""
+    pg.claude.result = (status, body)
+    pg.wait_for_function("() => !document.getElementById('claudeSave').disabled", timeout=5000)
 
 
 def open_dialog(pg, btn="#claudeBtn"):
@@ -286,19 +314,29 @@ def test_the_dialog_posts_the_key_and_forgets_it(browser, site):  # noqa: F811
     pg.fill("#claudeKey", KEY)
     shot(pg, "claude-dialog-desktop.png")
     pg.click("#claudeSave")
-    pg.wait_for_function("() => document.getElementById('claudeSave').disabled")
-    assert pg.inner_text("#claudeMsg").strip() == "Checking with Anthropic…"
-    sent, headers = answer_post(pg, {"ok": True, "message": "<b>Checked</b>: the key works.",
-                                     "claude": OWN})
+    sent, headers = wait_post(pg)
     assert sent == {"secret": KEY}
     assert headers["content-type"].startswith("application/json")
-    pg.wait_for_function("() => !document.getElementById('claudeSave').disabled")
+    # pending: the key field is already empty, the page asks for the job every second
+    pg.wait_for_function("() => document.getElementById('claudeKey').value === ''")
+    assert pg.inner_text("#claudeMsg").strip() == "Checking with Anthropic…"
+    assert pg.is_disabled("#claudeSave")
+    deadline = time.time() + 5
+    while len(pg.claude.polls) < 2 and time.time() < deadline:
+        pg.wait_for_timeout(100)
+    assert len(pg.claude.polls) >= 2 and all(f"job={JOB}" in u for u in pg.claude.polls)
+    assert pg.inner_text("#claudeMsg").strip() == "Checking with Anthropic…"
+    finish(pg, {"ok": True, "message": "<b>Checked</b>: the key works.", "claude": OWN})
     assert pg.inner_text("#claudeMsg").strip() == "<b>Checked</b>: the key works."
     assert pg.query_selector("#claudeMsg b") is None              # text, never HTML
+    assert "good" in pg.get_attribute("#claudeMsg", "class")
     assert pg.input_value("#claudeKey") == ""
     assert pg.inner_text("#claudeBtn").strip() == "Claude · own key …x4Fk"   # at once
     assert "…x4Fk" in pg.inner_text("#claudeNow")
     assert pg.is_visible("#claudeBack")                            # own + owner_mode now
+    n = len(pg.claude.polls)
+    pg.wait_for_timeout(1500)
+    assert len(pg.claude.polls) == n                               # done: no more asking
     assert pg.evaluate(f"!document.documentElement.outerHTML.includes({json.dumps(KEY)})")
     assert pg.errors == []
     ctx.close()
@@ -309,13 +347,62 @@ def test_a_refusal_clears_the_key_too(browser, site):  # noqa: F811
     open_dialog(pg)
     pg.fill("#claudeKey", KEY)
     pg.press("#claudeKey", "Enter")                                 # Enter checks too
-    answer_post(pg, {"type": "error", "error": {"type": "rate_limit_error",
-                                                "message": "Too many tries; wait an hour."}}, 429)
-    pg.wait_for_function("() => !document.getElementById('claudeSave').disabled")
+    wait_post(pg)
+    finish(pg, {"type": "error", "error": {"type": "rate_limit_error",
+                                           "message": "Too many tries; wait an hour."}}, 429)
     assert pg.inner_text("#claudeMsg").strip() == "Too many tries; wait an hour."
     assert "bad" in pg.get_attribute("#claudeMsg", "class")
     assert pg.input_value("#claudeKey") == ""
     assert pg.inner_text("#claudeBtn").strip() == "Claude · owner's key $6.10/$20"
+    ctx.close()
+
+
+def test_a_refused_post_says_why_and_clears_the_key(browser, site):  # noqa: F811
+    ctx, pg = open_with(browser, site, with_claude(OWNER_KEY))
+    pg.claude.post_answer = (429, {"error": "too many checks at once; try again in a moment"})
+    open_dialog(pg)
+    pg.fill("#claudeKey", KEY)
+    pg.click("#claudeSave")
+    wait_post(pg)
+    pg.wait_for_function("() => document.getElementById('claudeMsg').textContent.includes('too many')")
+    assert pg.input_value("#claudeKey") == ""
+    assert not pg.is_disabled("#claudeSave")
+    assert pg.claude.polls == []
+    ctx.close()
+
+
+def test_a_lost_check_says_so(browser, site):  # noqa: F811
+    ctx, pg = open_with(browser, site, with_claude(OWNER_KEY))
+    open_dialog(pg)
+    pg.fill("#claudeKey", KEY)
+    pg.click("#claudeSave")
+    wait_post(pg)
+    pg.claude.result = "gone"
+    pg.wait_for_function("() => !document.getElementById('claudeSave').disabled", timeout=5000)
+    assert "expired" in pg.inner_text("#claudeMsg")
+    assert "bad" in pg.get_attribute("#claudeMsg", "class")
+    ctx.close()
+
+
+def test_after_35_seconds_the_page_stops_asking(browser, site):  # noqa: F811
+    ctx, pg = open_with(browser, site, with_claude(OWNER_KEY), clock=True)
+    pg.clock.run_for(1000)
+    open_dialog(pg)
+    pg.fill("#claudeKey", KEY)
+    pg.click("#claudeSave")
+    wait_post(pg)
+    for _ in range(40):                                   # never an answer
+        pg.clock.run_for(1000)
+        pg.wait_for_timeout(40)
+    pg.wait_for_function("() => !document.getElementById('claudeSave').disabled", timeout=5000)
+    msg = pg.inner_text("#claudeMsg").strip()
+    assert msg and msg != "Checking with Anthropic…" and "bad" in pg.get_attribute("#claudeMsg", "class")
+    n = len(pg.claude.polls)
+    assert 30 <= n <= 37, n
+    pg.clock.run_for(5000)
+    pg.wait_for_timeout(200)
+    assert len(pg.claude.polls) == n
+    assert pg.input_value("#claudeKey") == ""
     ctx.close()
 
 
@@ -324,26 +411,27 @@ def test_an_empty_key_is_not_sent(browser, site):  # noqa: F811
     open_dialog(pg)
     pg.click("#claudeSave")
     pg.wait_for_timeout(300)
-    assert pg.claude_posts == []
+    assert pg.claude.posts == []
     assert pg.inner_text("#claudeMsg").strip() == "Paste the key first."
     ctx.close()
 
 
 @pytest.mark.parametrize("claude,back", [
-    (OWN, True), (dict(OWN, owner_mode="owner_sub"), True), (dict(OWN, owner_mode=None), False),
-    (OWNER_KEY, False), (OWNER_SUB, False)],
+    (OWN, "Back to the owner's key"),
+    (dict(OWN, owner_mode="owner_sub"), "Back to the owner's subscription"),
+    (dict(OWN, owner_mode=None), None), (OWNER_KEY, None), (OWNER_SUB, None)],
     ids=["own-from-key", "own-from-sub", "own-no-owner-mode", "owner-key", "owner-sub"])
 def test_back_only_when_on_their_own_key_with_an_owner_mode(browser, site, claude, back):  # noqa: F811
     ctx, pg = open_with(browser, site, with_claude(claude))
     open_dialog(pg)
-    assert pg.is_visible("#claudeBack") is back
+    assert pg.is_visible("#claudeBack") is bool(back)
     if back:
-        assert pg.inner_text("#claudeBack").strip() == "Back to the owner's key"
+        assert pg.inner_text("#claudeBack").strip() == back
         pg.click("#claudeBack")
-        sent, _ = answer_post(pg, {"ok": True, "message": "Back on the owner's key.",
-                                   "claude": OWNER_KEY})
+        sent, _ = wait_post(pg)
         assert sent == {"back": True}
-        pg.wait_for_function("() => document.getElementById('claudeMsg').textContent.includes('Back on')")
+        finish(pg, {"ok": True, "message": "Back on the owner's Claude.", "claude": OWNER_KEY})
+        assert "Back on" in pg.inner_text("#claudeMsg")
         assert pg.inner_text("#claudeBtn").strip() == "Claude · owner's key $6.10/$20"
         assert pg.is_hidden("#claudeBack")
     ctx.close()
@@ -373,14 +461,17 @@ def test_a_broken_setup_only_says_the_owner_was_told(browser, site):  # noqa: F8
         assert not pg.is_visible(sel), sel
     pg.keyboard.press("Escape")
     pg.wait_for_selector("#claudeDlg:not([open])", state="attached")
-    assert pg.claude_posts == []
+    assert pg.claude.posts == []
     ctx.close()
+
+
+PHONE = dict(width=390, height=844, mobile=True)
 
 
 def test_on_a_phone_the_label_and_the_dialog_fit(browser, site):  # noqa: F811
     """The phone's tools row has no room (the search must stay usable): the label sits
     in the topbar beside ⋯ — whole on the empty page, just "Claude" over a terminal."""
-    ctx, pg = open_with(browser, site, with_claude(OWNER_KEY), width=390, height=844, mobile=True)
+    ctx, pg = open_with(browser, site, with_claude(OWNER_KEY), **PHONE)
     pg.wait_for_selector("#claudeTop:not([hidden])")
     assert pg.is_visible("#claudeTop") and not pg.is_visible("#claudeBtn")
     assert pg.inner_text("#claudeTop").strip() == "Claude · owner's key $6.10/$20"
@@ -397,4 +488,29 @@ def test_on_a_phone_the_label_and_the_dialog_fit(browser, site):  # noqa: F811
     assert box["left"] >= 0 and box["right"] <= 390 and box["bottom"] <= 844, box
     assert pg.eval_on_selector("#claudeKey", "e => parseFloat(getComputedStyle(e).fontSize)") >= 16
     shot(pg, "claude-dialog-phone.png")
+    ctx.close()
+
+
+def test_on_a_phone_owner_sub_is_a_small_claude_link(browser, site):  # noqa: F811
+    ctx, pg = open_with(browser, site, with_claude(OWNER_SUB), **PHONE)
+    pg.wait_for_selector("#claudeTop:not([hidden])")
+    assert pg.inner_text("#claudeTop").strip() == "Claude"
+    assert not pg.is_visible("#quotaChip")                         # phones never had the chip
+    assert pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    open_dialog(pg, "#claudeTop")
+    assert "The owner's Claude subscription" in pg.inner_text("#claudeNow")
+    assert pg.is_visible("#claudeKey") and pg.is_hidden("#claudeBack")
+    ctx.close()
+
+
+def test_on_a_phone_a_broken_setup_says_it_needs_the_owner(browser, site):  # noqa: F811
+    ctx, pg = open_with(browser, site, with_claude(BROKEN), **PHONE)
+    pg.wait_for_selector("#claudeTop:not([hidden])")
+    assert pg.inner_text("#claudeTop").strip() == "Claude · needs the owner"
+    assert pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    open_dialog(pg, "#claudeTop")
+    assert "The owner has been told" in pg.inner_text("#claudeDlg")
+    assert not pg.is_visible("#claudeKey") and not pg.is_visible("#claudeSave")
+    box = pg.eval_on_selector("#claudeDlg", "e => e.getBoundingClientRect().toJSON()")
+    assert box["left"] >= 0 and box["right"] <= 390, box
     ctx.close()
