@@ -27,6 +27,7 @@ EN = {
     "cmd_claude": "what Claude runs on, or add your own key",
     "cl_now_owner_key": "Claude runs on the owner's API key. This week: ${used:.2f} of "
                         "${limit:.2f}.",
+    "cl_now_owner_key_plain": "Claude runs on the owner's API key.",
     "cl_now_owner_sub": "Claude runs on the owner's subscription, with weekly limits.",
     "cl_now_own": "Claude runs on your own key or login (ends in {last4}).",
     "cl_send_key": "Send your Anthropic API key here as a message (it starts with sk-ant-api). "
@@ -251,6 +252,7 @@ RU = {
     "cmd_claude": "на чём работает Claude, или свой ключ",
     "cl_now_owner_key": "Claude работает на API-ключе владельца. За эту неделю: ${used:.2f} "
                         "из ${limit:.2f}.",
+    "cl_now_owner_key_plain": "Claude работает на API-ключе владельца.",
     "cl_now_owner_sub": "Claude работает на подписке владельца, с недельными лимитами.",
     "cl_now_own": "Claude работает на вашем ключе или входе (оканчивается на {last4}).",
     "cl_send_key": "Пришлите свой API-ключ Anthropic сюда сообщением (он начинается с "

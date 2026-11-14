@@ -106,6 +106,7 @@ def claude_command() -> Dict:
     return {"command": "claude", "description": texts.EN["cmd_claude"]}
 
 
+CLAUDE_BUTTONS = ("cl:own_key", "cl:own_sub", "cl:back")
 SERVICE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}$")   # the keeper's names
 SERVICE_ACTIONS = ("restart", "stop", "start")
 
@@ -333,17 +334,17 @@ class Relay:
             else:
                 self._tell_stranger(uid)
             return None
+        if self._intercept_key(guest, update):       # before anything else sees the update
+            return guest.name
         if not guest.enabled:
             self.log(f"DROP disabled guest={guest.name} update={update.get('update_id')}")
             return None
-        if self._intercept_key(guest, update):       # before anything else sees the message
-            return guest.name
         command = _command(update)
         if command == "/claude":
             self._later(self._show_claude, guest)
             return guest.name
         cb = update.get("callback_query")
-        if isinstance(cb, dict) and str(cb.get("data") or "").startswith("cl:"):
+        if isinstance(cb, dict) and cb.get("data") in CLAUDE_BUTTONS:
             self._later(self._press_claude, guest, cb)
             return guest.name
         if command == "/start" and not guest.web:
@@ -374,8 +375,9 @@ class Relay:
         return guest.name
 
     # -- /claude ------------------------------------------------------------ #
-    def _say(self, guest: "ts.Guest", text: str, markup: Optional[Dict] = None) -> None:
-        params = {"chat_id": guest.telegram_id, "text": text}
+    def _say(self, guest: "ts.Guest", text: str, markup: Optional[Dict] = None,
+             chat=None) -> None:
+        params = {"chat_id": guest.telegram_id if chat is None else chat, "text": text}
         if markup:
             params["reply_markup"] = json.dumps(markup, ensure_ascii=False)
         try:
@@ -384,29 +386,39 @@ class Relay:
             self.log(f"CLAUDE-SEND-FAILED guest={guest.name} {type(exc).__name__}")
 
     def _intercept_key(self, guest: "ts.Guest", update: Dict) -> bool:
-        """A message (text, caption, or an edit of either) holding an Anthropic key never
-        goes on to the sandbox: it is deleted from the chat and the key is switched to in
-        the background. The text and the secret are never logged."""
+        """An update holding "sk-ant-" anywhere (text, caption, a quoted or replied-to
+        message, an inline query, a poll...) never goes on to the sandbox, even a key broken
+        in two. The message it came in is deleted from ITS chat. A full key in the update's
+        own text / caption / query is switched to in the background (never for a disabled
+        guest). Nothing here logs the text or the secret."""
+        if "sk-ant-" not in json.dumps(update, ensure_ascii=False):
+            return False
         msg = update.get("message") or update.get("edited_message")
-        if not isinstance(msg, dict):
-            return False
-        found = claudekeys.classify(str(msg.get("text") or msg.get("caption") or ""))
-        if not found:
-            return False
-        text = str(msg.get("text") or msg.get("caption"))
-        deleted = False
-        try:
-            r = self.tg.call("deleteMessage", {"chat_id": guest.telegram_id,
-                                               "message_id": msg.get("message_id")})
-            deleted = bool(r.get("ok")) if isinstance(r, dict) else False
-        except Exception:
+        own = ""
+        chat = None
+        if isinstance(msg, dict):
+            own = str(msg.get("text") or msg.get("caption") or "")
+            chat = (msg.get("chat") or {}).get("id")
+        else:
+            for kind in ("inline_query", "chosen_inline_result"):
+                obj = update.get(kind)
+                if isinstance(obj, dict):
+                    own = str(obj.get("query") or "")
+        if isinstance(msg, dict) and msg.get("message_id") is not None and chat is not None:
             deleted = False
-        if not deleted:
-            self._say(guest, _t("cl_delete_it"))
-        self._later(self._switch_to_own, guest, text)
+            try:
+                r = self.tg.call("deleteMessage", {"chat_id": chat,
+                                                   "message_id": msg.get("message_id")})
+                deleted = bool(r.get("ok")) if isinstance(r, dict) else False
+            except Exception as exc:
+                self.log(f"KEY-DELETE-FAILED guest={guest.name} {type(exc).__name__}")
+            if not deleted:
+                self._say(guest, _t("cl_delete_it"), chat=chat)
+        if guest.enabled and claudekeys.classify(own):
+            self._later(self._switch_to_own, guest, own, chat)
         return True
 
-    def _switch_to_own(self, guest: "ts.Guest", text: str) -> None:
+    def _switch_to_own(self, guest: "ts.Guest", text: str, chat=None) -> None:
         try:
             if self.keys is None:
                 ok, message = False, _t("own_failed")
@@ -417,7 +429,7 @@ class Relay:
             ok, message = False, _t("own_failed")
             self.log(f"KEY-ERROR guest={guest.name} {type(exc).__name__}")
         self.log(f"KEY guest={guest.name} ok={ok}")
-        self._say(guest, message)
+        self._say(guest, message, chat=chat)
 
     def _show_claude(self, guest: "ts.Guest") -> None:
         try:
@@ -434,6 +446,8 @@ class Relay:
             text = _t("cl_now_owner_key", used=view["usd"]["used"], limit=view["usd"]["limit"])
         elif mode == "own":
             text = _t("cl_now_own", last4=view.get("last4") or "…")
+        elif mode == "owner_key":
+            text = _t("cl_now_owner_key_plain")
         else:
             text = _t("cl_now_owner_sub")
         rows = [[{"text": texts.EN["btn_cl_own_key"], "callback_data": "cl:own_key"}],

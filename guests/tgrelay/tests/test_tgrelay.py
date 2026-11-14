@@ -762,7 +762,7 @@ def cl_relay(book, tg, passes, keys, tmp_path, told):
     return r
 
 
-def sent_texts(tg, chat=None):
+def said(tg, chat=None):
     return [c[1] for c in tg.calls if c[0] == "sendMessage"
             and (chat is None or c[1]["chat_id"] == chat)]
 
@@ -784,7 +784,7 @@ def test_claude_command_is_in_the_menu_the_sandbox_sets(relay, tg):
 def test_claude_shows_the_mode_and_the_two_buttons(cl_relay, tg, book):
     book.set_claude("anna", mode="owner_key")
     cl_relay.route(msg(ANNA, "/claude", 50))
-    sent = sent_texts(tg, ANNA)[-1]
+    sent = said(tg, ANNA)[-1]
     assert "$0.00" in sent["text"] and "$20.00" in sent["text"]
     kb = json.loads(sent["reply_markup"])["inline_keyboard"]
     assert [b["callback_data"] for row in kb for b in row] == ["cl:own_key", "cl:own_sub"]
@@ -793,7 +793,7 @@ def test_claude_shows_the_mode_and_the_two_buttons(cl_relay, tg, book):
 
 def test_claude_for_the_owners_subscription(cl_relay, tg):
     cl_relay.route(msg(ANNA, "/claude", 51))
-    assert texts.t("cl_now_owner_sub") in sent_texts(tg, ANNA)[-1]["text"]
+    assert texts.t("cl_now_owner_sub") in said(tg, ANNA)[-1]["text"]
 
 
 def test_claude_on_own_key_names_the_end_and_offers_back_only_with_an_owner_mode(
@@ -801,7 +801,7 @@ def test_claude_on_own_key_names_the_end_and_offers_back_only_with_an_owner_mode
     keys.put("anna", "api", KEY)
     book.set_claude("anna", mode="own")
     cl_relay.route(msg(ANNA, "/claude", 52))
-    sent = sent_texts(tg, ANNA)[-1]
+    sent = said(tg, ANNA)[-1]
     assert KEY[-4:] in sent["text"] and KEY not in sent["text"]
     datas = [b["callback_data"] for row in json.loads(sent["reply_markup"])["inline_keyboard"]
              for b in row]
@@ -815,7 +815,7 @@ def test_a_broken_block_says_so_and_has_no_buttons(cl_relay, tg, book):
     book.path.write_text(j.dumps(raw))
     book._seen = None
     cl_relay.route(msg(ANNA, "/claude", 53))
-    sent = sent_texts(tg, ANNA)[-1]
+    sent = said(tg, ANNA)[-1]
     assert sent["text"] == texts.t("own_settings_broken")
     assert "reply_markup" not in sent
 
@@ -825,7 +825,7 @@ def test_buttons_explain_what_to_send(cl_relay, tg):
         cl_relay.route({"update_id": 60, "callback_query": {
             "id": "c1", "from": {"id": ANNA}, "data": data,
             "message": {"message_id": 9, "chat": {"id": ANNA}}}})
-        assert sent_texts(tg, ANNA)[-1]["text"] == texts.t(key)
+        assert said(tg, ANNA)[-1]["text"] == texts.t(key)
     assert "setup-token" in texts.t("cl_send_token")
     assert cl_relay.get_updates("anna", 0, 100, 0) == []
 
@@ -844,7 +844,7 @@ def test_a_key_is_deleted_and_never_reaches_the_sandbox(cl_relay, tg, text, extr
     assert ("deleteMessage", {"chat_id": ANNA, "message_id": 77}, {}) in tg.calls
     assert cl_relay.seen == [("api", KEY)]
     assert keys.get("anna") == ("api", KEY) and book.get("anna").claude["mode"] == "own"
-    assert KEY[-4:] in sent_texts(tg, ANNA)[-1]["text"]
+    assert KEY[-4:] in said(tg, ANNA)[-1]["text"]
 
 
 def test_an_edited_message_with_a_key_is_caught_too(cl_relay, tg):
@@ -868,7 +868,7 @@ def test_a_refused_key_answers_why_and_changes_nothing(book, tg, passes, keys, t
     r = tr.Relay(book, tg, keys=keys, ledger=ts.Ledger(tmp_path / "u.db"), background=False,
                  claude_check=lambda k, s: (False, "invalid x-api-key"), notify=lambda t: None)
     r.route(msg(ANNA, KEY, 73))
-    assert "invalid x-api-key" in sent_texts(tg, ANNA)[-1]["text"]
+    assert "invalid x-api-key" in said(tg, ANNA)[-1]["text"]
     assert keys.get("anna") is None and book.get("anna").claude["mode"] != "own"
     assert any(c[0] == "deleteMessage" for c in tg.calls)
 
@@ -886,14 +886,14 @@ def test_when_delete_fails_the_key_is_still_not_forwarded_and_the_guest_is_told(
                  claude_check=lambda k, s: (True, ""), notify=lambda t: None)
     r.route(msg(ANNA, KEY, 74))
     assert r.get_updates("anna", 0, 100, 0) == []
-    assert any(s["text"] == texts.t("cl_delete_it") for s in sent_texts(tg2, ANNA))
+    assert any(s["text"] == texts.t("cl_delete_it") for s in said(tg2, ANNA))
 
 
 def test_a_stranger_pasting_a_key_is_handled_as_a_stranger(cl_relay, tg, keys):
     cl_relay.route(msg(999, KEY, 75))
     assert cl_relay.seen == [] and keys.get("999") is None
     assert not any(c[0] == "deleteMessage" for c in tg.calls)
-    assert sent_texts(tg, 999)
+    assert said(tg, 999)
 
 
 def test_back_goes_to_the_owners_setup_and_deletes_the_key(cl_relay, tg, book, keys, told):
@@ -903,16 +903,130 @@ def test_back_goes_to_the_owners_setup_and_deletes_the_key(cl_relay, tg, book, k
         "id": "c9", "from": {"id": ANNA}, "data": "cl:back",
         "message": {"message_id": 9, "chat": {"id": ANNA}}}})
     assert book.get("anna").claude["mode"] == "owner_key" and keys.get("anna") is None
-    assert sent_texts(tg, ANNA)[-1]["text"] == texts.t("own_back")
+    assert said(tg, ANNA)[-1]["text"] == texts.t("own_back")
     assert told
 
 
 def test_a_guest_cannot_press_for_another(cl_relay, tg, book, keys):
     keys.put("anna", "api", KEY)
     book.set_claude("anna", mode="own", owner_mode="owner_key")
-    # Boris presses back (and puts Anna's name in the data): only Boris is touched
+    before_key = (keys.root if hasattr(keys, "root") else None)
+    anna_record = book.get("anna")
     cl_relay.route({"update_id": 81, "callback_query": {
-        "id": "c8", "from": {"id": BORIS}, "data": "cl:back:anna",
+        "id": "c8", "from": {"id": BORIS}, "data": "cl:back",
         "message": {"message_id": 9, "chat": {"id": BORIS}}}})
-    assert book.get("anna").claude["mode"] == "own" and keys.get("anna") is not None
-    assert all(s["chat_id"] == BORIS for s in sent_texts(tg))
+    assert book.get("anna") == anna_record
+    assert book.get("anna").claude["mode"] == "own" and keys.get("anna") == ("api", KEY)
+    to_boris = said(tg, BORIS)
+    assert to_boris and not said(tg, ANNA)
+    assert to_boris[-1]["text"] == texts.t("own_back_not_allowed")   # Boris is not on a key
+    assert book.get("boris").claude["mode"] != "own"
+
+
+def _cb(uid, data):
+    return {"update_id": 90, "callback_query": {
+        "id": "c", "from": {"id": uid}, "data": data,
+        "message": {"message_id": 9, "chat": {"id": uid}}}}
+
+
+def _claude_buttons(tg):
+    sent = said(tg, ANNA)[-1]
+    return [b["callback_data"] for row in json.loads(sent["reply_markup"])["inline_keyboard"]
+            for b in row]
+
+
+def test_back_button_is_there_for_own_with_an_owner_mode(cl_relay, tg, book, keys):
+    keys.put("anna", "api", KEY)
+    book.set_claude("anna", mode="own", owner_mode="owner_key")
+    cl_relay.route(msg(ANNA, "/claude", 100))
+    assert "cl:back" in _claude_buttons(tg)
+
+
+@pytest.mark.parametrize("mode", ["owner_key", "owner_sub"])
+def test_back_button_is_absent_when_not_on_own(cl_relay, tg, book, mode):
+    book.set_claude("anna", mode=mode)
+    cl_relay.route(msg(ANNA, "/claude", 101))
+    assert "cl:back" not in _claude_buttons(tg)
+
+
+def test_a_key_on_its_own_line(cl_relay, tg):
+    cl_relay.route(msg(ANNA, "text\n" + KEY + "\n", 102))
+    assert cl_relay.get_updates("anna", 0, 100, 0) == []
+    assert cl_relay.seen == [("api", KEY)]
+
+
+def test_a_reply_quoting_a_key_is_withheld_and_deleted_but_not_switched(cl_relay, tg):
+    m = msg(ANNA, "what is this?", 103,
+            reply_to_message={"message_id": 2, "chat": {"id": ANNA}, "text": f"k {KEY}"})
+    cl_relay.route(m)
+    assert cl_relay.get_updates("anna", 0, 100, 0) == []
+    assert cl_relay.seen == []
+    assert ("deleteMessage", {"chat_id": ANNA, "message_id": 5}, {}) in tg.calls
+
+
+def test_an_inline_query_with_a_key_is_withheld(cl_relay, tg):
+    cl_relay.route({"update_id": 104, "inline_query": {
+        "id": "q", "from": {"id": ANNA}, "query": KEY, "offset": ""}})
+    assert cl_relay.get_updates("anna", 0, 100, 0) == []
+    assert cl_relay.seen == [("api", KEY)]
+
+
+def test_a_partial_key_is_withheld_and_deleted(cl_relay, tg):
+    cl_relay.route(msg(ANNA, "sk-ant-api03-short", 105))
+    assert cl_relay.get_updates("anna", 0, 100, 0) == []
+    assert cl_relay.seen == []
+    assert any(c[0] == "deleteMessage" for c in tg.calls)
+
+
+def test_a_key_split_by_a_line_break_is_withheld(cl_relay, tg):
+    cl_relay.route(msg(ANNA, "sk-ant-api03-" + "A1b2C3d4E5" * 2 + "\n" + "A1b2C3d4E5" * 2, 106))
+    assert cl_relay.get_updates("anna", 0, 100, 0) == []
+
+
+def test_the_group_chat_the_message_came_from_is_used(cl_relay, tg):
+    GROUP = -100555
+    m = msg(ANNA, KEY, 107)
+    m["message"]["chat"] = {"id": GROUP, "type": "supergroup"}
+    cl_relay.route(m)
+    assert ("deleteMessage", {"chat_id": GROUP, "message_id": 5}, {}) in tg.calls
+    assert said(tg, GROUP) and not said(tg, ANNA)
+
+
+def test_a_disabled_guests_key_is_deleted_but_not_switched(cl_relay, tg, book, keys):
+    book.set_enabled("anna", False)
+    cl_relay.route(msg(ANNA, KEY, 108))
+    assert any(c[0] == "deleteMessage" for c in tg.calls)
+    assert cl_relay.seen == [] and keys.get("anna") is None
+    assert cl_relay.get_updates("anna", 0, 100, 0) == []
+
+
+def test_a_failed_delete_is_logged_by_class_only(book, passes, keys, tmp_path):
+    class Boom(FakeTelegram):
+        def call(self, method, params, files=None):
+            if method == "deleteMessage":
+                raise RuntimeError(KEY)
+            return super().call(method, params, files)
+    lines = []
+    r = tr.Relay(book, Boom(), keys=keys, ledger=ts.Ledger(tmp_path / "u.db"),
+                 background=False, claude_check=lambda k, s: (True, ""),
+                 notify=lambda t: None, log=lines.append)
+    r.route(msg(ANNA, KEY, 109))
+    assert "KEY-DELETE-FAILED guest=anna RuntimeError" in lines
+    assert all(KEY not in l for l in lines)
+
+
+def test_owner_key_without_usd_keeps_the_owner_key_wording(cl_relay, tg, monkeypatch):
+    real = ts.claude_view
+    monkeypatch.setattr(ts, "claude_view", lambda *a, **k: {**real(*a, **k), "mode": "owner_key",
+                                                           "usd": None})
+    cl_relay.route(msg(ANNA, "/claude", 110))
+    text = said(tg, ANNA)[-1]["text"]
+    assert text == texts.t("cl_now_owner_key_plain")
+    assert text != texts.t("cl_now_owner_sub")
+
+
+def test_only_the_exact_claude_buttons_are_ours(cl_relay, tg):
+    cl_relay.route(_cb(ANNA, "cl:back:anna"))
+    cl_relay.route(_cb(ANNA, "cl:other"))
+    assert len(cl_relay.get_updates("anna", 0, 100, 0)) == 2
+    assert not said(tg, ANNA)
