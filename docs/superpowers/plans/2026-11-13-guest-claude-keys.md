@@ -260,3 +260,19 @@ Content: guests run on the owner's API key by default with a dollar limit; own k
 - [ ] **Step 4:** restart `agentkennel-guest-turnstile`, `agentkennel-guest-tgrelay` (system units, sudo) and the user unit `agents-status-server`. Not `claude-tg-bridge`.
 - [ ] **Step 5:** check live: `guestctl list --json` → every existing guest `mode: owner_sub`; turnstile log shows `PASS guest=…` for the next guest request with today's numbers; `/claude` in the guest bot answers for `yan` (the owner's own test guest); the Server page shows the labels; no `sk-ant` in `journalctl -u agentkennel-guest-turnstile`.
 - [ ] **Step 6:** CHANGELOG version + release like v2.5.0 (tag, `gh release`, image workflow green, `:latest` updated). Sandboxes are **not** recreated; their web label comes with the next idle recreate.
+
+### Task 14: agentkennel.com (owner, 14.11: "Сюда тоже надо внести изменения")
+
+The site (`/home/ubuntu/pr/agentkennel-web`, Next.js, branch `main`; live = `npm run build` then `rsync -a --delete out/ /home/ubuntu/pr/agentkennel-web-live/`) says nothing about guests in text today; only the demo (`public/assets/demo.mp4`, `public/assets/img/demo.gif`, made by `tests/make_demo.py` in this repo with `tests/make_screenshots.py:guests_payload`) shows the Guests block. It goes live together with the release in Task 13, not before.
+
+**Files:**
+- Modify: `src/app/page.tsx` (features: a card or a paragraph about guests), `src/app/(site)/install/page.tsx` (the **Claude.** paragraph), `public/assets/demo.mp4`, `public/assets/img/demo.gif`
+- Test: `tests/site.test.mjs` (`npm test`)
+
+Content, same facts as Task 12: other people can each get their own sandbox with a Telegram bot and a web terminal; guests run on **your Anthropic API key** by default, with a dollar limit a week; or on their own key or Claude login; "your subscription" is possible, but Anthropic's terms don't allow one subscription for several people. Never "on your subscription" as the description of guests. The landing's own line "Official Claude Code CLI, your own subscription" is about the owner's own agents and stays.
+
+- [ ] **Step 1: Failing test** in `tests/site.test.mjs`: the built landing contains "API key" in the guests text and the warning about one subscription for several people; no page's guest text matches `/guests?[^.]*on your subscription/i`.
+- [ ] **Step 2–4:** FAIL → edit the pages → `npm run build && npm test` PASS (background).
+- [ ] **Step 5:** regenerate the demo after Task 10 (`guests_payload` carries `claude` per guest: one `owner_key` with `$` spent, one `own`), copy both files into `public/assets/`, look at the guests beat frame by frame — the rows show `your key · $… of $20`, nothing says subscription.
+- [ ] **Step 6:** `npm run check:clicks` and `npm run check:header` (background) — 0 failures; commit, push `yanhs/*`.
+- [ ] **Step 7 (with Task 13 Step 6):** build, rsync to `agentkennel-web-live`, then `npm run check:header https://agentkennel.com/` and check the new text is on the live page (curl, 200).
