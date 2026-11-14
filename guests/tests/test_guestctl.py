@@ -877,18 +877,40 @@ def test_claude_rejects_bad_json_unknown_guest_and_unknown_fields(data, capsys):
 
 
 def test_claude_secret_reads_stdin_and_switches_without_notifying(data, monkeypatch, capsys):
+    import threading
+    import time as _time
+    import guestenv
     gc.ts.GuestBook(data / "guests.json").add("anna", 10, 2, claude={"mode": "owner_key"})
     seen = fake_check(monkeypatch)
     stdin(monkeypatch, GUEST_KEY + "\n")
     told = []
-    monkeypatch.setattr(gc, "_owner_notify", lambda *a: told.append(a), raising=False)
+    monkeypatch.setattr(guestenv, "notify_owner", lambda *a: told.append(a))   # the real seam
     assert gc.cmd_claude(ns(name="anna", json='{"secret": true}')) == 0
+    for th in threading.enumerate():
+        if th is not threading.current_thread() and th.daemon:
+            th.join(1)
+    _time.sleep(0.1)
     res = out_json(capsys)
     assert res["ok"] is True and GUEST_KEY not in json.dumps(res)
     assert seen == [("api", GUEST_KEY)]
     assert gc.ts.GuestBook(data / "guests.json").get("anna").claude["mode"] == "own"
     assert claudekeys.KeyStore(data).get("anna") == ("api", GUEST_KEY)
     assert told == []
+
+
+def test_the_notify_seam_is_not_vacuous(data, monkeypatch):
+    """Control: with the default notify the same switch DOES reach guestenv.notify_owner."""
+    import threading
+    import guestenv
+    gc.ts.GuestBook(data / "guests.json").add("anna", 10, 2, claude={"mode": "owner_key"})
+    told = []
+    monkeypatch.setattr(guestenv, "notify_owner", lambda *a: told.append(a))
+    claudekeys.switch_own(gc.ts.GuestBook(data / "guests.json"), claudekeys.KeyStore(data),
+                          "anna", GUEST_KEY, check=lambda k, s: (True, ""))
+    for th in threading.enumerate():
+        if th is not threading.current_thread() and th.daemon:
+            th.join(1)
+    assert len(told) == 1
 
 
 def test_claude_secret_failing_check_changes_nothing(data, monkeypatch, capsys):
@@ -1012,3 +1034,89 @@ def test_new_commands_are_registered():
     src = inspect.getsource(gc.main)
     for c in ('"claude"', '"defaults"', '"owner-key"'):
         assert c in src
+
+
+# --------------------------------------------------------------------------- #
+# Task 7 fix round 1
+# --------------------------------------------------------------------------- #
+def _raw(data):
+    return (data / "guests.json").read_bytes()
+
+
+@pytest.mark.parametrize("body", ['{"owner_mode": "owner_sub"}',
+                                  '{"mode": "own", "owner_mode": "owner_sub"}',
+                                  '{"mode": "owner_key", "owner_mode": "owner_sub"}',
+                                  '{"owner_mode": "owner_key", "understood": true}'])
+def test_claude_never_takes_owner_mode(data, capsys, body):
+    gc.ts.GuestBook(data / "guests.json").add("anna", 10, 2, claude={"mode": "owner_key"})
+    before = _raw(data)
+    assert gc.cmd_claude(ns(name="anna", json=body)) != 0
+    res = out_json(capsys)
+    assert res["ok"] is False and "owner_mode" in res["error"]
+    assert _raw(data) == before
+
+
+def test_claude_owner_sub_with_understood_works(data, capsys):
+    gc.ts.GuestBook(data / "guests.json").add("anna", 10, 2, claude={"mode": "owner_key"})
+    assert gc.cmd_claude(ns(name="anna", json='{"mode": "owner_sub", "understood": true}')) == 0
+    c = gc.ts.GuestBook(data / "guests.json").get("anna").claude
+    assert c["mode"] == "owner_sub" and c["owner_mode"] == "owner_sub"
+
+
+def test_claude_leaving_own_drops_the_stored_key(data, capsys):
+    book = gc.ts.GuestBook(data / "guests.json")
+    book.add("anna", 10, 2, claude={"mode": "own"})
+    claudekeys.KeyStore(data).put("anna", "api", GUEST_KEY)
+    assert gc.cmd_claude(ns(name="anna", json='{"mode": "owner_key"}')) == 0
+    assert claudekeys.KeyStore(data).get("anna") is None
+    book.add("bob", 10, 3, claude={"mode": "own"})
+    claudekeys.KeyStore(data).put("bob", "api", GUEST_KEY)
+    assert gc.cmd_claude(ns(name="bob", json='{"mode": "owner_sub", "understood": true}')) == 0
+    assert claudekeys.KeyStore(data).get("bob") is None
+
+
+def test_claude_keeps_the_key_when_the_guest_stays_on_own_or_was_not_on_own(data, capsys):
+    book = gc.ts.GuestBook(data / "guests.json")
+    book.add("anna", 10, 2, claude={"mode": "own"})
+    claudekeys.KeyStore(data).put("anna", "api", GUEST_KEY)
+    assert gc.cmd_claude(ns(name="anna", json='{"usd_week": 30}')) == 0
+    assert claudekeys.KeyStore(data).get("anna") == ("api", GUEST_KEY)
+
+
+def test_claude_owner_key_without_an_owner_key_warns(data, capsys):
+    gc.ts.GuestBook(data / "guests.json").add("anna", 10, 2, claude={"mode": "owner_sub"})
+    assert gc.cmd_claude(ns(name="anna", json='{"mode": "owner_key"}')) == 0
+    assert out_json(capsys)["warning"] == "no_owner_key"
+    claudekeys.KeyStore(data).set_owner(API_KEY)
+    assert gc.cmd_claude(ns(name="anna", json='{"usd_week": 25}')) == 0
+    assert "warning" not in out_json(capsys)
+
+
+def test_a_broken_defaults_file_gives_defaults_an_error_and_a_stderr_line(data, capsys):
+    (data / "new_guest_defaults.json").write_text('{"usd_week": -3}')
+    assert gdefaults.load(data)["usd_week"] == 20
+    assert gc.cmd_defaults(ns(set=None)) == 0
+    cap = capsys.readouterr()
+    res = json.loads(cap.out)
+    assert res["usd_week"] == 20 and "usd_week" in res["error"]
+    assert cap.err.strip() and "defaults" in cap.err
+    (data / "new_guest_defaults.json").write_text("not json")
+    gc.cmd_defaults(ns(set=None))
+    assert "error" in json.loads(capsys.readouterr().out)
+
+
+def test_a_missing_defaults_file_is_no_error(data, capsys):
+    gc.cmd_defaults(ns(set=None))
+    cap = capsys.readouterr()
+    assert "error" not in json.loads(cap.out) and cap.err == ""
+
+
+def test_owner_key_week_usd_is_rounded_to_cents(data, monkeypatch, capsys):
+    book = gc.ts.GuestBook(data / "guests.json")
+    book.add("anna", 10, 1, claude={"mode": "owner_key"})
+    monkeypatch.setattr(gc, "_registry", lambda: {"anna": {"port": 1}})
+    monkeypatch.setattr(gc, "container_state", lambda n: "running")
+    monkeypatch.setattr(gc, "web_exists", lambda n: False)
+    monkeypatch.setattr(gc.ts.Ledger, "usd_between", lambda self, g, a, b: 1.0 / 3 + 0.0049)
+    gc.cmd_list(ns(json=True))
+    assert json.loads(capsys.readouterr().out)["owner_key_week_usd"] == 0.34

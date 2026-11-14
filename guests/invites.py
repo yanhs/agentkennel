@@ -146,11 +146,9 @@ class GuestctlProvisioner:
         self.data = Path(data or os.environ.get("TURNSTILE_DATA") or HERE / "turnstile" / "data")
 
     def _web_wanted(self) -> bool:
-        """The saved defaults for new guests (new_guest_defaults.json): web: false = no address."""
-        try:
-            return json.loads((self.data / "new_guest_defaults.json").read_text()).get("web") is not False
-        except (OSError, ValueError, AttributeError):
-            return True
+        """The saved defaults for new guests: web: false = no address."""
+        import defaults
+        return defaults.load(self.data)["web"]
 
     def provision(self, name: str, tid: int) -> Tuple[bool, str]:
         steps = [["add", name, "--tg", str(tid)]]

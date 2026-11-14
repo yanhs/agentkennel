@@ -702,7 +702,7 @@ def cmd_list(a) -> int:
                     if r["claude"]["mode"] == "owner_key")
         print(json.dumps({"guests": rows,
                           "owner_key": {"set": bool(key), "last4": claudekeys.last4(key) if key else None},
-                          "owner_key_week_usd": spent}, ensure_ascii=False))
+                          "owner_key_week_usd": round(spent, 2)}, ensure_ascii=False))
         return 0
     for r in rows:
         print(_t("ctl_list_line", name=r["name"], tg=r["telegram_id"], port=r["port"],
@@ -787,6 +787,8 @@ def cmd_claude(a) -> int:
         return _fail(exc)
     if not book.get(a.name):
         return _fail(f"no guest {a.name}")
+    if "owner_mode" in d:
+        return _fail("owner_mode is not accepted: `mode` sets it (owner_sub needs understood)")
     secret, understood = d.pop("secret", False), d.pop("understood", False)
     if not isinstance(secret, bool) or not isinstance(understood, bool):
         return _fail("secret and understood are true or false")
@@ -801,18 +803,28 @@ def cmd_claude(a) -> int:
         return 0 if ok else 1
     if d.get("mode") == "owner_sub" and not understood:
         return _fail("owner_sub: say \"understood\": true (it runs on the owner's subscription)")
+    was_own = book.get(a.name).claude["mode"] == "own"
     try:
         book.set_claude(a.name, **d)
     except (ValueError, TypeError) as exc:
         return _fail(exc)
-    print(json.dumps({"ok": True, "claude": book.get(a.name).claude}))
+    keys = claudekeys.KeyStore(DATA)
+    if was_own and book.get(a.name).claude["mode"] != "own":
+        keys.drop(a.name)                     # the secret does not outlive its use
+    res = {"ok": True, "claude": book.get(a.name).claude}
+    if d.get("mode") == "owner_key" and not keys.owner():
+        res["warning"] = "no_owner_key"
+    print(json.dumps(res))
     return 0
 
 
 def cmd_defaults(a) -> int:
     """guestctl defaults [--set '<json>']: what a new guest gets (new_guest_defaults.json)."""
-    cur = guest_defaults.load(DATA)
+    cur, problem = guest_defaults.load_checked(DATA)
     if a.set is None:
+        if problem:
+            print(f"guestctl defaults: {problem}; using the release defaults", file=sys.stderr)
+            cur = {**cur, "error": problem}
         print(json.dumps(cur))
         return 0
     try:

@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
 
 DEFAULTS = {"claude_mode": "owner_key", "usd_week": 20, "notify_at": 0.8,
             "week_limit": 140_000_000, "web": True, "rules": {}}
@@ -43,17 +46,29 @@ def validate(d) -> dict:
     if not isinstance(out["rules"], dict):
         raise ValueError("rules: an object")
     if out["rules"]:                    # the same check `guestctl rules` makes
+        sys.path.insert(0, str(HERE / "turnstile"))
         import turnstile
         out["rules"] = turnstile.validate_rules(out["rules"])
     return out
 
 
-def load(data: Path) -> dict:
+def load_checked(data: Path):
+    """(defaults, error): a missing file is no error; a broken or invalid one reads as
+    DEFAULTS with the reason, so the owner can be told."""
     try:
-        d = json.loads((Path(data) / FILE).read_text())
-        return validate(d)
-    except (OSError, ValueError):
-        return _copy(DEFAULTS)
+        text = (Path(data) / FILE).read_text()
+    except FileNotFoundError:
+        return _copy(DEFAULTS), None
+    except OSError as exc:
+        return _copy(DEFAULTS), f"{FILE}: {exc.strerror or exc}"
+    try:
+        return validate(json.loads(text)), None
+    except ValueError as exc:
+        return _copy(DEFAULTS), f"{FILE}: {exc}"
+
+
+def load(data: Path) -> dict:
+    return load_checked(data)[0]
 
 
 def save(data: Path, d: dict) -> dict:

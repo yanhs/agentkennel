@@ -247,3 +247,13 @@ def test_provisioner_runs_add_and_web_by_default(tmp_path, monkeypatch):
         ran.append(argv[2:]), types.SimpleNamespace(returncode=0, stdout="", stderr=""))[1])
     assert invites.GuestctlProvisioner(data=tmp_path).provision("ivan", 5) == (True, "")
     assert ran == [["add", "ivan", "--tg", "5"], ["web", "ivan"]]
+
+
+def test_web_wanted_reads_through_defaults_load(tmp_path):
+    import defaults
+    (tmp_path / "new_guest_defaults.json").write_text(json.dumps({"web": False, "usd_week": -1}))
+    # an invalid file reads as the release defaults (web on), like defaults.load says
+    assert defaults.load(tmp_path)["web"] is True
+    assert invites.GuestctlProvisioner(data=tmp_path)._web_wanted() is True
+    import inspect
+    assert "defaults" in inspect.getsource(invites.GuestctlProvisioner._web_wanted)
