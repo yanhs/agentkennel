@@ -1468,26 +1468,27 @@ class GuestsPanel:
             code, out, err = self.run("list", "--json", timeout=60)
             if code != 0:
                 raise RuntimeError((err or out).strip()[-300:] or f"exit {code}")
-            guests = json.loads(out).get("guests")
+            listed = json.loads(out)
+            guests = listed.get("guests")
             if not isinstance(guests, list):
                 raise RuntimeError("guestctl list: no guests list")
-            listed = json.loads(out)
             ok = listed.get("owner_key")
             ok = ok if isinstance(ok, dict) else {}
             owner_key = {"set": ok.get("set") is True,           # only the known fields are copied
                          "last4": ok["last4"] if isinstance(ok.get("last4"), str) else None}
             spent = listed.get("owner_key_week_usd")
             spent = spent if isinstance(spent, (int, float)) and not isinstance(spent, bool) else 0.0
-            settings = None
             try:
-                dcode, dout, _ = self.run("defaults", timeout=30)
-                settings = json.loads(dout) if dcode == 0 else None
-            except Exception:
-                settings = None
+                dcode, dout, derr = self.run("defaults", timeout=30)
+                if dcode != 0:
+                    raise RuntimeError(self._scrub((derr or dout).strip()[-300:] or f"exit {dcode}"))
+                settings = self._settings_view(json.loads(dout))
+            except Exception as e:
+                settings = {"error": self._scrub(str(e))[:300] or "defaults unreadable"}
             with self.lock:
                 self.guests, self.list_error = guests, None
                 self.owner_key, self.owner_key_week_usd = owner_key, spent
-                self.settings = settings if isinstance(settings, dict) else None
+                self.settings = settings
         except Exception as e:
             with self.lock:
                 self.list_error = str(e)[:300]
@@ -1598,16 +1599,8 @@ class GuestsPanel:
                 ok, output = code == 0, (out + err).strip()[-500:]
             except Exception as e:
                 ok, output = False, str(e)[:500]
-            warning = None
-            try:                                  # `add` ends with a JSON line: {"warning": ...}
-                last = json.loads(out.strip().splitlines()[-1]) if ok else {}
-                warning = last.get("warning") if isinstance(last, dict) else None
-            except Exception:
-                pass
             with self.lock:
                 job.update(done=True, ok=ok, output=output)
-                if isinstance(warning, str):
-                    job["warning"] = warning
             self._list()                          # the list shows the result at once
         self._spawn(work)
         return {"ok": True}
@@ -1633,8 +1626,27 @@ class GuestsPanel:
         self._spawn(self._list)
         return {"ok": True}
 
+    SETTINGS_VIEW = ("claude_mode", "usd_week", "notify_at", "week_limit", "web", "rules", "error")
+
     @staticmethod
-    def _ctl_error(out, err, fallback):
+    def _scrub(text, *secrets):
+        for sec in secrets:
+            if isinstance(sec, str) and sec.strip():
+                text = text.replace(sec.strip(), "…")
+        return re.sub(r"sk-ant[\w-]*", "…", text)
+
+    @classmethod
+    def _settings_view(cls, d):
+        """Only the known fields of `guestctl defaults` go to the page."""
+        if not isinstance(d, dict):
+            raise ValueError("defaults: not an object")
+        out = {k: d[k] for k in cls.SETTINGS_VIEW if k in d}
+        if isinstance(out.get("error"), str):
+            out["error"] = cls._scrub(out["error"])[:300]
+        return out
+
+    @staticmethod
+    def _ctl_error(out, err, fallback, *secrets):
         """guestctl's refusal: the "error" of its JSON answer, else its last words. A key is
         never part of it."""
         text = ""
@@ -1647,16 +1659,16 @@ class GuestsPanel:
                 text = e
                 break
         text = text or (err or out or "").strip()[-300:] or fallback
-        return re.sub(r"sk-ant[\w-]*", "[key]", text)[:300]
+        return GuestsPanel._scrub(text, *secrets)[:300]
 
-    def _ctl(self, *args, input=None, fallback="not saved"):
+    def _ctl(self, *args, input=None, fallback="not saved", secrets=()):
         """Run guestctl for a write; its JSON answer, or LibError 400 (504 on a timeout)."""
         try:
             code, out, err = self.run(*args, timeout=60, input=input)
         except subprocess.TimeoutExpired:
             raise LibError(504, "guestctl did not answer in time")
         if code != 0:
-            raise LibError(400, self._ctl_error(out, err, fallback))
+            raise LibError(400, self._ctl_error(out, err, fallback, *secrets))
         try:
             res = json.loads(out.strip().splitlines()[-1])      # the LAST line is the JSON
         except (ValueError, IndexError):
@@ -1676,7 +1688,8 @@ class GuestsPanel:
             if not isinstance(secret, str):
                 raise LibError(400, "secret: a string")
             spec["secret"], stdin = True, secret
-        res = self._ctl("claude", name, json.dumps(spec), input=stdin, fallback="not saved")
+        res = self._ctl("claude", name, json.dumps(spec), input=stdin, fallback="not saved",
+                        secrets=(stdin,))
         self._spawn(self._list)
         out = {"ok": True}
         for k in ("claude", "message", "warning"):
@@ -1696,7 +1709,7 @@ class GuestsPanel:
             raise LibError(400, "settings: nothing to save")
         res = self._ctl("defaults", "--set", json.dumps(patch), fallback="settings not saved")
         self._spawn(self._list)
-        return {"ok": True, "settings": res}
+        return {"ok": True, "settings": self._settings_view(res)}
 
     def owner_key_set(self, body):
         """POST /api/guests/owner-key {key} | {remove: true}: the owner's API key. Only
@@ -1706,15 +1719,19 @@ class GuestsPanel:
         if body.get("remove") is True:
             self._ctl("owner-key", "--remove", fallback="not removed")
             out = {"ok": True}
+            with self.lock:
+                self.owner_key = {"set": False, "last4": None}
         else:
             key = body.get("key")
             if not isinstance(key, str) or not key.strip():
                 raise LibError(400, "key: your Anthropic API key")
-            res = self._ctl("owner-key", input=key.strip(), fallback="key not saved")
+            res = self._ctl("owner-key", input=key.strip(), fallback="key not saved",
+                            secrets=(key,))
             out = {"ok": True}
             if isinstance(res.get("last4"), str):
                 out["last4"] = res["last4"]
-        self._spawn(self._list)
+            with self.lock:                       # the next GET is not stale
+                self.owner_key = {"set": True, "last4": out.get("last4")}
         return out
 
     def folders(self, body):

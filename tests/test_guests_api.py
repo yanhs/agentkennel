@@ -56,6 +56,14 @@ if (cmd == "owner-key" and "--remove" not in sys.argv) or (
         f.write(sys.stdin.read() + "\n")
 if cmd == "list":
     print(json.dumps({"guests": behave.get("guests", []), **behave.get("list_extra", {})}))
+elif cmd == "defaults" and len(sys.argv) == 2 and behave.get("defaults_raw") is not None:
+    print(behave["defaults_raw"])
+    sys.exit(behave.get("defaults_code", 0))
+elif cmd == "defaults" and len(sys.argv) > 2 and cmd not in behave.get("fail", []) and (
+        json.loads(sys.argv[3]).get("claude_mode") == "owner_sub"
+        and json.loads(sys.argv[3]).get("understood") is not True):
+    print(json.dumps({"ok": False, "error": "owner_sub: say \"understood\": true"}))
+    sys.exit(1)
 elif cmd == "defaults" and len(sys.argv) == 2:
     print(json.dumps(behave.get("defaults", {"claude_mode": "owner_key", "usd_week": 20})))
 elif cmd in ("defaults", "claude", "owner-key") and cmd not in behave.get("fail", []):
@@ -688,3 +696,50 @@ def test_state_drops_a_key_that_slipped_into_owner_key(g):
     g.behave(list_extra={"owner_key": {"set": True, "last4": "ZZZZ", "key": SECRET}})
     d = until(lambda: (lambda r: r[1] if r[1]["guests"] is not None else None)(get(g.base)))
     assert d["owner_key"] == {"set": True, "last4": "ZZZZ"}
+
+
+def test_settings_state_copies_only_known_fields(g):
+    configure(g)
+    g.behave(defaults={"claude_mode": "owner_key", "usd_week": 20, "leak": SECRET,
+                       "rules": {"on": True}})
+    d = until(lambda: (lambda r: r[1] if r[1]["guests"] is not None else None)(get(g.base)))
+    assert "leak" not in d["settings"] and d["settings"]["usd_week"] == 20
+    assert SECRET not in json.dumps(d)
+
+
+def test_settings_answer_copies_only_known_fields(g):
+    configure(g)
+    g.behave(answer={"claude_mode": "own", "leak": SECRET})
+    code, d = post(g.base, "/api/guests/settings", {"claude_mode": "own"})
+    assert code == 200 and SECRET not in json.dumps(d) and "leak" not in d["settings"]
+
+
+@pytest.mark.parametrize("raw,code", [("not json", 0), ("boom " + SECRET, 1)])
+def test_broken_defaults_become_an_error_setting(g, raw, code):
+    configure(g)
+    g.behave(defaults_raw=raw, defaults_code=code)
+    d = until(lambda: (lambda r: r[1] if r[1]["guests"] is not None else None)(get(g.base)))
+    assert d["settings"]["error"] and SECRET not in json.dumps(d)
+
+
+def test_error_text_hides_the_submitted_secret(g):
+    configure(g)
+    g.behave(fail=["owner-key"], why="bad value pasted-secret-value here")
+    code, d = post(g.base, "/api/guests/owner-key", {"key": "pasted-secret-value"})
+    assert code == 400 and "pasted-secret-value" not in d["error"]
+
+
+def test_owner_key_state_updates_at_once(g):
+    configure(g)
+    g.behave(answer={"ok": True, "last4": "ZZZZ"}, list_extra={"owner_key": {"set": False, "last4": None}})
+    post(g.base, "/api/guests/owner-key", {"key": SECRET})
+    d = get(g.base)[1]
+    assert d["owner_key"] == {"set": True, "last4": "ZZZZ"}
+    post(g.base, "/api/guests/owner-key", {"remove": True})
+    assert get(g.base)[1]["owner_key"] == {"set": False, "last4": None}
+
+
+def test_settings_owner_sub_without_understood_is_refused(g):
+    configure(g)
+    code, d = post(g.base, "/api/guests/settings", {"claude_mode": "owner_sub"})
+    assert code == 400 and "understood" in d["error"]
