@@ -23,8 +23,8 @@ def classify(text):
 
 
 def last4(secret):
-    """The last four characters; a secret shorter than that is fully masked."""
-    return secret[-4:] if len(secret or "") >= 4 else "…"
+    """The last four characters; a secret shorter than 12 characters is fully masked."""
+    return secret[-4:] if len(secret or "") >= 12 else "…"
 
 
 def _check_name(name):
@@ -39,9 +39,11 @@ class KeyStore:
 
     def _read(self, path):
         try:
-            return json.loads(path.read_text())
+            d = json.loads(path.read_text())
         except (OSError, ValueError):
             return None
+        s = d.get("secret") if isinstance(d, dict) else None
+        return d if isinstance(s, str) and s else None
 
     def _write(self, path, doc):
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -97,6 +99,8 @@ def check(kind, secret, upstream=("https", "api.anthropic.com", 443), timeout=20
     """(True, "") when Anthropic accepts the key, else (False, why). Never contains the secret."""
     if kind not in KINDS:
         raise ValueError(f"bad key kind: {kind!r}")
+    if not secret:
+        raise ValueError("empty secret")
     scheme, host, port = upstream
     if kind == "api":
         method, path, body = "GET", "/v1/models?limit=1", None
@@ -115,6 +119,8 @@ def check(kind, secret, upstream=("https", "api.anthropic.com", 443), timeout=20
         resp = conn.getresponse()
         raw = resp.read(_BODY_CAP)
         status = resp.status
+    except ValueError:  # e.g. CR/LF in the secret: http.client refuses the header
+        return False, "the key has characters that cannot be sent"
     except Exception as e:  # network, TLS, timeout
         return False, "can't reach Anthropic: " + _scrub(str(e)).replace(secret, "…")
     finally:
@@ -129,4 +135,4 @@ def check(kind, secret, upstream=("https", "api.anthropic.com", 443), timeout=20
     except (ValueError, AttributeError):
         pass
     msg = _scrub(msg.replace(secret, "…")).strip()
-    return False, msg or f"HTTP {status}"
+    return False, msg[:300] or f"HTTP {status}"

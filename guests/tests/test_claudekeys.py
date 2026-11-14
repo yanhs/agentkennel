@@ -29,6 +29,48 @@ def test_last4():
     assert ck.last4(API) == API[-4:]
     assert ck.last4("abc") == "…"
     assert ck.last4("") == "…"
+    for n in (4, 5, 11):
+        assert ck.last4("x" * n) == "…"
+    assert ck.last4("a" * 8 + "wxyz") == "wxyz"
+
+
+@pytest.mark.parametrize("content", ['["a"]', '"str"', "7", "null", "{bad",
+                                     '{"kind":"api","secret":""}',
+                                     '{"kind":"api","secret":5}'])
+def test_store_tolerates_junk_files(tmp_path, content):
+    s = ck.KeyStore(tmp_path)
+    (tmp_path / "keys").mkdir()
+    (tmp_path / "keys" / "v.json").write_text(content)
+    (tmp_path / "keys" / "_owner.json").write_text(content)
+    assert s.get("v") is None
+    assert s.owner() is None
+
+
+def test_failed_write_leaves_no_tmp(tmp_path, monkeypatch):
+    s = ck.KeyStore(tmp_path)
+    monkeypatch.setattr(ck.json, "dump", lambda *a, **k: (_ for _ in ()).throw(OSError("x")))
+    with pytest.raises(OSError):
+        s.put("v", "api", API)
+    assert [p.name for p in (tmp_path / "keys").iterdir()] == []
+
+
+def test_check_empty_secret():
+    with pytest.raises(ValueError):
+        ck.check("api", "")
+
+
+def test_check_message_truncated(fake):
+    fake.status = 400
+    fake.body = json.dumps({"error": {"message": "x" * 1000}}).encode()
+    ok, msg = ck.check("api", API, upstream=fake.up)
+    assert not ok and len(msg) <= 300
+
+
+def test_check_secret_with_newline(fake):
+    bad = "sk-ant-api03-" + "a" * 30 + "\r\nX-Evil: 1"
+    ok, msg = ck.check("api", bad, upstream=fake.up)
+    assert not ok and msg and "aaaaaaaaaaaaaaaaaaaa" not in msg and bad not in msg
+    assert fake.requests == []
 
 
 def test_store_roundtrip_and_modes(tmp_path):
