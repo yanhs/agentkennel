@@ -1,20 +1,24 @@
 # AgentKennel guests
 
 An optional module: other people work on your server, each in a sandbox of their own, with
-a 5-hour and a weekly limit, through one shared Telegram bot. Off until you set it up.
+a limit, through one shared Telegram bot. Off until you set it up.
 
 - **A sandbox per person.** Each guest gets their own AgentKennel in a Docker container
   (image `agentkennel-guest:<version>`): own terminals, files and services, a dashboard at
   `https://sb-<name>.<domain>` with its own password. Guests can't see each other or your
   server: the `sbx` network lets a sandbox reach the internet and the three gates below,
   nothing else on the host or in private ranges.
-- **A 5-hour and a weekly limit.** A sandbox has only a personal pass to the Claude
-  turnstile. The turnstile counts every guest's usage and
-  stops them at either limit: the 5-hour window opens with
-  the first request and lasts 5 hours, the week resets with the Claude week
-  (the turnstile reads it from Anthropic's replies; Monday midnight, Los Angeles time, until
-  it has seen one) (default 140M weighted tokens a week, a seventh of it — 20M — per 5 hours). It
-  tells you if a guest uses more than 1% of the week in an hour.
+- **Whose Claude.** A sandbox has only a personal pass to the Claude turnstile, and the
+  turnstile decides what the guest's Claude runs on (see [Whose Claude](#whose-claude)
+  below): by default your Anthropic API key, with a dollar limit a week; or the guest's own
+  key or login; or your Claude subscription, as an option you choose on purpose.
+- **Limits.** On your API key: a dollar limit a week (default $20). On your subscription
+  (the option): a 5-hour and a weekly token limit — the 5-hour window opens with the first
+  request and lasts 5 hours, the week resets with the Claude week (the turnstile reads it
+  from Anthropic's replies; Monday midnight, Los Angeles time, until it has seen one);
+  default 140M weighted tokens a week, a seventh of it — 20M — per 5 hours. On the guest's
+  own key: no limit. The turnstile tells you if a guest on the subscription uses more than
+  1% of the week in an hour.
 - **One bot for everyone.** The Telegram turnstile holds the real bot token and gives each
   sandbox a Bot API of its own: a guest's agent writes only to that guest's chat.
 - **You decide in your own bot.** Someone new writes `/start` to the guest bot; it only
@@ -49,6 +53,50 @@ a 5-hour and a weekly limit, through one shared Telegram bot. Off until you set 
 
 ![The Guests block on the Server page: a Web switch per guest, one guest Telegram only with the Rules form open](../docs/screenshots/guests-rules.png)
 
+## Whose Claude
+
+Each guest has a mode, set by you (and, for their own key, by them):
+
+- **Your API key** (the default for new guests). The key lives on your server and nothing
+  more: the turnstile adds it to the guest's Claude requests; it never enters a sandbox.
+  The guest has a limit in dollars a week (default **$20**); you can ask to be told in
+  Telegram at 80% (the default).
+- **Their own key or login.** The guest sends an API key or a `claude setup-token` token.
+  No limit is counted: they pay for it themselves.
+- **Your subscription** (an option, marked with a warning). It needs an explicit "I
+  understand" because Anthropic's terms don't allow sharing one Claude subscription between
+  several people. Its limits are the 5-hour and weekly token limits above.
+
+**Setting it up, on the Server page → Guests → Settings → "For new guests":** Claude for
+new guests, your API key, the limit for a guest on your key, "Tell me in Telegram at 80%",
+and the defaults for web access and the agent's rules. Your API key is checked with
+Anthropic before it is saved, kept on the host in a file only you can read (mode 0600),
+shown only as its last 4 characters and never put in a sandbox. Next to each guest the
+**Claude** button sets their mode and limit, or lets you paste a key for them. The row
+reads `your key · $6.10 of $20`, `own key` or `your subscription ⚠ · wk 1%`.
+
+**For the guest.** `/claude` in the guest bot shows what they run on. Sending an API key
+or a `claude setup-token` token there switches them to their own key: the message is taken
+by the relay, never reaches the sandbox, and is deleted from the chat (anything containing
+`sk-ant-` is withheld from the sandbox). The **Claude** chip in their web panel (it opens "Your Claude") does the
+same, checks the key with Anthropic, and takes effect at once. "Back to the owner's
+key/subscription" returns them. You get a Telegram message when a guest switches.
+
+**What is guaranteed.** There is no silent fallback to your subscription: if your key is
+missing, revoked or out of credit, the guest sees "Claude isn't available right now, the
+owner has been told", and you get one message an hour at most. The turnstile forwards only
+`/v1/messages` and `/v1/messages/count_tokens` (no batches). The dollar cost is worked out
+from the table `guests/prices.json`; edit it when Anthropic changes prices. A model not in
+the table is priced at the table's highest price.
+
+**Known limits.** Several requests running at once can overshoot a dollar limit by up to
+the cost of that many requests. The once-an-hour messages to you are remembered in memory,
+so a restart can repeat one.
+
+**Upgrading.** Existing guests keep running exactly as before (on the subscription, with
+their token limits) until you change them. On a fresh install, new guests default to your
+API key (add the key first: until then Claude is not available to them).
+
 ## Set up
 
 You need AgentKennel installed from a checkout (this folder lives inside it), Docker that
@@ -67,7 +115,9 @@ your user may use, systemd, and — for web addresses — nginx and certbot.
    - optional: `SERVER_IP`, `CF_TOKEN_FILE`, `CF_ZONE`, `GUESTS_NOTIFY_CMD`, `GUEST_IMAGE`.
 
    The Claude turnstile uses your login from `~/.claude/oauth.env`
-   (`CLAUDE_CODE_OAUTH_TOKEN=…`, from `claude setup-token`).
+   (`CLAUDE_CODE_OAUTH_TOKEN=…`, from `claude setup-token`) only for guests on your
+   subscription. For guests on your API key, add the key afterwards (Settings, or
+   `guestctl owner-key`).
 2. **Install.** `guests/install.sh` (`--check` only checks, `--yes` asks nothing). It sets up
    the sandbox network and firewall, builds the guest image from this checkout and starts
    the services `agentkennel-guest-turnstile`, `agentkennel-guest-tgrelay` and
@@ -84,8 +134,11 @@ python3 guests/guestctl.py web-off <name>          Telegram only: the browser te
 python3 guests/guestctl.py rules <name> '<json>'   the agent's rules (while web is off)
 python3 guests/guestctl.py folders <name>          folders in the sandbox's /work (for the rules)
 python3 guests/guestctl.py session <name>          your login to their dashboard (the panel's Open)
-python3 guests/guestctl.py list [--json]           guests, state, 5-hour and weekly use and limits
-python3 guests/guestctl.py limit <name> <tokens>   the weekly limit (5 hours: a seventh)
+python3 guests/guestctl.py claude <name> '<json>'  whose Claude: mode, usd_week, notify_at (own key on stdin)
+python3 guests/guestctl.py defaults [--set '<json>']   what new guests get (claude_mode, usd_week, notify_at, web, rules)
+python3 guests/guestctl.py owner-key [--remove]    your API key on stdin; checked with Anthropic, shows only the last 4
+python3 guests/guestctl.py list [--json]           guests, state, whose Claude, use and limits
+python3 guests/guestctl.py limit <name> <tokens>   the weekly token limit (subscription mode; 5 hours: a seventh)
 python3 guests/guestctl.py stop|start <name>       pause / resume (the pass stops working too)
 python3 guests/guestctl.py recreate <name>         new container on the current image, same data
 python3 guests/guestctl.py remove <name>           container, pass and address go; volumes stay

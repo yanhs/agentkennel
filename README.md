@@ -76,7 +76,7 @@ with a terminal → [CHANGELOG](CHANGELOG.md)
 - **Services that outlive a terminal.** A tunnel, a site's server or a bot goes into
   `.services/<name>.sh`; the keeper starts it, restarts it after a crash and keeps its log.
 - **Room for other people.** Give someone their own agent in a Docker sandbox on your
-  server, with limits; keep it to one job if you like. See [Guests](#-guests-other-people-on-your-server).
+  server, on your API key with a dollar limit (or their own key); keep it to one job if you like. See [Guests](#-guests-other-people-on-your-server).
 - **Your subscription, your box.** The official Claude Code CLI with your Claude
   subscription (or an API key). AgentKennel itself sends no telemetry (Claude Code talks
   to Anthropic, as always).
@@ -129,8 +129,8 @@ web runs in Anthropic's cloud.)
   click a terminal's code to see only its tasks.
 - **Server page.** CPU and memory over 15 minutes, split into agents, sites and apps,
   background jobs and the system; each row expands into its processes.
-- **Guests.** Other people in sandboxes of their own: a **Web** switch and **Rules** for
-  each, on the Server page ([more](#-guests-other-people-on-your-server)).
+- **Guests.** Other people in sandboxes of their own: whose Claude, a **Web** switch and
+  **Rules** for each, on the Server page ([more](#-guests-other-people-on-your-server)).
 - **Agents know where they run.** Their `~/.claude/CLAUDE.md` says the dashboard and
   Telegram are two windows into the same terminals. A CLAUDE.md of yours is never touched.
 - **Works on a phone.** Swipe to scroll, press and hold to select; a key bar has Ctrl+C,
@@ -264,11 +264,20 @@ Full setup and every command: [docs/telegram.md](docs/telegram.md).
 
 An optional multi-user mode, off until you set it up. Each guest gets their own
 AgentKennel in a Docker sandbox (their own terminals, files and sites) and talks to their
-agent through one shared Telegram bot. Guests can't see each other or your server. Each
-has a 5-hour and a weekly limit, and you are told when someone uses too much too fast.
+agent through one shared Telegram bot. Guests can't see each other or your server. By
+default a guest's Claude runs on your Anthropic API key with a dollar limit a week ($20
+unless you change it).
 
 - **You decide who gets in.** Someone writes `/start` to the guest bot; your own bot asks
   "Let them in?"; on yes the sandbox is made and they get their address and password.
+- **Whose Claude.** Your API key (the default; checked with Anthropic, kept on your server,
+  never in a sandbox), the guest's own API key or `claude setup-token` login (sent with
+  `/claude` in the guest bot or from their web panel), or your subscription, as an option
+  with an explicit "I understand": Anthropic's terms don't allow sharing one Claude
+  subscription between several people. If your key is missing or out of credit, the guest
+  is told Claude isn't available and you are told; it never falls back to your subscription.
+  Guests added before this keep running exactly as before until you change them.
+  Details: [guests/README.md](guests/README.md#whose-claude).
 - **Web on or off.** The **Web** switch on the Server page: on, their terminals open in
   the browser at `https://sb-<name>.<your-domain>`; off, Telegram only, and the bot and the
   agent keep working.

@@ -2,6 +2,15 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## Unreleased
+
+### Guests
+- **Whose Claude, per guest.** A guest's Claude can run on your Anthropic API key (the default for new guests, with a dollar limit a week, $20 unless changed), on their own API key or `claude setup-token` login, or on your subscription (an option that needs an explicit "I understand": Anthropic's terms don't allow sharing one Claude subscription between several people). Set it on the Server page (Guests, Settings, "For new guests", and a **Claude** button per guest) or with `guestctl claude <name> '<json>'`, `guestctl defaults [--set '<json>']` and `guestctl owner-key [--remove]` (key on stdin). Your key is checked with Anthropic before it is saved, kept on the host with mode 0600, shown only as its last 4 characters and never put in a sandbox. Rows read `your key · $6.10 of $20`, `own key`, `your subscription ⚠ · wk 1%`. "Tell me in Telegram at 80%" is on by default.
+- **`/claude` for guests.** In the guest bot (and "Claude" in the guest's web panel) a guest sees what they run on and can send their own API key or `claude setup-token` token: the message is taken by the relay, never reaches the sandbox, and is deleted from the chat; anything containing `sk-ant-` is withheld from the sandbox. You get a Telegram message when a guest switches.
+- **No silent fallback to the subscription.** If your key is missing, revoked or out of credit, the guest is told Claude isn't available and you get one message an hour at most. Only `/v1/messages` and `/v1/messages/count_tokens` are forwarded (no batches). Dollars are priced from `guests/prices.json` (update it when Anthropic changes prices; an unknown model is priced at the table's highest price).
+- **Known limits.** Several requests running at once can overshoot a dollar limit by up to that many requests' cost; the once-an-hour owner messages are kept in memory, so a restart can repeat one.
+- **Upgrading.** Existing guests keep running exactly as before until you change them; on a fresh install new guests default to your API key.
+
 ## v2.5.0 — a second Telegram bot for notifications; the README tells about guests
 
 ### Telegram
