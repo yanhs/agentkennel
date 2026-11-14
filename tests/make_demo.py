@@ -32,6 +32,7 @@ DOCS = ROOT / "docs"
 W, H = 1200, 720           # CSS px of every frame (captured at 2x)
 OUT_W = 1200               # final width of the GIF / MP4
 FPS = 13
+GIF_FPS = 10               # the GIF is the heavy file; the MP4 keeps FPS
 STEP = 1 / FPS             # duration of one animated frame
 
 # ─────────────────────────────────────────────────────────── overlay ──
@@ -102,9 +103,20 @@ class Film:
         # one palette for the whole film (built from the lossless frames, not the MP4);
         # diff_mode=rectangle re-encodes only the part of each frame that changed
         run(["ffmpeg", "-y", "-loglevel", "error", *src, "-lavfi",
-             f"fps={FPS},{scale},split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];"
+             f"fps={GIF_FPS},{scale},split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];"
              "[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle",
              "-loop", "0", str(gif)])
+
+
+def film_guests() -> dict:
+    """The Guests block as the film shows it: the main path is the owner's API key, so sam is on it too
+    (the docs screenshots keep the subscription row, which documents the ⚠ option)."""
+    data = ms.guests_payload()
+    for g in data["guests"]:
+        if g["name"] == "sam":
+            g["claude"] = {"mode": "owner_key", "owner_mode": "owner_key", "has_key": False, "last4": None,
+                           "usd": {"used": 3.3, "limit": 20, "resets_at": 1793689200}, "usd_week": 20}
+    return data
 
 
 def run(cmd: list[str]) -> None:
@@ -349,7 +361,7 @@ def main() -> int:
             if route.request.method == "POST":
                 path = route.request.url.split("?")[0]
                 return _json({"folders": ms.ALEX_FOLDERS} if path.endswith("/folders") else {"ok": True})(route)
-            return _json(ms.guests_payload())(route)
+            return _json(film_guests())(route)
         pg.route(re.compile(r"/api/services(/|\?|$)"), lambda r: _json(ms.services_payload())(r))
         pg.route(re.compile(r"/api/guests(/|\?|$)"), _guests)
         caption(pg, "What is using your server")
