@@ -145,3 +145,54 @@ def test_set_claude_bad_value_changes_nothing(book):
 def test_set_claude_unknown_guest(book):
     with pytest.raises(KeyError):
         book.set_claude("nobody", mode="own")
+
+
+OLD_USAGE_SCHEMA = (
+    "CREATE TABLE IF NOT EXISTS usage (ts REAL, day TEXT, guest TEXT,"
+    " model TEXT, input INT, output INT, cache_create INT, cache_read INT,"
+    " weighted INT)"
+)
+
+
+def test_ledger_migrates_old_schema(tmp_path):
+    import sqlite3
+    p = tmp_path / "usage.db"
+    db = sqlite3.connect(str(p))
+    db.execute(OLD_USAGE_SCHEMA)
+    db.execute("INSERT INTO usage VALUES (100.0,'1970-01-01','g','m',1,2,3,4,10)")
+    db.commit()
+    db.close()
+    for _ in range(2):  # opening twice is fine
+        led = ts.Ledger(p)
+    cols = [r[1] for r in led._db.execute("PRAGMA table_info(usage)")]
+    assert "mode" in cols and "usd" in cols
+    assert led._db.execute("SELECT mode, usd FROM usage").fetchone() == ("owner_sub", 0)
+    assert led.usd_between("g", 0, 1000) == 0.0
+    assert led.spent_between("g", 0, 1000) == 10
+
+
+def test_usd_sums_only_owner_key_within_bounds(tmp_path):
+    led = ts.Ledger(tmp_path / "usage.db")
+    u = {"input_tokens": 10}
+    assert led.record("g", "m", u, ts_=100, mode="owner_key", usd=1.5) == ts.weighted(u)
+    led.record("g", "m", u, ts_=200, mode="owner_key", usd=2.0)
+    led.record("g", "m", u, ts_=300, mode="owner_key", usd=4.0)   # end bound excluded
+    led.record("g", "m", u, ts_=150, mode="own", usd=9.0)
+    led.record("g", "m", u, ts_=150, usd=9.0)                     # default owner_sub
+    led.record("h", "m", u, ts_=150, mode="owner_key", usd=7.0)
+    assert led.usd_between("g", 100, 300) == pytest.approx(3.5)
+    assert led.usd_since("g", 200) == pytest.approx(6.0)
+    assert led.usd_between("nobody", 0, 1000) == 0.0
+
+
+def test_once_is_true_once(tmp_path):
+    import threading
+    led = ts.Ledger(tmp_path / "usage.db")
+    assert led.once("x") is True
+    assert led.once("x") is False
+    assert led.once("y") is True
+    res = []
+    th = [threading.Thread(target=lambda: res.append(led.once("race"))) for _ in range(20)]
+    [t.start() for t in th]
+    [t.join() for t in th]
+    assert res.count(True) == 1

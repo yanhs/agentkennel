@@ -384,7 +384,37 @@ class Ledger:
             self._db.execute("CREATE INDEX IF NOT EXISTS usage_day ON usage(day, guest)")
             self._db.execute("CREATE INDEX IF NOT EXISTS usage_guest_ts ON usage(guest, ts)")
             self._db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+            have = {r[1] for r in self._db.execute("PRAGMA table_info(usage)")}
+            if "mode" not in have:
+                self._db.execute("ALTER TABLE usage ADD COLUMN mode TEXT DEFAULT 'owner_sub'")
+            if "usd" not in have:
+                self._db.execute("ALTER TABLE usage ADD COLUMN usd REAL DEFAULT 0")
             self._db.commit()
+
+    def once(self, key: str) -> bool:
+        """True the first time ``key`` is seen, False ever after (atomic, kept in meta)."""
+        with self._lock:
+            cur = self._db.execute("INSERT OR IGNORE INTO meta VALUES (?, '1')", (key,))
+            self._db.commit()
+            return cur.rowcount == 1
+
+    def usd_between(self, guest: str, start: float, end: float) -> float:
+        """Dollars spent on the owner's key (owner_key rows only) in [start, end)."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT COALESCE(SUM(usd),0) FROM usage"
+                " WHERE guest=? AND mode='owner_key' AND ts>=? AND ts<?",
+                (guest, start, end),
+            ).fetchone()
+        return float(row[0])
+
+    def usd_since(self, guest: str, since: float) -> float:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT COALESCE(SUM(usd),0) FROM usage WHERE guest=? AND mode='owner_key' AND ts>=?",
+                (guest, since),
+            ).fetchone()
+        return float(row[0])
 
     def week_reset(self) -> Optional[int]:
         """When the owner's subscription week resets (a unix time Anthropic sent in the
@@ -411,12 +441,13 @@ class Ledger:
         return datetime.now(DAY_TZ).date().isoformat()
 
     def record(self, guest: str, model: Optional[str], usage: Dict,
-               ts_: Optional[float] = None) -> int:
+               ts_: Optional[float] = None, mode: str = "owner_sub", usd: float = 0.0) -> int:
         w = weighted(usage)
         when = time.time() if ts_ is None else ts_
         with self._lock:
             self._db.execute(
-                "INSERT INTO usage VALUES (?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO usage (ts, day, guest, model, input, output, cache_create,"
+                " cache_read, weighted, mode, usd) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     when,
                     datetime.fromtimestamp(when, DAY_TZ).date().isoformat(),
@@ -427,6 +458,8 @@ class Ledger:
                     usage.get("cache_creation_input_tokens", 0),
                     usage.get("cache_read_input_tokens", 0),
                     w,
+                    mode,
+                    usd,
                 ),
             )
             self._db.commit()
