@@ -1,11 +1,18 @@
 """A guest's `claude` settings: whose credential its Claude runs on."""
 
 import json
+import sys
+from pathlib import Path
 
 import pytest
 
-import turnstile as ts
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import turnstile as ts  # noqa: E402
 
+RULES = {"on": True, "work": "The website: its pages and texts.", "folders": ["/work/site"],
+         "actions": {"edit": True, "restart": True, "packages": True,
+                     "publish": False, "services": False},
+         "flag": True}
 OLD_DEFAULT = {"mode": "owner_sub", "owner_mode": "owner_sub", "usd_week": 20, "notify_at": 0.8}
 
 
@@ -40,8 +47,29 @@ def test_claude_dict_not_shared(book):
 
 def test_invalid_stored_block_reads_as_default(book):
     book.add("anna", 70)
+    assert book.get("anna").claude_error is None
     book._update("anna", claude={"mode": "bogus", "usd_week": -3})
-    assert book.get("anna").claude == OLD_DEFAULT
+    g = book.get("anna")
+    assert g.claude == OLD_DEFAULT
+    assert g.claude_error and "mode" in g.claude_error
+    book.set_claude("anna", mode="owner_key")      # a valid merge clears the error
+    assert book.get("anna").claude_error is None
+
+
+def test_record_without_claude_has_no_error(book):
+    book.path.write_text(json.dumps({"guests": {"vlad": {"pass_sha256": "x", "week_limit": 70}}}))
+    g = book.get("vlad")
+    assert g.claude_error is None and g.claude["mode"] == "owner_sub"
+
+
+def test_unknown_key_raises(book):
+    with pytest.raises(ValueError):
+        ts.validate_claude({"usd_wek": 5})
+    book.add("anna", 70)
+    with pytest.raises(ValueError):
+        book.set_claude("anna", usd_wek=5)
+    with pytest.raises(ValueError):
+        book.add("bob", 70, claude={"modee": "own"})
 
 
 def test_add_stores_claude(book):
@@ -60,12 +88,16 @@ def test_add_rejects_bad_claude(book):
 def test_set_claude_keeps_everything_else(book):
     book.add("anna", 70)
     book.set_web("anna", False)
+    book.set_rules("anna", RULES)
+    book.set_limit("anna", 700)
     book.set_unlimited_until("anna", 123.0)
     before = _raw(book)["anna"]
     book.set_claude("anna", mode="owner_key", usd_week=5)
     after = _raw(book)["anna"]
     for k, v in before.items():
         assert after[k] == v
+    for k in ("rules", "web", "week_limit", "five_hour_limit", "unlimited_until"):
+        assert k in after and json.dumps(after[k]) == json.dumps(before[k])
     assert set(after) - set(before) == {"claude"}
     assert book.get("anna").claude == {"mode": "owner_key", "owner_mode": "owner_key",
                                        "usd_week": 5, "notify_at": 0.8}

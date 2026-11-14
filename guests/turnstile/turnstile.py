@@ -86,6 +86,9 @@ def validate_claude(d: Optional[Dict]) -> Dict:
     """A guest's `claude` block, every field filled; ValueError when something is wrong.
     `mode` alone sets `owner_mode` too (except "own": then the owner's mode is owner_key)."""
     d = dict(d or {})
+    unknown = sorted(set(d) - set(CLAUDE_DEFAULT))
+    if unknown:
+        raise ValueError(f"unknown claude field(s): {', '.join(map(str, unknown))}")
     out = dict(CLAUDE_DEFAULT)
     out.update(d)
     if "mode" in d and "owner_mode" not in d:
@@ -114,6 +117,9 @@ class Guest:
     web: bool = True               # terminals in the browser (sb-<name>), /web, /newpassword
     rules: Dict = field(default_factory=dict)   # what its agent may do (rules_active)
     claude: Dict = field(default_factory=lambda: dict(CLAUDE_DEFAULT))   # whose credential
+    # why the stored block is unusable (then `claude` shows owner_sub defaults, which the
+    # gate must NOT run on: no silent fallback to the subscription); None when fine
+    claude_error: Optional[str] = None
 
     def limit_lifted(self, now: Optional[float] = None) -> bool:
         return self.unlimited_until > (time.time() if now is None else now)
@@ -188,10 +194,11 @@ class GuestBook:
         else:                       # a record from before 30.10.2026: only a daily limit
             five = int(rec.get("daily_limit") or 0)
             week = 7 * five
-        try:    # a hand-edited bad block must not crash the turnstile: it reads as before
+        claude_error = None
+        try:    # a hand-edited bad block must not crash the turnstile
             claude = validate_claude(rec.get("claude"))
-        except ValueError:
-            claude = dict(CLAUDE_DEFAULT)
+        except ValueError as e:
+            claude, claude_error = dict(CLAUDE_DEFAULT), str(e)
         return Guest(
             name=name,
             five_hour_limit=five,
@@ -202,6 +209,7 @@ class GuestBook:
             web=bool(rec.get("web", True)),
             rules=dict(rec.get("rules") or {}),
             claude=claude,
+            claude_error=claude_error,
         )
 
     def lookup(self, secret: str) -> Optional[Guest]:
