@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Turnstile — guests reach the Claude API on the owner's subscription with a personal pass.
+"""Turnstile — guests reach the Claude API with a personal pass.
 
 A guest sandbox only knows ``ANTHROPIC_BASE_URL=http://<turnstile>`` and
-``ANTHROPIC_AUTH_TOKEN=<pass>``. The turnstile checks the pass, swaps it for the owner's
-OAuth login (read from ``~/.claude/oauth.env``, never copied, never sent back), forwards
-only ``/v1/messages*`` to api.anthropic.com, records each guest's usage and refuses a
-guest who has used up the 5-hour or the weekly limit (like the subscription's; decision
-30.10.2026). Only hashes of passes are stored.
+``ANTHROPIC_AUTH_TOKEN=<pass>``. The turnstile checks the pass and swaps it for the
+credential of the guest's ``claude.mode`` (never copied into the sandbox, never sent
+back): ``owner_key`` — the owner's API key, a dollar limit a week; ``own`` — the guest's
+own key or login, no limit; ``owner_sub`` — the owner's OAuth login (``~/.claude/oauth.env``)
+with the 5-hour and weekly token limits (decision 30.10.2026). A missing credential is
+refused, never replaced by another. Only ``/v1/messages*`` goes to api.anthropic.com;
+each guest's usage is recorded. Only hashes of passes are stored.
 
     turnstile.py serve                       run the gate (env: TURNSTILE_BIND/PORT, ...)
     turnstile.py add <name> --limit N [--tg ID]   new guest (N: per week), prints the pass ONCE
@@ -40,7 +42,9 @@ from zoneinfo import ZoneInfo
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
+import claudekeys  # noqa: E402
 import guestenv  # noqa: E402
+import pricing  # noqa: E402
 import texts  # noqa: E402
 from texts import t as _t  # noqa: E402
 OAUTH_BETA = "oauth-2025-04-20"
@@ -369,6 +373,23 @@ class UsageParser:
         self._buf = b""
 
 
+def _add_column(db, table: str, column: str) -> None:
+    """ALTER TABLE ... ADD COLUMN unless it is there already — also when another process
+    opening the same old db added it between our look and our ALTER."""
+    if column.split()[0] in {r[1] for r in db.execute(f"PRAGMA table_info({table})")}:
+        return
+    try:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {column}")
+    except sqlite3.OperationalError as exc:
+        if "duplicate column" not in str(exc).lower():
+            raise
+
+
+# the subscription's token windows (5 hours, week, the hourly alert) count only the
+# subscription's own traffic: a guest's own-key or owner-key requests never eat it
+_SUB = "COALESCE(mode, 'owner_sub')='owner_sub'"
+
+
 class Ledger:
     """Per-request usage in SQLite; the day boundary is the owner's local midnight."""
 
@@ -384,11 +405,8 @@ class Ledger:
             self._db.execute("CREATE INDEX IF NOT EXISTS usage_day ON usage(day, guest)")
             self._db.execute("CREATE INDEX IF NOT EXISTS usage_guest_ts ON usage(guest, ts)")
             self._db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
-            have = {r[1] for r in self._db.execute("PRAGMA table_info(usage)")}
-            if "mode" not in have:
-                self._db.execute("ALTER TABLE usage ADD COLUMN mode TEXT DEFAULT 'owner_sub'")
-            if "usd" not in have:
-                self._db.execute("ALTER TABLE usage ADD COLUMN usd REAL DEFAULT 0")
+            _add_column(self._db, "usage", "mode TEXT DEFAULT 'owner_sub'")
+            _add_column(self._db, "usage", "usd REAL DEFAULT 0")
             self._db.commit()
 
     def once(self, key: str) -> bool:
@@ -468,7 +486,7 @@ class Ledger:
     def spent_today(self, guest: str) -> int:
         with self._lock:
             row = self._db.execute(
-                "SELECT COALESCE(SUM(weighted),0) FROM usage WHERE day=? AND guest=?",
+                f"SELECT COALESCE(SUM(weighted),0) FROM usage WHERE day=? AND guest=? AND {_SUB}",
                 (self.today(), guest),
             ).fetchone()
         return int(row[0])
@@ -476,7 +494,7 @@ class Ledger:
     def spent_since(self, guest: str, since: float) -> int:
         with self._lock:
             row = self._db.execute(
-                "SELECT COALESCE(SUM(weighted),0) FROM usage WHERE ts>=? AND guest=?",
+                f"SELECT COALESCE(SUM(weighted),0) FROM usage WHERE ts>=? AND guest=? AND {_SUB}",
                 (since, guest),
             ).fetchone()
         return int(row[0])
@@ -484,7 +502,8 @@ class Ledger:
     def spent_between(self, guest: str, start: float, end: float) -> int:
         with self._lock:
             row = self._db.execute(
-                "SELECT COALESCE(SUM(weighted),0) FROM usage WHERE guest=? AND ts>=? AND ts<?",
+                "SELECT COALESCE(SUM(weighted),0) FROM usage WHERE guest=? AND ts>=? AND ts<?"
+                f" AND {_SUB}",
                 (guest, start, end),
             ).fetchone()
         return int(row[0])
@@ -503,7 +522,7 @@ class Ledger:
         with self._lock:
             while True:
                 row = self._db.execute(
-                    "SELECT MIN(ts) FROM usage WHERE guest=? AND ts>=? AND ts<=?",
+                    f"SELECT MIN(ts) FROM usage WHERE guest=? AND ts>=? AND ts<=? AND {_SUB}",
                     (guest, t, now),
                 ).fetchone()
                 if row[0] is None:
@@ -542,6 +561,24 @@ class SpendWatch:
         text = _t("spend_alert", guest=guest, hour_pct=spent / WEEK_PERCENT, hour_m=spent / 1e6,
                   today_pct=today / WEEK_PERCENT)
         self.log(f"ALERT guest={guest} hour={spent} today={today}")
+        self._deliver(text)
+
+    def check_usd(self, guest: str, usd_week: float) -> None:
+        """A guest on the owner's API key: tell the owner when it spends MORE than a quarter
+        of its week's dollars within ``window`` (owner_key rows only; same cooldown)."""
+        now = self.clock()
+        spent = self.ledger.usd_since(guest, now - self.window)
+        if not spent > usd_week / 4:
+            return
+        with self._lock:
+            key = "usd:" + guest
+            if now - self._last.get(key, float("-inf")) < self.cooldown:
+                return
+            self._last[key] = now
+        self.log(f"ALERT-USD guest={guest} hour=${spent:.4f} week_limit=${usd_week}")
+        self._deliver(_t("usd_spend_alert", guest=guest, hour=spent, limit=usd_week))
+
+    def _deliver(self, text: str) -> None:
         if self.background:
             threading.Thread(target=self._send, args=(text,), daemon=True).start()
         else:
@@ -562,8 +599,13 @@ def tg_notify(text: str) -> None:
 # --------------------------------------------------------------------------- #
 # the gate
 # --------------------------------------------------------------------------- #
-def rewrite_headers(headers, owner: str) -> Dict[str, str]:
-    """Drop the guest's pass and hop-by-hop headers; put the owner's login in."""
+def rewrite_headers(headers, auth: Tuple[str, str]) -> Dict[str, str]:
+    """Drop the guest's pass and hop-by-hop headers; put the upstream credential in.
+    ("oauth", token): a subscription login, Authorization: Bearer + the oauth beta;
+    ("api", key): an API key, x-api-key and no oauth beta (dropped when nothing is left)."""
+    kind, secret = auth
+    if kind not in ("oauth", "api"):
+        raise ValueError(f"bad credential kind {kind!r}")
     out: Dict[str, str] = {}
     betas: list = []
     for key, value in headers.items():
@@ -573,12 +615,38 @@ def rewrite_headers(headers, owner: str) -> Dict[str, str]:
         if low in _DROP_REQUEST:
             continue
         out[key] = value
-    if OAUTH_BETA not in betas:
-        betas.append(OAUTH_BETA)
-    out["authorization"] = f"Bearer {owner}"
-    out["anthropic-beta"] = ",".join(betas)
+    if kind == "oauth":
+        if OAUTH_BETA not in betas:
+            betas.append(OAUTH_BETA)
+        out["authorization"] = f"Bearer {secret}"
+    else:
+        betas = [b for b in betas if b != OAUTH_BETA]
+        out["x-api-key"] = secret
+    if betas:
+        out["anthropic-beta"] = ",".join(betas)
     out["accept-encoding"] = "identity"
     return out
+
+
+def upstream_auth(guest, keys: Optional["claudekeys.KeyStore"],
+                  owner_token: Callable[[], str]) -> Optional[Tuple[str, str]]:
+    """The credential a guest's requests go upstream with, None when it is missing.
+    Each mode has exactly one: nothing ever falls back to the owner's subscription."""
+    mode = guest.claude["mode"]
+    if mode == "owner_sub":
+        try:
+            token = owner_token()
+        except Exception:       # missing or unreadable login: refused, never another key
+            return None
+        return ("oauth", token) if token else None
+    if keys is None:
+        return None
+    if mode == "owner_key":
+        key = keys.owner()
+        return ("api", key) if key else None
+    if mode == "own":
+        return keys.get(guest.name)
+    return None
 
 
 USAGE_PATH = "/guest/usage"
@@ -639,11 +707,32 @@ def guest_usage(guest, ledger, now: Optional[float] = None) -> Dict:
     return out
 
 
+def usd_window(guest, ledger, now: Optional[float] = None) -> Dict:
+    """{"used", "limit", "resets_at"}: dollars spent on the owner's key this week
+    (week_bounds, the same week as the token limits), the guest's usd_week."""
+    now = time.time() if now is None else now
+    start, end = week_bounds(now, ledger.week_reset())
+    return {"used": ledger.usd_between(guest.name, start, end),
+            "limit": guest.claude["usd_week"], "resets_at": math.ceil(end)}
+
+
 def over_limit(guest, ledger, now: Optional[float] = None) -> Optional[str]:
     """The refusal text when the guest has used up a limit, None to let it through.
-    Over both: the week is said — it comes back later."""
+    The limit follows the mode: owner_key — dollars a week only; own — none;
+    owner_sub — the 5-hour and weekly tokens (over both: the week is said, it comes back
+    later)."""
     now = time.time() if now is None else now
     if guest.limit_lifted(now):
+        return None
+    mode = guest.claude["mode"]
+    if mode == "own":
+        return None
+    if mode == "owner_key":
+        usd = usd_window(guest, ledger, now)
+        if usd["used"] >= usd["limit"]:
+            at = datetime.fromtimestamp(usd["resets_at"], DAY_TZ)
+            return _t("gate_limit_usd", spent=usd["used"], limit=usd["limit"],
+                      day=_t("weekdays").split()[at.weekday()], at=at.strftime("%H:%M"))
         return None
     w = usage_windows(guest, ledger, now)
     week, five = w["seven_day"], w["five_hour"]
@@ -774,6 +863,32 @@ def _allowed_path(path: str) -> bool:
     return bare == "/v1/messages" or bare.startswith("/v1/messages/")
 
 
+OWNER_TOLD_EVERY = 3600     # the same problem is told to the owner at most once an hour
+_ERR_CAP = 64 * 1024        # how much of an upstream error answer is looked at
+
+
+def _clip(text: str, secret: Optional[str] = None, cap: int = 200) -> str:
+    """A piece of text for the owner's message: no secret in it, one line, short."""
+    text = str(text or "")
+    if secret:
+        text = text.replace(secret, "…")
+    text = " ".join(re.sub(r"sk-ant-\S*", "…", text).split())
+    return text[:cap]
+
+
+def _upstream_message(raw: bytes, secret: str) -> str:
+    """Anthropic's error message out of its answer (the body itself when it isn't JSON)."""
+    msg = None
+    try:
+        err = json.loads(raw).get("error")
+        msg = err.get("message") if isinstance(err, dict) else None
+    except (ValueError, AttributeError):
+        pass
+    if not isinstance(msg, str):
+        msg = bytes(raw).decode("utf-8", "replace")
+    return _clip(msg, secret)
+
+
 def _error(kind: str, message: str) -> bytes:
     return json.dumps(
         {"type": "error", "error": {"type": kind, "message": message}}, ensure_ascii=False
@@ -790,10 +905,56 @@ def make_server(
     log: Callable[[str], None] = lambda line: print(line, file=sys.stderr, flush=True),
     watch: Optional["SpendWatch"] = None,
     notify: Optional[Callable[[str], None]] = None,
+    keys: Optional["claudekeys.KeyStore"] = None,
+    prices: Callable[[Optional[str], Dict], float] = pricing.usd,
+    clock: Callable[[], float] = time.time,
 ) -> ThreadingHTTPServer:
+    """`keys`: the owner's API key and the guests' own (claudekeys.KeyStore; None — none
+    saved); `prices`: dollars of one request (pricing.usd); `clock`: for the owner's
+    once-an-hour messages."""
     scheme, up_host, up_port = upstream
     flags: Dict[str, deque] = {}
     flags_lock = threading.Lock()
+    told_at: Dict[str, float] = {}
+    told_lock = threading.Lock()
+
+    def send_owner(text: str) -> None:
+        """On its own thread: a slow or failing Telegram never holds a guest's request."""
+        def run() -> None:
+            try:
+                (notify or tg_notify)(text)
+            except Exception as exc:
+                log(f"OWNER-NOTIFY-FAILED {exc!r}")
+        threading.Thread(target=run, daemon=True).start()
+
+    def tell_owner(key: str, text: str) -> None:
+        """At most once an hour per `key` ("ownerkey" is one key for all guests)."""
+        now = clock()
+        with told_lock:
+            if now - told_at.get(key, float("-inf")) < OWNER_TOLD_EVERY:
+                return
+            told_at[key] = now
+        log(f"OWNER-TOLD {key}")
+        send_owner(text)
+
+    def login_error() -> str:
+        try:
+            owner_token()
+            return "empty"
+        except Exception as exc:
+            return _clip(str(exc))
+
+    def after_owner_key(guest) -> None:
+        """The owner hears once a week when the guest's dollars cross notify_at."""
+        c = guest.claude
+        start, _ = week_bounds(time.time(), ledger.week_reset())
+        used = ledger.usd_between(guest.name, start, start + WEEK)
+        if used >= c["notify_at"] * c["usd_week"] \
+                and ledger.once(f"usd80:{guest.name}:{int(start)}"):
+            log(f"USD-NOTICE guest={guest.name} ${used:.2f} of ${c['usd_week']}")
+            send_owner(_t("usd_notice", guest=guest.name, spent=used, limit=c["usd_week"]))
+        if watch is not None and hasattr(watch, "check_usd"):
+            watch.check_usd(guest.name, c["usd_week"])
 
     def flag_allowed(name: str) -> bool:
         now = time.time()
@@ -837,6 +998,33 @@ def make_server(
             if not _allowed_path(self.path):
                 log(f"DENY path guest={guest.name} {self.command} {self.path}")
                 return self._reply(403, _error("permission_error", _t("gate_path")))
+            unavailable = _error("api_error", _t("gate_no_owner_key"))
+            if guest.claude_error:          # never the subscription defaults it reads as
+                log(f"DENY claude-settings guest={guest.name}")
+                tell_owner("broken:" + guest.name, _t(
+                    "owner_claude_broken", guest=guest.name, error=_clip(guest.claude_error)))
+                return self._reply(503, unavailable)
+            mode = guest.claude["mode"]
+            auth = upstream_auth(guest, keys, owner_token)
+            if auth is None:
+                log(f"DENY no-credential mode={mode} guest={guest.name}")
+                if mode == "own":
+                    return self._reply(403, _error("permission_error", _t("gate_no_own_key")))
+                if mode == "owner_key":
+                    tell_owner("ownerkey", _t("owner_key_problem", guest=guest.name,
+                                              error=_t("ownerkey_missing")))
+                else:
+                    tell_owner("ownerlogin", _t("owner_login_problem", guest=guest.name,
+                                                error=login_error()))
+                return self._reply(503, unavailable)
+            if mode == "owner_key":
+                try:                        # no dollars counted, no dollars spent
+                    prices(None, {})
+                except Exception as exc:
+                    log(f"PRICE-ERROR guest={guest.name} {exc!r}")
+                    tell_owner("prices", _t("owner_key_problem", guest=guest.name, error=_t(
+                        "ownerkey_prices", error=_clip(str(exc)))))
+                    return self._reply(503, unavailable)
             refusal = over_limit(guest, ledger)
             if refusal:
                 log(f"LIMIT guest={guest.name} {refusal}")
@@ -855,14 +1043,18 @@ def make_server(
             try:
                 conn = conn_cls(up_host, up_port, timeout=900)
                 conn.request(self.command, self.path, body=body,
-                             headers=rewrite_headers(self.headers, owner_token()))
+                             headers=rewrite_headers(self.headers, auth))
                 resp = conn.getresponse()
             except OSError as exc:
                 log(f"UPSTREAM-ERROR guest={guest.name} {exc!r}")
                 return self._reply(502, _error("api_error", _t("gate_upstream")))
-            reset = (resp.getheader(WEEK_RESET_HEADER) or "").strip()
-            if reset.isdigit():
-                ledger.set_week_reset(int(reset))      # the guests' week follows the owner's
+            if mode == "owner_sub":     # a guest's own login would bring its own reset
+                reset = (resp.getheader(WEEK_RESET_HEADER) or "").strip()
+                if reset.isdigit():
+                    ledger.set_week_reset(int(reset))  # the guests' week follows the owner's
+            # the owner's key refused (revoked, disabled, out of credit): the guest gets
+            # Anthropic's answer as it is, the owner is told
+            err = bytearray() if mode == "owner_key" and resp.status in (400, 401, 403) else None
 
             self.send_response(resp.status)
             for key, value in resp.getheaders():
@@ -876,6 +1068,8 @@ def make_server(
                     if not chunk:
                         break
                     parser.feed(chunk)
+                    if err is not None and len(err) < _ERR_CAP:
+                        err += chunk[:_ERR_CAP - len(err)]
                     self.wfile.write(chunk)
                     self.wfile.flush()
             except OSError as exc:  # guest hung up mid-stream: still count what came
@@ -883,14 +1077,29 @@ def make_server(
             finally:
                 parser.close()
                 conn.close()
-            used = ledger.record(guest.name, parser.model, parser.usage) if parser.usage else 0
+            if err is not None and (resp.status != 400 or b"credit balance" in bytes(err).lower()):
+                tell_owner("ownerkey", _t("owner_key_problem", guest=guest.name, error=_t(
+                    "ownerkey_refused", status=resp.status,
+                    message=_upstream_message(bytes(err), auth[1]))))
+            used, usd = 0, 0.0
+            if parser.usage:
+                if mode == "owner_key":
+                    try:
+                        usd = float(prices(parser.model, parser.usage))
+                    except Exception as exc:
+                        log(f"PRICE-ERROR guest={guest.name} {exc!r}")
+                        tell_owner("prices", _t("owner_key_problem", guest=guest.name, error=_t(
+                            "ownerkey_prices", error=_clip(str(exc)))))
+                used = ledger.record(guest.name, parser.model, parser.usage, mode=mode, usd=usd)
             log(f"PASS guest={guest.name} {self.command} {self.path} {resp.status} "
-                f"model={parser.model} weighted={used}")
-            if used and watch is not None:
-                try:
+                f"mode={mode} model={parser.model} weighted={used} usd={usd:.6f}")
+            try:
+                if mode == "owner_sub" and used and watch is not None:
                     watch.check(guest.name)
-                except Exception as exc:
-                    log(f"WATCH-ERROR guest={guest.name} {exc!r}")
+                elif mode == "owner_key" and parser.usage:
+                    after_owner_key(guest)
+            except Exception as exc:
+                log(f"WATCH-ERROR guest={guest.name} {exc!r}")
 
         def _flag(self, guest) -> None:
             length = int(self.headers.get("content-length") or 0)
@@ -965,12 +1174,18 @@ def main(argv=None) -> int:
 
     if args.cmd == "serve":
         ledger = Ledger(data / "usage.db")
+        keys = claudekeys.KeyStore(data)
         token = owner_token_from(Path(os.environ.get(
             "TURNSTILE_OAUTH_ENV", Path.home() / ".claude" / "oauth.env")))
-        token()  # fail fast if the owner's login is missing
+        try:    # only guests on the owner's subscription need it: a server may have none
+            token()
+        except Exception as exc:
+            print(f"turnstile: WARNING the owner's subscription login can't be read "
+                  f"({_clip(str(exc))}); guests on owner_sub are refused until it can",
+                  file=sys.stderr, flush=True)
         bind = os.environ.get("TURNSTILE_BIND", "127.0.0.1")
         port = int(os.environ.get("TURNSTILE_PORT", "8790"))
-        server = make_server(bind, port, book, ledger, token,
+        server = make_server(bind, port, book, ledger, token, keys=keys,
                              watch=SpendWatch(ledger, notify=tg_notify))
         print(f"turnstile on {bind}:{port}, guests: {', '.join(book.names()) or '-'}",
               file=sys.stderr, flush=True)

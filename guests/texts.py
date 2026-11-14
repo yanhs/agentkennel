@@ -109,6 +109,31 @@ EN = {
                    "last hour ({hour_m:.1f}M). Today in total ≈{today_pct:.1f}%.\n"
                    "If this wasn't expected, see what keeps running: the guest's services "
                    "(/services) or `turnstile.py disable {guest}`.",
+    # -- whose Claude a guest runs on (claude.mode) -------------------------------------- #
+    "gate_no_owner_key": "Claude isn't available right now: the owner has been told.",
+    "gate_no_own_key": "This sandbox runs Claude on your own key or login, and none is saved "
+                       "yet. Add one: /claude in the bot, or \"Claude\" in the panel.",
+    "gate_limit_usd": "Weekly limit used up (${spent:.2f} of ${limit:.2f}). It resets on {day} "
+                      "at {at}, Los Angeles time.",
+    "owner_key_problem": "⚠️ Claude on your API key, guest {guest}: {error}",
+    "ownerkey_missing": "no API key is saved. Guests on your key are refused until you add one "
+                        "(Server → Guests → Settings) or switch them to another way of "
+                        "running Claude.",
+    "ownerkey_refused": "Anthropic refused the key (HTTP {status}: {message}). Guests on your "
+                        "key get this error until it's fixed.",
+    "ownerkey_prices": "the price table can't be read ({error}), so dollars can't be counted. "
+                       "Guests on your key are refused until it's fixed.",
+    "owner_claude_broken": "⚠️ Guest {guest}: their Claude settings in guests.json are not "
+                           "valid ({error}). Their requests are refused until they're fixed "
+                           "(the Claude button on the guest's row saves valid ones).",
+    "owner_login_problem": "⚠️ Guest {guest} runs on your subscription, but its login can't be "
+                           "read ({error}). Their requests are refused until it's fixed.",
+    "usd_notice": "💵 Guest {guest} has spent ${spent:.2f} of their ${limit:.2f} a week on your "
+                  "API key.",
+    "usd_spend_alert": "⚠️ Sandbox {guest}: ${hour:.2f} spent on your API key in the last hour, "
+                       "more than a quarter of their ${limit:.2f} a week.\n"
+                       "If this wasn't expected, see what keeps running: the guest's services "
+                       "(/services) or `turnstile.py disable {guest}`.",
     "ts_on": "on",
     "ts_off": "OFF",
     "ts_unlimited_until": " NO LIMIT until {until}",
@@ -276,6 +301,31 @@ RU = {
                    "недели подписки ({hour_m:.1f} млн). Сегодня всего ≈{today_pct:.1f}%.\n"
                    "Если это не ожидалось — посмотреть, что крутится: службы гостя (/services) "
                    "или `turnstile.py disable {guest}`.",
+    "gate_no_owner_key": "Claude сейчас недоступен: владельцу сообщили.",
+    "gate_no_own_key": "Эта песочница работает на вашем собственном ключе или входе Claude, а он "
+                       "ещё не добавлен. Добавить: /claude в боте или «Claude» в панели.",
+    "gate_limit_usd": "Недельный лимит исчерпан (${spent:.2f} из ${limit:.2f}). "
+                      "Сбросится в {day} в {at} по Лос-Анджелесу.",
+    "owner_key_problem": "⚠️ Claude на вашем API-ключе, гость {guest}: {error}",
+    "ownerkey_missing": "API-ключ не сохранён. Гостям на вашем ключе отказывается, пока вы его "
+                        "не добавите (Сервер → Гости → Настройки) или не переведёте их на "
+                        "другой способ.",
+    "ownerkey_refused": "Anthropic не принял ключ (HTTP {status}: {message}). Гости на вашем "
+                        "ключе получают эту ошибку, пока это не исправлено.",
+    "ownerkey_prices": "не читается таблица цен ({error}), доллары не посчитать. Гостям на "
+                       "вашем ключе отказывается, пока это не исправлено.",
+    "owner_claude_broken": "⚠️ Гость {guest}: настройки Claude в guests.json неверны ({error}). "
+                           "Запросам гостя отказывается, пока их не исправят (кнопка Claude "
+                           "в строке гостя сохраняет верные).",
+    "owner_login_problem": "⚠️ Гость {guest} работает на вашей подписке, но вход в неё не "
+                           "читается ({error}). Запросам гостя отказывается, пока это не "
+                           "исправлено.",
+    "usd_notice": "💵 Гость {guest} потратил ${spent:.2f} из ${limit:.2f} в неделю на вашем "
+                  "API-ключе.",
+    "usd_spend_alert": "⚠️ Песочница {guest}: за последний час потрачено ${hour:.2f} на вашем "
+                       "API-ключе — больше четверти недельных ${limit:.2f}.\n"
+                       "Если это не ожидалось — посмотреть, что крутится: службы гостя "
+                       "(/services) или `turnstile.py disable {guest}`.",
     "ts_on": "вкл",
     "ts_off": "ВЫКЛ",
     "ts_unlimited_until": " БЕЗ ЛИМИТА до {until}",
