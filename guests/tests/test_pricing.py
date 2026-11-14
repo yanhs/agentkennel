@@ -172,3 +172,27 @@ def test_an_empty_table_is_an_error_not_free(tmp_path):
         pricing.load(p)
     with pytest.raises(ValueError):
         pricing.usd("claude-opus-5-5", {"output_tokens": 1}, path=p)
+
+
+# --- the stricter rule: first "-" segment after the key is a 1-2 digit number => version extends ---
+def _table_with_a_dearer_max(tmp_path):
+    z = {"input": 0, "cache_write": 0, "cache_read": 0}
+    return _write(tmp_path, {"opus-4": {**z, "output": 75}, "opus-4-5": {**z, "output": 25},
+                             "sonnet-5": {**z, "output": 10}, "sonnet-5-5": {**z, "output": 10},
+                             "dear-1": {**z, "output": 500}})
+
+
+@pytest.mark.parametrize("model", ["claude-opus-4-9-20270101", "claude-opus-4-9", "claude-opus-4-9[1m]",
+                                   "claude-sonnet-5-6[1m]", "claude-sonnet-5-6", "claude-sonnet-5-6-20270101",
+                                   "claude-sonnet-5-6@20270101"])
+def test_a_version_extending_id_gets_the_max_whatever_follows(tmp_path, model):
+    p = _table_with_a_dearer_max(tmp_path)
+    assert pricing.usd(model, {"output_tokens": 1_000_000}, path=p) == pytest.approx(500)
+
+
+@pytest.mark.parametrize("model,out", [
+    ("claude-opus-4-5-20251101", 25), ("claude-opus-4-20250514", 75), ("claude-opus-4-latest", 75),
+    ("claude-sonnet-5-5[1m]", 10), ("claude-sonnet-5-20260101", 10), ("claude-sonnet-5@20260101", 10)])
+def test_a_date_or_a_word_after_the_key_still_matches(tmp_path, model, out):
+    p = _table_with_a_dearer_max(tmp_path)
+    assert pricing.usd(model, {"output_tokens": 1_000_000}, path=p) == pytest.approx(out)
