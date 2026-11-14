@@ -740,7 +740,9 @@ def claude_view(guest, ledger, keys, now: Optional[float] = None) -> Dict:
     out = {"mode": c["mode"], "owner_mode": c.get("owner_mode"),
            "has_key": have is not None,
            "last4": claudekeys.last4(have[1]) if have else None,
-           "usd": usd_window(guest, ledger, now) if c["mode"] == "owner_key" else None}
+           "usd": usd_window(guest, ledger, now) if c["mode"] == "owner_key" else None,
+           # the dollar limit kept for this guest whatever runs now (the owner's form shows it)
+           "usd_week": c["usd_week"]}
     if guest.claude_error:
         out["error"] = True
     return out

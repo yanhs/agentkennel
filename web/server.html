@@ -304,7 +304,7 @@
     }
     .gform input.gin:focus { outline: none; border-color: var(--accent); }
     .gform input.glim-usd-in, .gform input.glim-pct-in { width: 64px; }
-    .gform input.gkey { width: 300px; max-width: 100%; }
+    .gform input.gkey { width: 300px; max-width: 100%; -webkit-text-security: disc; text-security: disc; }
     .gform .gkeyrow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
     .gkeystate { font-size: 11.5px; }
     .gkeystate.ok { color: var(--green); }
@@ -1103,6 +1103,10 @@
     + "Guests would use your Pro/Max plan and its limits. If you turn this on, it's your call.";
   const G_NOKEY = 'Add your API key in Settings — new guests run on it';
   let gKeyErr = '', gNewBuilt = false, gNewSync = null;
+  // forms whose POST is on its way ('settings', 'claude:<name>'): their Save stays off,
+  // whatever a poll or a click re-checks meanwhile
+  const gSaving = new Set();
+  const gClaudeNote = new Map();          // name -> a note shown once in the reopened form
   const fmtUsd = v => '$' + (Number.isInteger(v) ? String(v) : (v || 0).toFixed(2));
   // a weekly token limit as a share of your subscription's week, one decimal ("16.1")
   const gWeekPct = t => String(Math.round(t / OWNER_WEEK * 10) / 10);
@@ -1314,11 +1318,13 @@
     if (placeholder) i.placeholder = placeholder;
     return i;
   }
-  // A key field: never filled from the server, emptied right after it is sent.
+  // A key field: never filled from the server, emptied right after it is sent. Masked by
+  // CSS, not type=password, so the browser doesn't offer to save it as a password.
   function gKeyIn(cls, placeholder) {
     const i = el('input', 'gin gkey ' + cls);
-    i.type = 'password'; i.autocomplete = 'off'; i.spellcheck = false;
-    i.setAttribute('autocomplete', 'off'); i.setAttribute('spellcheck', 'false');
+    i.type = 'text'; i.spellcheck = false;
+    for (const [k, v] of [['autocomplete', 'off'], ['spellcheck', 'false'], ['autocapitalize', 'off'],
+      ['autocorrect', 'off'], ['data-1p-ignore', ''], ['data-lpignore', 'true']]) i.setAttribute(k, v);
     i.placeholder = placeholder;
     return i;
   }
@@ -1336,8 +1342,9 @@
     return w;
   }
   // The radios, the limit that follows them and the warning, wired to a Save button.
-  // `saved` is the choice on the server (null: none can be read); returns a refresh().
-  function gModeWire(box, radio, saved, parts, save) {
+  // `saved` is the choice on the server (null: none can be read); `busy` is its gSaving key;
+  // returns a refresh().
+  function gModeWire(box, radio, saved, parts, save, busy) {
     let prev = saved;
     const picked = () => (box.querySelector(`input[name="${CSS.escape(radio)}"]:checked`) || {}).value;
     const refresh = () => {
@@ -1358,7 +1365,7 @@
         }));
       } else if (!ask) parts.warn.replaceChildren();
       const ok = parts.warn.querySelector('input.gwarn-ok');
-      save.disabled = !v || (ask && !(ok && ok.checked));
+      save.disabled = gSaving.has(busy) || !v || (ask && !(ok && ok.checked));
       if (v && v !== 'owner_sub') prev = v;
     };
     box.addEventListener('change', e => { if (e.target.matches(`input[name="${CSS.escape(radio)}"], input.gwarn-ok`)) refresh(); });
@@ -1368,8 +1375,10 @@
   function gClaudeForm(g) {
     const c = g.claude || {}, saved = c.error ? null : c.mode, radio = `gcl-${g.name}`;
     const box = el('div', 'gclaude gform');
+    box.dataset.saved = saved || '';      // Save compares it with the latest poll
     const s = (gLast && gLast.settings) || {};
-    const usdIn = gNumIn('glim-usd-in', c.usd && c.usd.limit > 0 ? String(c.usd.limit) : '', String(s.usd_week || 20));
+    const kept = c.usd_week > 0 ? c.usd_week : c.usd && c.usd.limit > 0 ? c.usd.limit : null;
+    const usdIn = gNumIn('glim-usd-in', kept == null ? '' : String(kept), String(s.usd_week || 20));
     const usd = el('div', 'grsub glim glim-usd');
     usd.append('Limit $', usdIn, ' a week' + (c.usd ? ` · spent $${(c.usd.used || 0).toFixed(2)}`
       + (c.usd.resets_at ? ` · resets ${gWhen(c.usd.resets_at)}` : '') : ''));
@@ -1384,7 +1393,10 @@
     const save = el('button', 'gbtn primary gclaude-save', 'Save'); save.type = 'button';
     const cancel = el('button', 'gbtn gclaude-cancel', 'Cancel'); cancel.type = 'button';
     const btns = el('div', 'gracts'); btns.append(save, cancel);
+    const note = gClaudeNote.get(g.name);
+    gClaudeNote.delete(g.name);
     box.append(el('h4', null, `Claude for ${g.name}`),
+      ...(note ? [el('div', 'gneed gclaude-note', note)] : []),
       ...(c.error ? [el('div', 'gneed', `${g.name}'s Claude settings could not be read: choose again and save.`)] : []),
       gGrf(null, gChoice('radio', radio, 'owner_key', 'Your API key', saved === 'owner_key'), usd,
         gChoice('radio', radio, 'own', 'Their own key or login', saved === 'own'),
@@ -1392,21 +1404,29 @@
           + (c.has_key && c.last4 ? ` Their key now: …${c.last4}` : '')), key,
         gChoice('radio', radio, 'owner_sub', 'Your subscription ⚠', saved === 'owner_sub'), warn, pct),
       err, btns);
-    gModeWire(box, radio, saved, { usd, pct, key, warn }, save)();
+    box.refresh = gModeWire(box, radio, saved, { usd, pct, key, warn }, save, `claude:${g.name}`);
+    box.refresh();
     return box;
   }
   async function gSaveClaude(name) {
     const box = gRows.get(name) && gRows.get(name).querySelector('.gclaude');
     const g = ((gLast && gLast.guests) || []).find(x => x.name === name);
     if (!box || !g) return;
-    const c = g.claude || {}, saved = c.error ? null : c.mode;
+    const busy = `claude:${name}`;
     const err = box.querySelector('.gclaude-err');
     const say = msg => { err.textContent = msg; err.hidden = !msg; };
     const save = box.querySelector('.gclaude-save');
-    if (save.disabled) return;
-    const v = (box.querySelector(`input[name="gcl-${CSS.escape(name)}"]:checked`) || {}).value;
+    if (save.disabled || gSaving.has(busy)) return;
     const keyIn = box.querySelector('input.gcl-key'), usdIn = box.querySelector('input.glim-usd-in'),
       pctIn = box.querySelector('input.glim-pct-in');
+    // what the form was opened on; if the guest switched meanwhile (/claude in the bot),
+    // nothing is sent: a mode sent now could drop their key or skip the subscription tick
+    const saved = box.dataset.saved || null, c = g.claude || {}, now = c.error ? null : c.mode;
+    if (now !== saved) {
+      keyIn.value = '';
+      return say(`${name} changed their Claude meanwhile — reopen`);
+    }
+    const v = (box.querySelector(`input[name="gcl-${CSS.escape(name)}"]:checked`) || {}).value;
     const secret = keyIn.value.trim();
     const calls = [];
     if (v === 'own') {
@@ -1429,16 +1449,26 @@
         calls.push(['limit', { name, limit: Math.round(p * OWNER_WEEK) }]);
       }
     }
+    gSaving.add(busy);
     save.disabled = true;
+    let warning = '';
     try {
-      for (const [what, body] of calls) await gPost(what, body);
+      for (const [what, body] of calls) {
+        const res = await gPost(what, body);
+        if (res && res.warning === 'no_owner_key') warning = 'Saved. Add your API key in Settings — this guest is refused until then.';
+      }
     } catch (e) {
-      save.disabled = false;
+      gSaving.delete(busy);
+      box.refresh();
       return say(e.message);
     } finally {
       keyIn.value = '';                   // never kept on the page, whatever the answer
+      gSaving.delete(busy);
     }
-    gClaudeOpen.delete(name);
+    if (warning) {                        // reopened on what was saved, with the note
+      gClaudeNote.set(name, warning);
+      box.remove();
+    } else gClaudeOpen.delete(name);
     gFailed('');
     await pollGuests();
   }
@@ -1561,7 +1591,7 @@
       if (list.children[i] !== r) list.insertBefore(r, list.children[i] || null);
     });
     for (const [n, r] of gRows) if (!seen.has(n)) { r.remove(); gRows.delete(n); gLimitOpen.delete(n); gRulesOpen.delete(n); gClaudeOpen.delete(n); }
-    $('#gNoKey').hidden = !gNoKey(d);
+    $('#gNoKey').hidden = !gNoKey(d) || gWizardOpen;          // Settings says it itself
     gNewRender(d);
     const wiz = $('#gWizard');
     wiz.hidden = !gWizardOpen;
@@ -1607,16 +1637,15 @@
     const keyFirst = el('div', 'grsub gneed gnew-keyfirst', 'Add and check your API key first');
     const own = el('div', 'grsub');
     own.append('The guest sends it to the bot with /claude: an API key, or a token from ',
-      el('code', null, 'claude setup-token'), '. Each guest switches to it themselves, so it is not a default.');
+      el('code', null, 'claude setup-token'), '.');
     const warn = el('div');
     const radio = 'gnew-mode';
     const modes = gGrf('Claude for new guests',
       gChoice('radio', radio, 'owner_key', 'Your API key', s.claude_mode === 'owner_key'),
       el('div', 'grsub', 'Billed to your Anthropic account, by the token. A dollar limit for each guest.'), keyFirst,
-      gChoice('radio', radio, 'own', 'Their own key or login', false), own,
+      gChoice('radio', radio, 'own', 'Their own key or login', s.claude_mode === 'own'), own,
       gChoice('radio', radio, 'owner_sub', 'Your subscription ⚠', s.claude_mode === 'owner_sub'),
       el('div', 'grsub', "Anthropic's terms don't allow one subscription for several people. Asks you to confirm."), warn);
-    modes.querySelector('input[value="own"]').disabled = true;
     // the owner's key: checked with Anthropic before it is kept; only its last 4 come back
     const keyIn = gKeyIn('', 'sk-ant-api03-…'); keyIn.id = 'gNewKey';
     const keySave = el('button', 'gbtn', 'Check and save'); keySave.type = 'button'; keySave.id = 'gNewKeySave';
@@ -1651,7 +1680,7 @@
       modes, gGrf('Your API key (from console.anthropic.com · stays on this server, never in a sandbox)', keyRow),
       limit, gGrf('Web access', webRow), rules, err, acts);
     box.replaceChildren(f);
-    const wired = gModeWire(f, radio, s.claude_mode, { usd, pct, limit, limitLabel, warn }, save);
+    const wired = gModeWire(f, radio, s.claude_mode, { usd, pct, limit, limitLabel, warn }, save, 'settings');
     const refresh = () => {
       wired();
       work.hidden = (f.querySelector('input[name="gnew-rules"]:checked') || {}).value !== 'only';
@@ -1676,7 +1705,7 @@
   }
   async function gNewSave(s) {
     const box = $('#gNew'), save = $('#gNewSave'), err = $('#gNewErr');
-    if (save.disabled) return;
+    if (save.disabled || gSaving.has('settings')) return;
     const say = msg => { err.textContent = msg; err.hidden = !msg; };
     const R = s.rules || {}, patch = {};
     const mode = (box.querySelector('input[name="gnew-mode"]:checked') || {}).value;
@@ -1707,14 +1736,17 @@
     if (JSON.stringify(rules) !== JSON.stringify(R)) patch.rules = rules;
     say('');
     if (!Object.keys(patch).length) { $('#gNewSaved').textContent = 'Nothing changed'; $('#gNewSaved').hidden = false; return; }
+    gSaving.add('settings');
     save.disabled = true;
     let res;
     try {
       res = await gPost('settings', patch);
     } catch (e) {
-      save.disabled = false;
+      gSaving.delete('settings');
+      if (gLast && gNewSync) gNewSync(gLast);
       return say(e.message);
     }
+    gSaving.delete('settings');
     if (gLast && res.settings) gLast.settings = res.settings;
     gNewBuilt = false;
     gRender();

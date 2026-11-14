@@ -286,7 +286,7 @@ def _two_guests(data, monkeypatch):
 
 
 OLD_CLAUDE = {"mode": "owner_sub", "owner_mode": "owner_sub", "has_key": False, "last4": None,
-              "usd": None}
+              "usd": None, "usd_week": 20}
 
 
 def test_list_json_shape(data, monkeypatch, capsys):
@@ -794,7 +794,7 @@ def test_defaults_save_validates_and_round_trips(tmp_path):
     assert gdefaults.load(tmp_path)["usd_week"] == 50
     for bad in ({"usd_week": 0}, {"usd_week": 100001}, {"notify_at": 0}, {"notify_at": 1.5},
                 {"week_limit": 0}, {"week_limit": 1.5}, {"web": "yes"}, {"rules": []},
-                {"claude_mode": "own"}, {"bogus": 1}):
+                {"claude_mode": "nobody"}, {"bogus": 1}):
         with pytest.raises(ValueError):
             gdefaults.save(tmp_path, {**gdefaults.load(tmp_path), **bad})
 
@@ -990,7 +990,7 @@ def test_defaults_rejects_unknown_keys_and_bad_values_and_bad_rules(data, capsys
     claudekeys.KeyStore(data).set_owner(API_KEY)
     for body in ('{"bogus": 1}', '{"usd_week": 0}', '{"notify_at": 2}', '{"week_limit": -5}',
                  '{"web": "no"}', '{"rules": {"on": true, "folders": ["/etc"]}}',
-                 '{"claude_mode": "own"}', "nope"):
+                 '{"claude_mode": "nobody"}', "nope"):
         assert gc.cmd_defaults(ns(set=body)) != 0, body
         assert out_json(capsys)["ok"] is False
     assert gdefaults.load(data) == {"claude_mode": "owner_key", "usd_week": 20, "notify_at": 0.8,
@@ -1120,3 +1120,36 @@ def test_owner_key_week_usd_is_rounded_to_cents(data, monkeypatch, capsys):
     monkeypatch.setattr(gc.ts.Ledger, "usd_between", lambda self, g, a, b: 1.0 / 3 + 0.0049)
     gc.cmd_list(ns(json=True))
     assert json.loads(capsys.readouterr().out)["owner_key_week_usd"] == 0.34
+
+
+# -- fix round 1 (Task 10 review): "Their own key or login" is a default too ------------ #
+def test_defaults_own_is_a_default(data, capsys):
+    """Controller ruling A: the spec and the approved mockup offer it for new guests."""
+    assert gc.main(["defaults", "--set", '{"claude_mode": "own"}']) == 0
+    assert out_json(capsys)["claude_mode"] == "own"
+    assert gdefaults.load(data)["claude_mode"] == "own"
+
+
+def test_add_with_the_own_default_waits_for_their_key(data, monkeypatch, capsys):
+    fake_add_env(data, monkeypatch)
+    gdefaults.save(data, {**gdefaults.load(data), "claude_mode": "own"})
+    assert gc.cmd_add(add_args()) == 0
+    g = gc.ts.GuestBook(data / "guests.json").get("newbie")
+    assert g.claude["mode"] == "own" and g.claude["owner_mode"] == "owner_key"
+    assert "no_owner_key" not in capsys.readouterr().out
+
+
+def test_defaults_accept_the_rules_exactly_as_the_page_sends_them(data, capsys):
+    """Controller ruling C: the Settings page sends {on, work, actions, flag} ("Only this
+    work…" with no saved rules) or the saved rules with on: false; the real guestctl takes both."""
+    page = {"on": True, "work": "The bakery site",
+            "actions": {"edit": True, "restart": True, "packages": True, "publish": False,
+                        "services": False},
+            "flag": True}
+    assert gc.main(["defaults", "--set", json.dumps({"rules": page})]) == 0
+    saved = out_json(capsys)["rules"]
+    assert saved["on"] is True and saved["work"] == "The bakery site" and saved["flag"] is True
+    off = {**saved, "on": False}
+    assert gc.main(["defaults", "--set", json.dumps({"rules": off})]) == 0
+    assert out_json(capsys)["rules"]["on"] is False
+    assert gdefaults.load(data)["rules"]["work"] == "The bakery site"

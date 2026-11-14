@@ -13,7 +13,9 @@ HERE = Path(__file__).resolve().parent
 
 DEFAULTS = {"claude_mode": "owner_key", "usd_week": 20, "notify_at": 0.8,
             "week_limit": 140_000_000, "web": True, "rules": {}}
-MODES = ("owner_key", "owner_sub")     # "own" is a guest's own choice, never a default
+# "own": new guests start waiting for their own key (the owner's choice for them stays
+# owner_key, so "Back to the owner's key" has somewhere to go) — Task 10 review, ruling A
+MODES = ("owner_key", "own", "owner_sub")
 FILE = "new_guest_defaults.json"
 
 

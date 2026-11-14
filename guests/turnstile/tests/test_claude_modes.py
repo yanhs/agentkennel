@@ -1020,6 +1020,16 @@ def test_claude_view_shapes(book, ledger, keys):
     assert GUEST_KEY not in json.dumps(v)
 
 
+def test_claude_view_carries_the_dollar_limit_in_every_mode(book, ledger, keys):
+    """Ruling B (Task 10 review): the owner's Claude form pre-fills the $ field from it,
+    whatever the guest runs on now."""
+    guest(book, mode="owner_key", usd_week=35)
+    for mode in ("owner_key", "own", "owner_sub"):
+        book.set_claude("anna", mode=mode)
+        v = ts.claude_view(book.get("anna"), ledger, keys)
+        assert v["mode"] == mode and v["usd_week"] == 35, v
+
+
 def test_claude_view_broken_block_shows_owner_sub_and_error_flag(book, ledger, keys):
     guest(book)
     book._update("anna", claude={"mode": "bogus"})

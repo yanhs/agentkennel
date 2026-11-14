@@ -566,9 +566,11 @@ OWNER_WEEK = 8_700_000          # 1% of the owner's subscription week, in weight
 WEEK_END = 1793689200
 CLAUDE = {
     "masha": {"mode": "owner_key", "owner_mode": "owner_key", "has_key": False, "last4": None,
-              "usd": {"used": 6.1, "limit": 20, "resets_at": WEEK_END}},
-    "petya": {"mode": "own", "owner_mode": "owner_key", "has_key": True, "last4": "x4Fk", "usd": None},
-    "yan": {"mode": "owner_sub", "owner_mode": "owner_sub", "has_key": False, "last4": None, "usd": None},
+              "usd": {"used": 6.1, "limit": 20, "resets_at": WEEK_END}, "usd_week": 20},
+    "petya": {"mode": "own", "owner_mode": "owner_key", "has_key": True, "last4": "x4Fk", "usd": None,
+              "usd_week": 20},
+    "yan": {"mode": "owner_sub", "owner_mode": "owner_sub", "has_key": False, "last4": None, "usd": None,
+            "usd_week": 25},
 }
 SECRET = "sk-ant-api03-" + "Q" * 80 + "xY4k"
 
@@ -589,6 +591,8 @@ class FakeClaudeGuests(FakeGuests):
                          "week_limit": 140_000_000, "web": True, "rules": {}}
         self.owner_key = {"set": key_set, "last4": "AbCd" if key_set else None}
         self.key_error = None
+        self.hold = set()           # routes ("settings", "claude") answered only when released
+        self.held = []
 
     def _json(self, route, status, body):
         return route.fulfill(status=status, content_type="application/json", body=json.dumps(body))
@@ -599,6 +603,9 @@ class FakeClaudeGuests(FakeGuests):
         if req.method == "POST" and what in ("claude", "settings", "owner-key"):
             body = json.loads(req.post_data or "{}")
             self.posts.append(("/api/guests/" + what, body, req.headers.get("content-type", "")))
+            if what in self.hold:
+                self.held.append(route)
+                return None
             if what == "owner-key":
                 if self.key_error:
                     return self._json(route, 400, {"error": self.key_error})
@@ -618,9 +625,14 @@ class FakeClaudeGuests(FakeGuests):
                     c["owner_mode"] = body["mode"]
                 c["usd"] = ({"used": 0, "limit": body.get("usd_week", 20), "resets_at": WEEK_END}
                             if body["mode"] == "owner_key" else None)
-            if "usd_week" in body and c.get("usd"):
-                c["usd"]["limit"] = body["usd_week"]
-            return self._json(route, 200, {"ok": True, "claude": c})
+            if "usd_week" in body:
+                c["usd_week"] = body["usd_week"]
+                if c.get("usd"):
+                    c["usd"]["limit"] = body["usd_week"]
+            res = {"ok": True, "claude": c}
+            if body.get("mode") == "owner_key" and not self.owner_key["set"]:
+                res["warning"] = "no_owner_key"
+            return self._json(route, 200, res)
         if req.method == "GET":
             state = {"installed": True, "configured": True, "dir": "/home/me/agentkennel/guests",
                      "env": self.env, "admin": self.admin, "guests": self.guests, "list_error": None,
@@ -709,6 +721,15 @@ def test_a_broken_claude_block_needs_attention(cpage, cfake):
     cpage.wait_for_selector('#guests .guest[data-name="masha"] .gclaude', state="detached")
     path, body, _ = cfake.posts[-1]
     assert path == "/api/guests/claude" and body["name"] == "masha" and body["mode"] == "owner_key"
+
+
+def assert_key_field(key):
+    """Minor 2 (fix round 1): masked by CSS, not type=password, so Chromium never offers to
+    save it as a password; no autocomplete, spellcheck or capitals."""
+    assert key.get_attribute("type") == "text"
+    assert key.evaluate("e => getComputedStyle(e).webkitTextSecurity") == "disc"
+    assert key.get_attribute("autocomplete") == "off" and key.get_attribute("spellcheck") == "false"
+    assert key.get_attribute("autocapitalize") == "off"
 
 
 def open_claude(pg, name):
@@ -816,8 +837,7 @@ def test_paste_a_key_for_a_guest(cpage, cfake):
     form.query_selector('input[value="own"]').check()
     key = form.query_selector("input.gcl-key")
     assert key.is_visible()
-    assert key.get_attribute("type") == "password"
-    assert key.get_attribute("autocomplete") == "off" and key.get_attribute("spellcheck") == "false"
+    assert_key_field(key)
     key.fill(SECRET)
     form.query_selector(".gclaude-save").click()
     cpage.wait_for_selector('#guests .guest[data-name="masha"] .gclaude', state="detached")
@@ -932,8 +952,7 @@ def test_check_and_save_the_owner_key(browser, site):  # noqa: F811
     try:
         box = open_settings(pg)
         key = box.query_selector("#gNewKey")
-        assert key.get_attribute("type") == "password"
-        assert key.get_attribute("autocomplete") == "off" and key.get_attribute("spellcheck") == "false"
+        assert_key_field(key)
         key.fill(SECRET)
         box.query_selector("#gNewKeySave").click()
         pg.wait_for_function("() => document.querySelector('#gNewKeyState').innerText.includes('…xY4k')")
@@ -975,6 +994,7 @@ def test_no_owner_key_yet(browser, site):  # noqa: F811
         assert pg.inner_text("#gNoKey") == "Add your API key in Settings — new guests run on it"
         box = open_settings(pg)
         assert "Add your API key in Settings — new guests run on it" in box.inner_text()
+        assert pg.is_hidden("#gNoKey")                  # the form says it; not twice (minor 3)
         radio = box.query_selector('input[name="gnew-mode"][value="owner_key"]')
         assert radio.is_disabled()
         assert "Add and check your API key first" in box.inner_text()
@@ -1043,6 +1063,100 @@ def test_claude_form_and_settings_on_a_phone(browser, site):  # noqa: F811
         open_settings(pg)
         assert pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
         shot(pg, "server-guests-settings-phone.png")
+        assert pg.errors == []
+    finally:
+        ctx.close()
+
+
+# ── fix round 1 (Task 10 review) ──
+def test_a_guest_switching_meanwhile_is_not_overwritten(cpage, cfake):
+    """The form remembers the mode it was opened on; if the guest switched with /claude in the
+    meantime, Save sends nothing (it would drop their own key or skip the subscription tick)."""
+    form = open_claude(cpage, "masha")
+    cfake.guests[0]["claude"].update(mode="own", has_key=True, last4="9z9z", usd=None)
+    cpage.wait_for_function(
+        "() => document.querySelector('#guests .guest[data-name=\"masha\"] .gspend').innerText === 'own key'")
+    form.query_selector("input.glim-usd-in").fill("35")
+    form.query_selector(".gclaude-save").click()
+    cpage.wait_for_function(
+        "() => document.querySelector('#guests .gclaude').innerText.includes('masha changed their Claude meanwhile — reopen')")
+    assert not any(p[0] in ("/api/guests/claude", "/api/guests/limit") for p in cfake.posts)
+
+
+def test_the_dollar_field_is_prefilled_in_every_mode(cpage):
+    form = open_claude(cpage, "yan")
+    form.query_selector('input[value="owner_key"]').check()
+    assert form.query_selector("input.glim-usd-in").input_value() == "25"
+    form = open_claude(cpage, "petya")
+    assert form.query_selector("input.glim-usd-in").input_value() == "20"
+
+
+def test_their_own_key_is_a_default_too(cpage, cfake):
+    box = open_settings(cpage)
+    own = box.query_selector('input[name="gnew-mode"][value="own"]')
+    assert not own.is_disabled()
+    assert ("The guest sends it to the bot with /claude: an API key, or a token from claude setup-token."
+            in box.inner_text())
+    own.check()
+    assert not box.query_selector(".gwarn")
+    assert box.query_selector(".glim-usd").is_hidden() and box.query_selector(".glim-pct").is_hidden()
+    assert not box.query_selector("#gNewSave").is_disabled()
+    box.query_selector("#gNewSave").click()
+    cpage.wait_for_function("() => !document.querySelector('#gNewSaved').hidden")
+    assert cfake.posts[-1][:2] == ("/api/guests/settings", {"claude_mode": "own"})
+    # rebuilt from what was saved: the choice shows, Save is usable
+    assert cpage.is_checked('#gNew input[name="gnew-mode"][value="own"]')
+    assert not cpage.is_disabled("#gNewSave")
+    shot(cpage, "server-guests-settings-own.png")
+
+
+def test_settings_save_stays_off_while_it_is_being_saved(cpage, cfake):
+    cfake.hold.add("settings")
+    box = open_settings(cpage)
+    box.query_selector("input.glim-usd-in").fill("31")
+    box.query_selector("#gNewSave").click()
+    cpage.wait_for_timeout(900)                        # a few polls: still saving
+    assert cpage.is_disabled("#gNewSave")
+    assert sum(p[0] == "/api/guests/settings" for p in cfake.posts) == 1
+    cfake.hold.clear()
+    route = cfake.held.pop()
+    body = json.loads(route.request.post_data)
+    cfake.settings.update(body)
+    route.fulfill(status=200, content_type="application/json",
+                  body=json.dumps({"ok": True, "settings": cfake.settings}))
+    cpage.wait_for_function("() => !document.querySelector('#gNewSaved').hidden")
+    assert not cpage.is_disabled("#gNewSave")
+
+
+def test_claude_save_stays_off_while_it_is_being_saved(cpage, cfake):
+    cfake.hold.add("claude")
+    form = open_claude(cpage, "masha")
+    form.query_selector("input.glim-usd-in").fill("35")
+    save = form.query_selector(".gclaude-save")
+    save.click()
+    cpage.wait_for_timeout(300)
+    form.query_selector('input[value="own"]').check()          # a change re-checks the form
+    form.query_selector('input[value="owner_key"]').check()
+    cpage.wait_for_timeout(600)
+    assert save.is_disabled()
+    cfake.hold.clear()
+    cfake.held.pop().fulfill(status=200, content_type="application/json", body='{"ok": true}')
+    cpage.wait_for_selector('#guests .guest[data-name="masha"] .gclaude', state="detached")
+
+
+def test_moving_a_guest_to_your_key_without_one_says_so(browser, site):  # noqa: F811
+    fake = FakeClaudeGuests(key_set=False)
+    ctx, pg = open_page(browser, site, fake)
+    try:
+        form = open_claude(pg, "yan")
+        form.query_selector('input[value="owner_key"]').check()
+        form.query_selector(".gclaude-save").click()
+        pg.wait_for_function(
+            "() => (document.querySelector('#guests .guest[data-name=\"yan\"] .gclaude') || {}).innerText"
+            " && document.querySelector('#guests .guest[data-name=\"yan\"] .gclaude').innerText.includes("
+            "'Saved. Add your API key in Settings — this guest is refused until then.')")
+        # the $ field was pre-filled with yan's kept $25 and not changed: only the mode goes
+        assert fake.posts[-1][:2] == ("/api/guests/claude", {"name": "yan", "mode": "owner_key"})
         assert pg.errors == []
     finally:
         ctx.close()
