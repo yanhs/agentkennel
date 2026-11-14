@@ -660,6 +660,8 @@ def upstream_auth(guest, keys: Optional["claudekeys.KeyStore"],
 
 
 USAGE_PATH = "/guest/usage"
+CLAUDE_PATH = "/guest/claude"
+CLAUDE_BODY_CAP = 8 * 1024
 
 
 WEEK = 7 * 24 * 3600
@@ -714,6 +716,9 @@ def guest_usage(guest, ledger, now: Optional[float] = None) -> Dict:
     }
     for key, w in usage_windows(guest, ledger, now).items():
         out[key] = dict(w, utilization=_utilization(w))
+    if guest.claude["mode"] == "owner_key":
+        # an older panel reads only utilization: dollars used / limit, a sensible "wk N%"
+        out["seven_day"]["utilization"] = _utilization(usd_window(guest, ledger, now))
     return out
 
 
@@ -724,6 +729,21 @@ def usd_window(guest, ledger, now: Optional[float] = None) -> Dict:
     start, end = week_bounds(now, ledger.week_reset())
     return {"used": ledger.usd_between(guest.name, start, end),
             "limit": guest.claude["usd_week"], "resets_at": math.ceil(end)}
+
+
+def claude_view(guest, ledger, keys) -> Dict:
+    """What a guest's Claude runs on, for the guest (never a secret): shared by
+    GET /guest/usage, the relay and guestctl. A broken stored block reads as owner_sub
+    with "error": True (the text goes to the owner, not the guest)."""
+    c = guest.claude
+    have = keys.get(guest.name) if keys is not None else None
+    out = {"mode": c["mode"], "owner_mode": c.get("owner_mode"),
+           "has_key": have is not None,
+           "last4": claudekeys.last4(have[1]) if have else None,
+           "usd": usd_window(guest, ledger) if c["mode"] == "owner_key" else None}
+    if guest.claude_error:
+        out["error"] = True
+    return out
 
 
 def over_limit(guest, ledger, now: Optional[float] = None) -> Optional[str]:
@@ -1026,7 +1046,11 @@ def make_server(
             if self.path.split("?", 1)[0] == USAGE_PATH:   # the guest's own numbers, from here
                 if self.command != "GET":
                     return self._reply(403, _error("permission_error", _t("gate_path")))
-                return self._reply(200, json.dumps(guest_usage(guest, ledger)).encode())
+                out = guest_usage(guest, ledger, clock())
+                out["claude"] = claude_view(guest, ledger, keys)
+                return self._reply(200, json.dumps(out).encode())
+            if self.path.split("?", 1)[0] == CLAUDE_PATH:   # switch to an own key, or back
+                return self._claude(guest)
             if not guest.enabled:
                 log(f"DENY disabled guest={guest.name}")
                 return self._reply(403, _error("permission_error", _t("gate_disabled")))
@@ -1144,6 +1168,46 @@ def make_server(
                     after_owner_key(guest)
             except Exception as exc:
                 log(f"WATCH-ERROR guest={guest.name} {exc!r}")
+
+        def _claude(self, guest) -> None:
+            """POST /guest/claude {"secret": ...} | {"back": true}. The secret is never
+            logged or returned; the check (up to 20 s) runs on this request's thread."""
+            if self.command != "POST":
+                return self._reply(403, _error("permission_error", _t("gate_path")))
+            if not guest.enabled:
+                log(f"DENY disabled guest={guest.name}")
+                return self._reply(403, _error("permission_error", _t("gate_disabled")))
+            try:
+                length = int(self.headers.get("content-length") or 0)
+            except ValueError:
+                length = -1
+            if length < 0:
+                return self._reply(400, _error("invalid_request_error", _t("gate_bad_body")))
+            if length > CLAUDE_BODY_CAP:
+                self.close_connection = True
+                return self._reply(413, _error("invalid_request_error", _t("gate_bad_body")))
+            try:
+                req = json.loads(self.rfile.read(length) or b"")
+                if not isinstance(req, dict):
+                    raise ValueError("not an object")
+                secret, back = req.get("secret"), req.get("back")
+                if (secret is None) == (back is None) \
+                        or not (secret is None or isinstance(secret, str)):
+                    raise ValueError("secret or back")
+            except ValueError:
+                return self._reply(400, _error("invalid_request_error", _t("gate_bad_body")))
+            if back:
+                ok, message = claudekeys.switch_back(book, keys, guest.name, notify=send_owner)
+                log(f"CLAUDE-BACK guest={guest.name} ok={ok}")
+            else:
+                ok, message = claudekeys.switch_own(
+                    book, keys, guest.name, secret, notify=send_owner,
+                    check=lambda kind, sec: claudekeys.check(kind, sec, upstream=upstream))
+                log(f"CLAUDE-OWN guest={guest.name} ok={ok}")
+            fresh = book.get(guest.name) or guest
+            return self._reply(200, json.dumps(
+                {"ok": ok, "message": message,
+                 "claude": claude_view(fresh, ledger, keys)}).encode())
 
         def _flag(self, guest) -> None:
             length = int(self.headers.get("content-length") or 0)

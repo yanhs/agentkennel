@@ -6,6 +6,7 @@ import json
 import os
 import re
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -136,3 +137,64 @@ def check(kind, secret, upstream=("https", "api.anthropic.com", 443), timeout=20
         pass
     msg = _scrub(msg.replace(secret, "…")).strip()
     return False, msg[:300] or f"HTTP {status}"
+
+
+def _tell_owner(notify, text):
+    """Off the caller's thread, errors swallowed: Telegram never fails a switch."""
+    if notify is None:
+        import guestenv
+        notify = guestenv.notify_owner
+
+    def run():
+        try:
+            notify(text)
+        except Exception:
+            pass
+    threading.Thread(target=run, daemon=True).start()
+
+
+def switch_own(book, keys, name, text, check=check, notify=None):
+    """A guest moves to a key or token of their own. (ok, message for the guest).
+    classify -> check with Anthropic -> store the key -> flip the mode (the key is there
+    before the gate can see mode=own) -> tell the owner. Any failure changes nothing."""
+    import texts
+    found = classify(text)
+    if not found:
+        return False, texts.t("own_not_a_key")
+    kind, secret = found
+    ok, why = check(kind, secret)
+    if not ok:
+        return False, texts.t("own_refused", error=why)
+    try:
+        keys.put(name, kind, secret)
+    except Exception:
+        return False, texts.t("own_failed")
+    try:
+        book.set_claude(name, mode="own")
+    except Exception:
+        try:
+            keys.drop(name)
+        except Exception:
+            pass
+        return False, texts.t("own_failed")
+    _tell_owner(notify, texts.t("owner_guest_own", guest=name))
+    return True, texts.t("own_saved", last4=last4(secret))
+
+
+def switch_back(book, keys, name, notify=None):
+    """Back to what the owner set (owner_key or owner_sub); only from `own`."""
+    import texts
+    g = book.get(name)
+    c = getattr(g, "claude", None) or {}
+    if c.get("mode") != "own" or c.get("owner_mode") not in ("owner_key", "owner_sub"):
+        return False, texts.t("own_back_not_allowed")
+    try:
+        book.set_claude(name, mode=c["owner_mode"])
+    except Exception:
+        return False, texts.t("own_failed")
+    try:
+        keys.drop(name)
+    except OSError:
+        pass
+    _tell_owner(notify, texts.t("owner_guest_back", guest=name))
+    return True, texts.t("own_back")

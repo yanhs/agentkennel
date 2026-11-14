@@ -973,3 +973,191 @@ def test_a_cut_off_credit_balance_400_is_still_recognised(cut_gate, book, keys, 
     assert status == 503 and message(body) == ts._t("gate_no_owner_key")
     assert b"credit" not in body
     assert len(wait_for(told, 1)) == 1 and "400" in told[0]
+
+
+# -- the guest's own endpoints: claude_view, GET/POST /guest/... ----------------------- #
+def _req(gate, method, path, secret=None, body=None, headers=None):
+    conn = http.client.HTTPConnection("127.0.0.1", gate.server_address[1], timeout=30)
+    h = dict(headers or {})
+    if secret:
+        h["authorization"] = f"Bearer {secret}"
+    conn.request(method, path, body=body, headers=h)
+    r = conn.getresponse()
+    return r.status, r.read()
+
+
+def _post_claude(gate, secret, payload):
+    return _req(gate, "POST", "/guest/claude", secret,
+                body=payload if isinstance(payload, bytes) else json.dumps(payload).encode())
+
+
+@pytest.fixture
+def logged():
+    return []
+
+
+@pytest.fixture
+def key_gate(up, book, ledger, keys, told, logged):
+    """A gate whose own-key checks go to the fake upstream (the check upstream = the gate's)."""
+    server = _serve(book=book, ledger=ledger, owner_token=lambda: OWNER, keys=keys,
+                    upstream=("http", "127.0.0.1", up.server.server_address[1]),
+                    notify=told.append, log=logged.append)
+    yield server
+    server.shutdown()
+
+
+def test_claude_view_shapes(book, ledger, keys):
+    guest(book, mode="owner_key")
+    v = ts.claude_view(book.get("anna"), ledger, keys)
+    assert v["mode"] == "owner_key" and v["owner_mode"] == "owner_key"
+    assert v["has_key"] is False and v["last4"] is None
+    assert set(v["usd"]) == {"used", "limit", "resets_at"}
+    keys.put("anna", "api", GUEST_KEY)
+    book.set_claude("anna", mode="own")
+    v = ts.claude_view(book.get("anna"), ledger, keys)
+    assert v["mode"] == "own" and v["owner_mode"] == "owner_key"
+    assert v["has_key"] is True and v["last4"] == "1234" and v["usd"] is None
+    assert GUEST_KEY not in json.dumps(v)
+
+
+def test_claude_view_broken_block_shows_owner_sub_and_error_flag(book, ledger, keys):
+    guest(book)
+    book._update("anna", claude={"mode": "bogus"})
+    v = ts.claude_view(book.get("anna"), ledger, keys)
+    assert v["mode"] == "owner_sub" and v["error"] is True
+    assert "mode" not in json.dumps(v.get("error"))     # no error text for the guest
+
+
+def test_usage_without_a_claude_record_is_owner_sub(key_gate, book):
+    s = guest(book)
+    status, body = _req(key_gate, "GET", "/guest/usage", s)
+    d = json.loads(body)
+    assert status == 200 and d["claude"]["mode"] == "owner_sub"
+    assert {"guest", "enabled", "five_hour", "seven_day", "unlimited_until"} <= set(d)
+    assert set(d["seven_day"]) >= {"used", "limit", "resets_at", "utilization"}
+
+
+def test_usage_owner_key_utilization_is_dollars(key_gate, book, ledger):
+    s = guest(book, mode="owner_key", usd_week=20)
+    ledger.record("anna", "claude-sonnet-4-5", {"input_tokens": 1}, mode="owner_key", usd=5.0)
+    d = json.loads(_req(key_gate, "GET", "/guest/usage", s)[1])
+    used = d["claude"]["usd"]["used"]
+    assert used == pytest.approx(5.0)
+    assert d["seven_day"]["utilization"] == pytest.approx(0.25)
+
+
+def test_post_good_key_switches_to_own(key_gate, up, book, keys, told, logged, tmp_path, capfd):
+    s = guest(book, mode="owner_key")
+    status, body = _post_claude(key_gate, s, {"secret": "my key is " + GUEST_KEY})
+    d = json.loads(body)
+    assert status == 200 and d["ok"] is True
+    assert d["claude"]["mode"] == "own" and d["claude"]["last4"] == "1234"
+    assert GUEST_KEY not in body.decode()
+    assert book.get("anna").claude["mode"] == "own"
+    assert keys.get("anna") == ("api", GUEST_KEY)
+    assert (keys.dir / "anna.json").stat().st_mode & 0o777 == 0o600
+    assert up.requests and up.requests[0]["x-api-key"] == GUEST_KEY
+    wait_for(told, 1)
+    assert len(told) == 1 and "anna" in told[0] and GUEST_KEY not in told[0]
+    out = capfd.readouterr()
+    assert GUEST_KEY not in out.out + out.err + "\n".join(logged)
+
+
+def test_post_bad_key_changes_nothing(key_gate, up, book, keys, told):
+    s = guest(book, mode="owner_key")
+    up.status, up.body = 401, json.dumps({"error": {"message": "invalid x-api-key"}}).encode()
+    status, body = _post_claude(key_gate, s, {"secret": GUEST_KEY})
+    d = json.loads(body)
+    assert status == 200 and d["ok"] is False and "invalid x-api-key" in d["message"]
+    assert d["claude"]["mode"] == "owner_key" and GUEST_KEY not in body.decode()
+    assert book.get("anna").claude["mode"] == "owner_key" and keys.get("anna") is None
+    assert not wait_for(told, 0)
+
+
+def test_post_not_a_key(key_gate, book, keys, up):
+    s = guest(book, mode="owner_key")
+    d = json.loads(_post_claude(key_gate, s, {"secret": "hello there"})[1])
+    assert d["ok"] is False and d["message"]
+    assert not up.requests and keys.get("anna") is None
+
+
+def test_post_back_returns_to_owner_mode_and_deletes_file(key_gate, book, keys, told):
+    s = guest(book, mode="owner_key")
+    keys.put("anna", "api", GUEST_KEY)
+    book.set_claude("anna", mode="own")
+    d = json.loads(_post_claude(key_gate, s, {"back": True})[1])
+    assert d["ok"] is True and d["claude"]["mode"] == "owner_key"
+    assert not (keys.dir / "anna.json").exists()
+    assert book.get("anna").claude["mode"] == "owner_key"
+    wait_for(told, 1)
+    assert len(told) == 1 and "anna" in told[0]
+
+
+def test_post_back_when_not_own_is_refused(key_gate, book, told):
+    s = guest(book, mode="owner_key")
+    d = json.loads(_post_claude(key_gate, s, {"back": True})[1])
+    assert d["ok"] is False and d["claude"]["mode"] == "owner_key"
+    assert not wait_for(told, 0)
+
+
+def test_post_unknown_pass_401(key_gate):
+    assert _post_claude(key_gate, "nope", {"back": True})[0] == 401
+
+
+def test_post_disabled_guest_403(key_gate, book):
+    s = guest(book)
+    book._update("anna", enabled=False)
+    assert _post_claude(key_gate, s, {"secret": GUEST_KEY})[0] == 403
+
+
+def test_post_big_body_413_without_reading_it(key_gate, book):
+    s = guest(book)
+    status, _ = _req(key_gate, "POST", "/guest/claude", s, body=b"x" * 9000)
+    assert status == 413
+
+
+def test_post_bad_json_400(key_gate, book):
+    s = guest(book)
+    assert _post_claude(key_gate, s, b"{not json")[0] == 400
+    assert _post_claude(key_gate, s, b"[1]")[0] == 400
+    assert _post_claude(key_gate, s, {"secret": 5})[0] == 400
+
+
+def test_get_on_claude_path_is_refused(key_gate, book):
+    s = guest(book)
+    assert _req(key_gate, "GET", "/guest/claude", s)[0] == 403
+
+
+# -- switch_own / switch_back directly ------------------------------------------------ #
+def test_switch_own_stores_before_flipping_and_drops_when_set_claude_fails(book, keys):
+    guest(book, mode="owner_key")
+
+    class Book:
+        def set_claude(self, name, **f):
+            assert keys.get(name) is not None      # the key is there before the flip
+            raise ValueError("boom")
+
+    ok, msg = claudekeys.switch_own(Book(), keys, "anna", GUEST_KEY,
+                                    check=lambda k, s: (True, ""), notify=lambda t: None)
+    assert ok is False and keys.get("anna") is None and GUEST_KEY not in msg
+
+
+def test_switch_own_survives_a_failing_notify(book, keys):
+    guest(book, mode="owner_key")
+
+    def boom(text):
+        raise RuntimeError("telegram down")
+
+    ok, _ = claudekeys.switch_own(book, keys, "anna", GUEST_TOKEN,
+                                  check=lambda k, s: (True, ""), notify=boom)
+    assert ok and book.get("anna").claude["mode"] == "own"
+    assert keys.get("anna") == ("oauth", GUEST_TOKEN)
+
+
+def test_switch_back_to_owner_sub(book, keys):
+    guest(book)
+    keys.put("anna", "api", GUEST_KEY)
+    book.set_claude("anna", mode="own")
+    told = []
+    ok, _ = claudekeys.switch_back(book, keys, "anna", notify=told.append)
+    assert ok and book.get("anna").claude["mode"] == "owner_sub" and told
