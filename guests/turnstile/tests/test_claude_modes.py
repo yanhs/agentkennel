@@ -203,6 +203,7 @@ def test_once_is_true_once(tmp_path):
 # --------------------------------------------------------------------------- #
 import http.client  # noqa: E402
 import threading  # noqa: E402
+import socket  # noqa: E402
 import time  # noqa: E402
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: E402
 
@@ -850,17 +851,22 @@ def test_owner_login_problem_says_your_login(monkeypatch):
     assert "your login can't be read" in texts.EN["owner_login_problem"]
 
 
-def test_a_cut_off_refusal_from_upstream_is_still_503(book, ledger, keys, told):
-    """Anthropic's 401 ends early (IncompleteRead, not an OSError): still a clean 503."""
-    import socket
-    srv = socket.socket()
-    srv.bind(("127.0.0.1", 0))
-    srv.listen(5)
+class CutUpstream:
+    """A raw socket in place of api.anthropic.com: reads the whole request, answers with
+    `reply` (bytes, a cut-off chunked body) and closes — the stream ends early."""
 
-    def answer():
+    def __init__(self, reply: bytes):
+        self.reply, self.calls = reply, 0
+        self.sock = socket.socket()
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(5)
+        self.port = self.sock.getsockname()[1]
+        threading.Thread(target=self._answer, daemon=True).start()
+
+    def _answer(self):
         while True:
             try:
-                c, _ = srv.accept()
+                c, _ = self.sock.accept()
             except OSError:
                 return
             got = b""
@@ -871,18 +877,99 @@ def test_a_cut_off_refusal_from_upstream_is_still_503(book, ledger, keys, told):
                           if ln.lower().startswith(b"content-length:")][0])
             while len(body) < length:            # all of it read: the close is clean
                 body += c.recv(65536)
-            c.sendall(b"HTTP/1.1 401 Unauthorized\r\ncontent-type: application/json\r\n"
-                      b"transfer-encoding: chunked\r\n\r\n1f4\r\n{\"type\":\"error\"")
+            self.calls += 1
+            c.sendall(self.reply)
             c.close()
-    threading.Thread(target=answer, daemon=True).start()
-    keys.set_owner(OWNER_KEY)
-    server = _serve(book=book, ledger=ledger, owner_token=lambda: OWNER, keys=keys,
-                    upstream=("http", "127.0.0.1", srv.getsockname()[1]),
-                    notify=told.append, log=lambda line: None)
-    try:
-        status, body = call(server, guest(book, mode="owner_key"))
-        assert status == 503 and message(body) == ts._t("gate_no_owner_key")
-        assert len(wait_for(told, 1)) == 1 and "401" in told[0]
-    finally:
+
+    def close(self):
+        self.sock.close()
+
+
+def _chunk(data: bytes) -> bytes:
+    return b"%x\r\n" % len(data) + data + b"\r\n"
+
+
+CUT_SSE = (b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n"
+           b"transfer-encoding: chunked\r\n\r\n"
+           + _chunk(b'event: message_start\ndata: {"type":"message_start","message":'
+                    b'{"model":"claude-sonnet-4-5","usage":{"input_tokens":1000,'
+                    b'"output_tokens":1}}}\n\n')
+           + b"1f4\r\nevent: content_block_delta\ndata: {\"type\"")      # cut here
+
+
+@pytest.fixture
+def cut_gate(book, ledger, keys, told):
+    made = []
+
+    def make(reply, **kw):
+        up = CutUpstream(reply)
+        server = _serve(book=book, ledger=ledger, owner_token=lambda: OWNER, keys=keys,
+                        upstream=("http", "127.0.0.1", up.port), notify=told.append,
+                        log=lambda line: None, **kw)
+        made.append((server, up))
+        return server
+    yield make
+    for server, up in made:
         server.shutdown()
-        srv.close()
+        up.close()
+
+
+def _stream(server, secret):
+    conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
+    conn.request("POST", "/v1/messages", headers={"authorization": f"Bearer {secret}"},
+                 body=json.dumps({"model": "m", "stream": True, "messages": []}))
+    r = conn.getresponse()
+    try:
+        body = r.read()
+    except http.client.IncompleteRead as e:     # the guest's stream may end short too
+        body = e.partial
+    return r.status, body
+
+
+def test_a_cut_off_stream_on_the_owners_key_is_still_charged(cut_gate, book, ledger, keys):
+    keys.set_owner(OWNER_KEY)
+    server = cut_gate(CUT_SSE)
+    status, body = _stream(server, guest(book, mode="owner_key"))
+    assert status == 200 and b"message_start" in body
+    row = ledger._db.execute("SELECT mode, usd, input FROM usage WHERE guest='anna'").fetchone()
+    assert row is not None and row[0] == "owner_key" and row[2] == 1000
+    assert row[1] == pytest.approx(ts.pricing.usd("claude-sonnet-4-5",
+                                                  {"input_tokens": 1000, "output_tokens": 1}))
+    assert row[1] > 0
+
+
+def test_a_cut_off_stream_on_the_subscription_is_still_counted(cut_gate, book, ledger):
+    server = cut_gate(CUT_SSE)
+    status, _ = _stream(server, guest(book))
+    assert status == 200
+    assert ledger.spent_since("anna", 0) == ts.weighted({"input_tokens": 1000,
+                                                         "output_tokens": 1})
+
+
+def test_a_cut_off_stream_still_alerts_and_notices(cut_gate, book, ledger, keys, told):
+    keys.set_owner(OWNER_KEY)
+    server = cut_gate(CUT_SSE, prices=lambda m, u: 9.0)
+    _stream(server, guest(book, mode="owner_key", usd_week=10))
+    assert len(wait_for(told, 1)) == 1
+    assert told[0] == ts._t("usd_notice", guest="anna", spent=9.0, limit=10)
+
+
+def test_a_cut_off_refusal_from_upstream_is_still_503(cut_gate, book, keys, told):
+    """Anthropic's 401 ends early (IncompleteRead, not an OSError): still a clean 503."""
+    keys.set_owner(OWNER_KEY)
+    server = cut_gate(b"HTTP/1.1 401 Unauthorized\r\ncontent-type: application/json\r\n"
+                      b"transfer-encoding: chunked\r\n\r\n1f4\r\n{\"type\":\"error\"")
+    status, body = call(server, guest(book, mode="owner_key"))
+    assert status == 503 and message(body) == ts._t("gate_no_owner_key")
+    assert len(wait_for(told, 1)) == 1 and "401" in told[0]
+
+
+def test_a_cut_off_credit_balance_400_is_still_recognised(cut_gate, book, keys, told):
+    keys.set_owner(OWNER_KEY)
+    words = b'{"type":"error","error":{"message":"Your credit balance is too low'
+    server = cut_gate(b"HTTP/1.1 400 Bad Request\r\ncontent-type: application/json\r\n"
+                      b"transfer-encoding: chunked\r\n\r\n" + _chunk(words) + b"1f4\r\n ...")
+    status, body = call(server, guest(book, mode="owner_key"))
+    assert status == 503 and message(body) == ts._t("gate_no_owner_key")
+    assert b"credit" not in body
+    assert len(wait_for(told, 1)) == 1 and "400" in told[0]

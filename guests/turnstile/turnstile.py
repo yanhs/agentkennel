@@ -1096,6 +1096,7 @@ def make_server(
                 try:
                     head = resp.read(_ERR_CAP)
                 except (OSError, http.client.HTTPException) as exc:   # cut off: IncompleteRead
+                    head = getattr(exc, "partial", None) or b""     # what came still counts
                     log(f"UPSTREAM-ERROR guest={guest.name} {exc!r}")
                 if resp.status != 400 or b"credit balance" in head.lower():
                     conn.close()
@@ -1124,6 +1125,8 @@ def make_server(
                     self.wfile.flush()
             except OSError as exc:  # guest hung up mid-stream: still count what came
                 log(f"CLIENT-GONE guest={guest.name} {exc!r}")
+            except http.client.HTTPException as exc:   # upstream cut off: count what came
+                log(f"UPSTREAM-CUT guest={guest.name} {exc!r}")
             finally:
                 parser.close()
                 conn.close()
