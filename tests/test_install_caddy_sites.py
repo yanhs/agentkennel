@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import warnings
 import importlib.util
 from pathlib import Path
 
@@ -58,10 +59,21 @@ def test_install_makes_the_sites_folder():
 
 
 def caddy_bin():
-    return os.environ.get("CADDY_BIN") or shutil.which("caddy")
+    """The caddy the real-Caddy tests use: CADDY_BIN, PATH, or where install.sh puts it."""
+    for c in (os.environ.get("CADDY_BIN"), shutil.which("caddy"), "/usr/local/bin/caddy",
+              "/usr/bin/caddy"):
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return None
 
 
-@pytest.mark.skipif(not caddy_bin(), reason="no caddy binary (PATH or CADDY_BIN)")
+NO_CADDY = ("real-Caddy tests SKIPPED: no caddy binary in CADDY_BIN, PATH, /usr/local/bin "
+            "or /usr/bin (set CADDY_BIN=/path/to/caddy to run them)")
+if not caddy_bin():
+    warnings.warn(NO_CADDY)            # shown in pytest's warnings summary, not only with -rs
+
+
+@pytest.mark.skipif(not caddy_bin(), reason=NO_CADDY)
 @pytest.mark.parametrize("sites", ["unset", "empty", "one"])
 def test_real_caddy_adapts_the_caddyfile(tmp_path, sites):
     env = {"PATH": os.environ.get("PATH", ""), "HOME": str(tmp_path),
@@ -79,3 +91,14 @@ def test_real_caddy_adapts_the_caddyfile(tmp_path, sites):
     assert r.returncode == 0, r.stderr
     assert '"203-0-113-7.sslip.io"' in r.stdout
     assert ('"sb-anna.example.test"' in r.stdout) == (sites == "one")
+
+
+@pytest.mark.parametrize("caddyfile", ["Caddyfile", "docker/Caddyfile"])
+def test_terminals_outlive_a_reload(caddyfile):
+    """Every guest change reloads this Caddy; without stream_close_delay each reload closes
+    the owner's terminal websockets (1001) at once."""
+    text = (ROOT / caddyfile).read_text()
+    block = text[text.index("handle /sess/* {"):]
+    block = block[:block.index("\n\t\t}\n")]
+    assert "reverse_proxy 127.0.0.1:3031 {" in block
+    assert "stream_close_delay 1h" in block

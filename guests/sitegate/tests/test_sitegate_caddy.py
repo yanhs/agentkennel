@@ -14,6 +14,7 @@ import os
 import shutil
 import socket
 import subprocess
+import warnings
 import sys
 import threading
 import time
@@ -145,13 +146,15 @@ class Admin:
     """Caddy's admin endpoint as far as CaddyOps uses it: POST /load, GET /config/."""
 
     def __init__(self):
-        self.loads, self.refuse, self.config = [], None, {}
+        self.loads, self.refuse, self.config, self.slow = [], None, {}, 0
         admin = self
 
         class H(http.server.BaseHTTPRequestHandler):
             def do_POST(self):
                 body = self.rfile.read(int(self.headers["Content-Length"])).decode()
                 admin.loads.append((self.path, self.headers["Content-Type"], body))
+                if admin.slow:
+                    time.sleep(admin.slow)
                 if admin.refuse:
                     data = json.dumps({"error": admin.refuse}).encode()
                     self.send_response(400)
@@ -229,6 +232,45 @@ def test_a_refused_reload_puts_every_file_back(cops, admin, tmp_path):
     assert after == before
 
 
+def test_an_unchanged_write_is_no_write_and_no_reload(cops, admin, tmp_path):
+    h = "sb-anna.example.test"
+    text = caddyconf.render_site(h, "127.0.0.1", 18101)
+    cops.write_vhost(h, text)
+    admin.serve_hosts(h)
+    cops.reload()
+    assert len(admin.loads) == 1
+    f = tmp_path / "caddy-sites" / f"{h}.caddy"
+    before = f.stat().st_mtime_ns
+    for _ in range(5):
+        cops.write_vhost(h, text)
+        cops.reload()
+    assert len(admin.loads) == 1 and f.stat().st_mtime_ns == before
+    cops.remove_vhost("sb-never.example.test")          # nothing there: nothing to do
+    cops.reload()
+    assert len(admin.loads) == 1
+
+
+def test_a_timed_out_load_that_caddy_applied_is_kept(cops, admin, tmp_path):
+    h = "sb-anna.example.test"
+    cops.load_timeout = 0.3
+    admin.slow = 1
+    admin.serve_hosts(h)                                 # Caddy did take it, just slowly
+    cops.write_vhost(h, caddyconf.render_site(h, "127.0.0.1", 18101))
+    cops.reload()
+    assert (tmp_path / "caddy-sites" / f"{h}.caddy").exists()
+
+
+def test_a_timed_out_load_caddy_didnt_apply_is_put_back(cops, admin, tmp_path):
+    h = "sb-anna.example.test"
+    cops.load_timeout = 0.3
+    admin.slow = 1
+    admin.serve_hosts("other.example.test")
+    cops.write_vhost(h, caddyconf.render_site(h, "127.0.0.1", 18101))
+    with pytest.raises(RuntimeError):
+        cops.reload()
+    assert not (tmp_path / "caddy-sites" / f"{h}.caddy").exists()
+
+
 def test_a_caddy_that_does_not_import_the_folder_is_named(cops, admin):
     h = "sb-anna.example.test"
     cops.write_vhost(h, caddyconf.render_site(h, "127.0.0.1", 18101))
@@ -257,6 +299,7 @@ def test_no_running_caddy_is_a_clear_error(tmp_path, monkeypatch):
 def test_no_caddyfile_run_no_reload(tmp_path, monkeypatch, admin):
     monkeypatch.setattr(sg.CaddyOps, "VHOSTS", tmp_path / "s")
     ops = sg.CaddyOps(admin=admin.url, caddyfile=tmp_path / "missing")
+    ops.write_vhost("a.example.test", caddyconf.render_gone("a.example.test"))
     with pytest.raises(RuntimeError) as e:
         ops.reload()
     assert "Caddyfile.run" in str(e.value) and not admin.loads
@@ -296,7 +339,18 @@ def test_cert_delete_removes_only_that_name(cops, tmp_path, monkeypatch):
 
 # ── the real thing ──────────────────────────────────────────────────────────────────
 def caddy_bin():
-    return os.environ.get("CADDY_BIN") or shutil.which("caddy")
+    """The caddy the real-Caddy tests use: CADDY_BIN, PATH, or where install.sh puts it."""
+    for c in (os.environ.get("CADDY_BIN"), shutil.which("caddy"), "/usr/local/bin/caddy",
+              "/usr/bin/caddy"):
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return None
+
+
+NO_CADDY = ("real-Caddy tests SKIPPED: no caddy binary in CADDY_BIN, PATH, /usr/local/bin "
+            "or /usr/bin (set CADDY_BIN=/path/to/caddy to run them)")
+if not caddy_bin():
+    warnings.warn(NO_CADDY)            # shown in pytest's warnings summary, not only with -rs
 
 
 def free_port():
@@ -359,7 +413,7 @@ class Upstream:
 @pytest.fixture
 def live(tmp_path, monkeypatch):
     if not caddy_bin():
-        pytest.skip("no caddy binary (PATH or CADDY_BIN)")
+        pytest.skip(NO_CADDY)
     http_port, https_port, admin_port = free_port(), free_port(), free_port()
     data = tmp_path / "xdg"
     sites = tmp_path / "caddy-sites"
@@ -519,3 +573,30 @@ def test_live_caddy_serves_shared_files(live):
     finally:
         files.shutdown()
         files.server_close()
+
+
+def test_live_a_reload_doesnt_cut_an_open_terminal(live):
+    """Without stream_close_delay Caddy ends every websocket with 1001 on a reload (seen
+    17.11.2026); a guest's change must not cut the terminals that are open."""
+    import ssl
+    ops, host = live["ops"], "sb-anna.example.test"
+    up = Upstream()
+    ops.write_vhost(host, caddyconf.render_site(host, "127.0.0.1", up.port))
+    ops.reload()
+    ops.cert_issue(host)
+    ctx = ssl.create_default_context(cafile=str(live["data"] / "caddy" / "pki" / "authorities"
+                                                / "local" / "root.crt"))
+    with socket.create_connection(("127.0.0.1", live["https"]), timeout=10) as raw:
+        with ctx.wrap_socket(raw, server_hostname=host) as s:
+            s.sendall(f"GET /ws HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\n"
+                      "Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                      "Sec-WebSocket-Version: 13\r\n\r\n".encode())
+            head = b""
+            while b"\r\n\r\n" not in head:
+                head += s.recv(1000)
+            other = "blog-anna.example.test"
+            ops.write_vhost(other, caddyconf.render_site(other, "127.0.0.1", up.port))
+            ops.reload()                                  # someone else's change
+            time.sleep(1)
+            s.sendall(b"ping")
+            assert s.recv(100) == b"echo:ping"

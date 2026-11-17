@@ -127,6 +127,16 @@ The server decides (Caddy when AgentKennel's Caddy is on 443, else nginx); `GUES
 or `GUESTS_WEB=caddy` in `guests/.env` overrides it. `guests/install.sh --check` and
 `guestctl.py doctor` say which one is used and why.
 
+Moving a server's guests from nginx to Caddy (or back) is not automatic: addresses made for
+one aren't served by the other. `guestctl.py doctor` lists any it finds; open each again
+(`guestctl.py web <name>`, `guestctl.py files-web`; guests publish their sites again) and
+then remove the old files.
+
+A guest's site can't be named `sb`, `sbx`, `sb-…` or `sbx-…` (those addresses are the
+dashboards and the shared files), and the site gate takes no address the web server already
+serves. A guest can change their sites once a minute, and all guests together 20 times an
+hour: each change reloads the web server.
+
 1. **Settings.** `cp guests/.env.example guests/.env` (the installer does it on the first
    run) and fill in:
    - `GUESTS_DOMAIN` — guests' addresses live under it;

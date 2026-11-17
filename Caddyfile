@@ -50,7 +50,12 @@
 		# which ttyd -O compares with the websocket's Origin.
 		redir /sess /sess/?{query}
 		handle /sess/* {
-			reverse_proxy 127.0.0.1:3031
+			reverse_proxy 127.0.0.1:3031 {
+				# a reload (a guest's address or site changing) would close every open
+				# terminal at once; keep them 1 h (the browser reconnects after that). The
+				# site gate's rate limit keeps the old configs held meanwhile few.
+				stream_close_delay 1h
+			}
 		}
 		# the library's registry API (status_server) — full path kept: /api/library/...
 		handle /api/library* {

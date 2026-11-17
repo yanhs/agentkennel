@@ -588,6 +588,7 @@ class CaddyOps(RealOps):
         self.cert_wait = float(cert_wait if cert_wait is not None
                                else (wait if wait.isdigit() else 120))
         self.poll = poll
+        self.load_timeout = 60.0
         self._undo: Dict[str, Optional[str]] = {}   # host -> its text before (None: no file)
         # the site gate's delayed clean-up runs on a timer thread next to a new publish
         self._lock = threading.RLock()
@@ -603,8 +604,12 @@ class CaddyOps(RealOps):
             self._undo[host] = f.read_text() if f.exists() else None
 
     def write_vhost(self, host: str, text: str) -> None:
+        """Unchanged text: nothing is written and (if nothing else changed) the reload is
+        skipped — every Caddy reload ends open websockets after their stream_close_delay."""
         f = self._file(host)
         with self._lock:
+            if f.exists() and f.read_text() == text:
+                return
             self._remember(host)
             tmp = f.with_name(f".{f.name}.tmp")
             tmp.write_text(text)
@@ -617,6 +622,8 @@ class CaddyOps(RealOps):
     def remove_vhost(self, host: str) -> None:
         f = self._file(host)
         with self._lock:
+            if not f.exists():
+                return
             self._remember(host)
             f.unlink(missing_ok=True)
 
@@ -630,17 +637,33 @@ class CaddyOps(RealOps):
         self._undo.clear()
 
     def _admin(self, method: str, path: str, body: Optional[bytes] = None,
-               ctype: str = "") -> bytes:
+               ctype: str = "", timeout: float = 60) -> bytes:
         req = urllib.request.Request(self.admin + path, data=body, method=method,
                                      headers={"Content-Type": ctype} if ctype else {})
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read()
+
+    def _loaded(self) -> str:
+        return self._admin("GET", "/config/apps/http/servers").decode(errors="replace")
+
+    def _applied(self, changed: list) -> bool:
+        """After a /load that didn't answer: does Caddy run what the files say now?"""
+        try:
+            loaded = self._loaded()
+        except (urllib.error.URLError, OSError):
+            return False
+        return all((json.dumps(h) in loaded) == self._file(h).exists() for h in changed)
 
     def reload(self) -> None:
         with self._lock:
             self._reload()
 
     def _reload(self) -> None:
+        changed = [h for h, before in self._undo.items()
+                   if (self._file(h).read_text() if self._file(h).exists() else None) != before]
+        if not changed:                          # nothing to tell Caddy
+            self._undo.clear()
+            return
         try:
             text = self.caddyfile.read_text()
         except OSError:
@@ -649,7 +672,8 @@ class CaddyOps(RealOps):
                                "agentkennel-caddy.service writes when it starts: is it "
                                "running?)")
         try:
-            self._admin("POST", "/load", text.encode(), "text/caddyfile")
+            self._admin("POST", "/load", text.encode(), "text/caddyfile",
+                        timeout=self.load_timeout)
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode(errors="replace")
             try:
@@ -659,14 +683,17 @@ class CaddyOps(RealOps):
             self._put_back()
             raise RuntimeError(f"caddy refused the change, nothing changed: {detail[-400:]}")
         except (urllib.error.URLError, OSError) as exc:
-            self._put_back()
-            raise RuntimeError(f"caddy: its admin API {self.admin} doesn't answer ({exc}); is "
-                               "agentkennel-caddy running? (systemctl status agentkennel-caddy)")
-        served = [h for h, _ in self._undo.items() if self._file(h).exists()]
+            # a timeout may come after Caddy took the change: ask it before undoing anything
+            if not self._applied(changed):
+                self._put_back()
+                raise RuntimeError(f"caddy: its admin API {self.admin} doesn't answer ({exc}); "
+                                   "is agentkennel-caddy running? (systemctl status "
+                                   "agentkennel-caddy)")
+        served = [h for h in changed if self._file(h).exists()]
         self._undo.clear()
         if served:
             try:
-                loaded = self._admin("GET", "/config/apps/http/servers").decode(errors="replace")
+                loaded = self._loaded()
             except (urllib.error.URLError, OSError) as exc:
                 raise RuntimeError(f"caddy reloaded, but its config can't be read back ({exc})")
             missing = [h for h in served if json.dumps(h) not in loaded]

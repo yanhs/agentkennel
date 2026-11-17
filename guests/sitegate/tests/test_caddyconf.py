@@ -6,6 +6,7 @@ has its Caddy counterpart here. Text checks first; then, when a caddy binary is 
 import os
 import shutil
 import subprocess
+import warnings
 import sys
 from pathlib import Path
 
@@ -19,7 +20,18 @@ ENTRY = ("/_owner-entry", "http://127.0.0.1:3011/api/guests/enter")
 
 
 def caddy_bin():
-    return os.environ.get("CADDY_BIN") or shutil.which("caddy")
+    """The caddy the real-Caddy tests use: CADDY_BIN, PATH, or where install.sh puts it."""
+    for c in (os.environ.get("CADDY_BIN"), shutil.which("caddy"), "/usr/local/bin/caddy",
+              "/usr/bin/caddy"):
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return None
+
+
+NO_CADDY = ("real-Caddy tests SKIPPED: no caddy binary in CADDY_BIN, PATH, /usr/local/bin "
+            "or /usr/bin (set CADDY_BIN=/path/to/caddy to run them)")
+if not caddy_bin():
+    warnings.warn(NO_CADDY)            # shown in pytest's warnings summary, not only with -rs
 
 
 # ── a guest's dashboard / a published site ────────────────────────────────────────
@@ -35,7 +47,8 @@ def test_site_limits_like_nginx():
     text = cc.render_site(HOST, "172.31.250.11", 3000)
     assert "max_size 50MiB" in text                      # client_max_body_size 50m
     assert "header_up X-Real-IP {remote_host}" in text    # proxy_set_header X-Real-IP
-    assert "stream_close_delay" in text                   # a reload doesn't cut terminals
+    assert "stream_close_delay 10m" in text               # a reload doesn't cut terminals at
+                                                          # once; old handlers last 10 min
 
 
 def test_owner_entry_goes_to_the_panel_at_one_exact_path():
@@ -119,7 +132,7 @@ def test_files_go_through_the_symlink_safe_server():
 
 
 # ── Caddy itself accepts all of it ──────────────────────────────────────────────
-@pytest.mark.skipif(not caddy_bin(), reason="no caddy binary (PATH or CADDY_BIN)")
+@pytest.mark.skipif(not caddy_bin(), reason=NO_CADDY)
 def test_caddy_adapts_every_block(tmp_path):
     sites = tmp_path / "sites"
     sites.mkdir()

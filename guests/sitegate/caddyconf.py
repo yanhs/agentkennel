@@ -27,7 +27,7 @@ nginx -> Caddy, directive by directive:
                                                        request_header @sbx_origin Origin
   proxy_read_timeout 300s                              none: Caddy has no read timeout to
                                                        a backend by default (>= 300 s)
-  (old workers keep open websockets on reload)         stream_close_delay 1h
+  (old workers keep open websockets on reload)         stream_close_delay 10m
   return 404 (stub / pending)                          respond 404
   return 301 https://to$request_uri                    redir https://to{uri} permanent
   sbx: alias + autoindex off + disable_symlinks on     reverse_proxy to publicfiles.py
@@ -47,7 +47,9 @@ IPV4_RE = re.compile(r"^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d
 ORIGIN_RE = re.compile(r"^https?://[A-Za-z0-9.-]+(?::\d{1,5})?$")
 PATH_RE = re.compile(r"^/[A-Za-z0-9._/-]*$")
 BODY_MAX = "50MiB"             # nginx: client_max_body_size 50m
-STREAM_CLOSE_DELAY = "1h"      # open terminals outlive a reload (nginx: old workers)
+# open terminals outlive a reload (nginx: old workers) by this much; short, because each
+# reload keeps the old handlers until then (the site gate rate-limits reloads too)
+STREAM_CLOSE_DELAY = "10m"
 
 
 def _host(host: str) -> str:

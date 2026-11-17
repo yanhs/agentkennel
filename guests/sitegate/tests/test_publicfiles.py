@@ -145,6 +145,29 @@ def test_bind_failure_is_not_fatal(root):
     s.listen()
     try:
         assert pf.start_in_background("127.0.0.1", s.getsockname()[1], root,
-                                      log=lambda m: None) is None
+                                      log=lambda m: None, retry=0) is None
     finally:
         s.close()
+
+
+def test_a_busy_port_is_tried_again_later(root):
+    import time
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    s.listen()
+    port = s.getsockname()[1]
+    logs = []
+    assert pf.start_in_background("127.0.0.1", port, root, log=logs.append, retry=0.2) is None
+    s.close()                                            # the other program went away
+    for _ in range(50):
+        try:
+            c = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+            c.request("GET", "/f/anna-k3y/a.txt")
+            r = c.getresponse()
+            if r.read() == b"hello":
+                break
+        except OSError:
+            time.sleep(0.1)
+    else:
+        pytest.fail("never bound")
+    assert any("not available" in m for m in logs) and any("publicfiles on" in m for m in logs)

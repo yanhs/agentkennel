@@ -27,6 +27,7 @@ import re
 import stat
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable, Optional, Tuple
@@ -205,16 +206,27 @@ def make_server(bind: str, port: int, root) -> ThreadingHTTPServer:
 
 
 def start_in_background(bind: str, port: int, root,
-                        log: Callable[[str], None] = lambda m: print(m, file=sys.stderr, flush=True)
-                        ) -> Optional[ThreadingHTTPServer]:
-    """The server in a thread; None (and a log line) when the port can't be had — the
-    site gate itself goes on either way."""
-    try:
-        server = make_server(bind, port, root)
-    except OSError as exc:
-        log(f"publicfiles: {bind}:{port} not available ({exc}); sbx.<domain>/f/ on Caddy "
-            "won't answer until it is")
-        return None
-    threading.Thread(target=server.serve_forever, name="publicfiles", daemon=True).start()
-    log(f"publicfiles on {bind}:{port} ({root})")
-    return server
+                        log: Callable[[str], None] = lambda m: print(m, file=sys.stderr, flush=True),
+                        retry: float = 30) -> Optional[ThreadingHTTPServer]:
+    """The server in a thread. A busy port isn't fatal (the site gate goes on): it is
+    tried again every `retry` seconds (0: once) in the background, and None is returned."""
+    def bind_now() -> Optional[ThreadingHTTPServer]:
+        try:
+            server = make_server(bind, port, root)
+        except OSError:
+            return None
+        threading.Thread(target=server.serve_forever, name="publicfiles", daemon=True).start()
+        log(f"publicfiles on {bind}:{port} ({root})")
+        return server
+
+    server = bind_now()
+    if server is not None:
+        return server
+    log(f"publicfiles: {bind}:{port} not available; sbx.<domain>/f/ on Caddy won't answer "
+        f"until it is" + (f" (trying again every {retry:g} s)" if retry else ""))
+    if retry:
+        def again() -> None:
+            while bind_now() is None:
+                time.sleep(retry)
+        threading.Thread(target=again, name="publicfiles-bind", daemon=True).start()
+    return None
