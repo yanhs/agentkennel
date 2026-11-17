@@ -94,13 +94,17 @@ the cost of that many requests. The once-an-hour messages to you are remembered 
 so a restart can repeat one.
 
 **Upgrading.** Existing guests keep running exactly as before (on the subscription, with
-their token limits) until you change them. On a fresh install, new guests default to your
-API key (add the key first: until then Claude is not available to them).
+their token limits) until you change them. New guests default to your API key, on an
+upgraded install too: add the key first (until then Claude is not available to them), or
+pick another default under "For new guests".
 
 ## Set up
 
 You need AgentKennel installed from a checkout (this folder lives inside it), Docker that
-your user may use, systemd, and — for web addresses — nginx and certbot.
+your user may use, systemd, sudo without a password for your user (the services make each
+guest's disk and web address in the background), and — for web addresses — nginx and
+certbot on ports 80/443. The script install puts Caddy on those ports; there, set Web off
+for new guests (Telegram only) until you move the server to nginx.
 
 1. **Settings.** `cp guests/.env.example guests/.env` (the installer does it on the first
    run) and fill in:
@@ -118,7 +122,8 @@ your user may use, systemd, and — for web addresses — nginx and certbot.
    (`CLAUDE_CODE_OAUTH_TOKEN=…`, from `claude setup-token`) only for guests on your
    subscription. For guests on your API key, add the key afterwards (Settings, or
    `guestctl owner-key`).
-2. **Install.** `guests/install.sh` (`--check` only checks, `--yes` asks nothing). It sets up
+2. **Install.** `guests/install.sh`, as yourself, not with sudo (`--check` only checks,
+   `--yes` asks nothing; it calls sudo itself). It sets up
    the sandbox network and firewall, builds the guest image from this checkout and starts
    the services `agentkennel-guest-turnstile`, `agentkennel-guest-tgrelay` and
    `agentkennel-guest-sitegate`. Running it again upgrades.
@@ -137,7 +142,7 @@ python3 guests/guestctl.py session <name>          your login to their dashboard
 python3 guests/guestctl.py claude <name> '<json>'  whose Claude: mode, usd_week, notify_at (own key on stdin)
 python3 guests/guestctl.py defaults [--set '<json>']   what new guests get (claude_mode, usd_week, notify_at, web, rules)
 python3 guests/guestctl.py owner-key [--remove]    your API key on stdin; checked with Anthropic, shows only the last 4
-python3 guests/guestctl.py list [--json]           guests, state, whose Claude, use and limits
+python3 guests/guestctl.py list [--json]           guests, state, use and limits (--json: whose Claude, dollars)
 python3 guests/guestctl.py limit <name> <tokens>   the weekly token limit (subscription mode; 5 hours: a seventh)
 python3 guests/guestctl.py stop|start <name>       pause / resume (the pass stops working too)
 python3 guests/guestctl.py recreate <name>         new container on the current image, same data

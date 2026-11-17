@@ -1188,7 +1188,7 @@ def test_final_message_about_guests(box):
     base = (f'DIR="{box.repo}"; SITE=":8765"; WHY=requested; SELF_IP={IP}; '
             f'WORKDIR="$HOME/projects"; ')
     on = box.lib(base + "GUESTS=1; finish").stdout
-    assert "Server" in on and "Guests" in on and f"sudo {box.repo}/guests/install.sh" in on
+    assert "Server" in on and "Guests" in on and f"(as you, not with sudo): {box.repo}/guests/install.sh" in on
     off = box.lib(base + "GUESTS=0; finish").stdout
     assert "Guests" in off and "any time" in off and "guests/install.sh" not in off
 

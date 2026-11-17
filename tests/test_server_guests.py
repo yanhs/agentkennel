@@ -354,7 +354,8 @@ def test_off_offers_the_wizard(browser, site):  # noqa: F811
     assert body == {"bot_token": "123456789:AAH" + "x" * 32, "domain": "example.com"}
     assert pg.input_value("#gToken") == ""             # never kept on the page
     # step 4: the one command to run, with the module's real folder
-    assert "sudo /home/me/agentkennel/guests/install.sh" in pg.inner_text('#gWizard .gstep[data-step="services"]')
+    step4 = pg.inner_text('#gWizard .gstep[data-step="services"]')
+    assert "/home/me/agentkennel/guests/install.sh" in step4 and "sudo /home" not in step4
     shot(pg, "server-guests-wizard-filled.png")
     assert pg.errors == []
     ctx.close()

@@ -11,7 +11,7 @@ browser tab or Telegram, close the tab, and they keep working.
   the task is closed.
 - **Full control of the server, or a Docker sandbox** — your choice at install time.
 - **Other people too, each in their own sandbox** — friends or clients get an agent of
-  their own, with 5-hour and weekly limits. For each person you
+  their own, with a dollar limit a week on your Anthropic API key (or their own key). For each person you
   choose: terminals in the browser or Telegram only, and what their agent may do (one site,
   which folders, which actions). Needs the script install. [Guests](#-guests-other-people-on-your-server)
 
@@ -55,8 +55,8 @@ docker compose up -d --wait && docker compose logs agentkennel | grep setup
 > touch the host. [Safety](#-safety-what-agents-never-do-without-you) lists what they never
 > do without you.
 
-**Latest: v2.6.0** — guests' Claude runs on your API key with a dollar limit, on their own
-key, or on your subscription; v2.5.0: a second Telegram bot just for notifications; v2.4.0:
+**Latest: v2.6.1** — guests' Claude runs on your API key with a dollar limit a week, or on
+their own key; v2.5.0: a second Telegram bot just for notifications; v2.4.0:
 guests' web access on or off and their agent's rules → [CHANGELOG](CHANGELOG.md)
 
 ## Why AgentKennel
@@ -96,7 +96,7 @@ guests' web access on or off and their agent's rules → [CHANGELOG](CHANGELOG.m
 | Back after a reboot | ✅ same conversations | restart `claude` | restart its server | ❌ resume each by hand |
 | Shared task board | ✅ | ❌ | TaskMaster, optional | ❌ |
 | Other agents (Codex, Cursor…) | ❌ Claude only | ❌ Claude only | ✅ | anything |
-| Price | free (AGPL) | included in Pro / Max / Team / Enterprise | free (AGPL); cloud from €7/mo | free |
+| Price | free (AGPL) | included in Pro / Max / Ultra / Team / Enterprise | free (AGPL); cloud from €7/mo | free |
 
 Want one session from your own laptop? Use Remote Control. AgentKennel is for a dozen agents
 that live on a server around the clock. (Rather have no server at all? Claude Code on the
@@ -299,7 +299,20 @@ unless you change it).
 
 **Set up with the script install, not the Docker image:** add `--guests` (it also installs
 Docker), then **Server → Guests → Set up guests** (a Telegram bot for guests, a domain); it
-ends with one command, `sudo ~/agentkennel/guests/install.sh`.
+ends with one command, `~/agentkennel/guests/install.sh` (run it as yourself, not with sudo:
+it asks for your password itself).
+
+Before the first guest:
+- **your own Telegram bot** is connected (**⋯ → Telegram**): "Let them in?" comes there;
+- **your Anthropic API key** is added (Server → Guests → Settings), since new guests run on it;
+- **DNS:** a wildcard `*.<domain>` A record pointing at the server, or a Cloudflare token in
+  `~/.cf_token`;
+- **sudo without a password** for your user (a cloud server's default user has it): the
+  guest services make each guest's disk and web address in the background;
+- **web addresses** (`https://sb-<name>.<domain>`) need nginx and certbot on ports 80/443.
+  The script install puts Caddy there, so on such a server turn **Web** off for new guests
+  (Settings → "For new guests"): they work through Telegram, and you can still **Open**
+  their dashboard.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yanhs/agentkennel/master/install.sh | bash -s -- --guests

@@ -512,7 +512,7 @@
         <span class="gmark">4</span><h4>Turn it on</h4>
         <div class="gdetail"></div>
         <div>
-          <div class="gfix">Run this once in the Command line (it needs sudo): it starts the guest bot, the limits and the sandbox network.</div>
+          <div class="gfix">Run this once in the Command line, as yourself, not with sudo (it asks for your password itself): it starts the guest bot, the limits and the sandbox network.</div>
           <div class="gcmd"><code id="gCmd"></code><button type="button" class="gbtn" id="gCopy">Copy</button></div>
         </div>
       </div>
@@ -1612,7 +1612,7 @@
       }
       $('#gSave').disabled = !admin.bot_set;
       if (document.activeElement !== $('#gDomain') && !$('#gDomain').value) $('#gDomain').value = (d.env && d.env.domain) || '';
-      $('#gCmd').textContent = `sudo ${d.dir}/install.sh`;
+      $('#gCmd').textContent = `${d.dir}/install.sh`;
       $('#gChecking').hidden = !d.checking;
     }
   }

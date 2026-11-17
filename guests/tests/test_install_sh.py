@@ -36,7 +36,10 @@ echo "{name} $*" >> "$SHIM_LOG"
 """
 BODIES = {
     "sudo": 'case "$*" in "-n true") [ "${FAKE_SUDO_NOPASS:-1}" = 1 ]; exit $?;; esac\nexit 0',
-    "id": 'case "$1" in -u) echo 1000;; -un) echo tester;; *) echo uid=1000;; esac',
+    # FAKE_ROOT=1: run as root, the way `sudo guests/install.sh` would
+    "id": 'if [ "${FAKE_ROOT:-0}" = 1 ]; then case "$1" in -u) echo 0;; -un) echo root;;'
+          ' *) echo uid=0;; esac; exit 0; fi'
+          '\ncase "$1" in -u) echo 1000;; -un) echo tester;; *) echo uid=1000;; esac',
     "getent": 'echo "tester:x:1000:1000::$HOME:/bin/bash"',
     # docker info: FAKE_DOCKER = ok (default) | denied | down
     "docker": 'case "$1" in info) case "${FAKE_DOCKER:-ok}" in ok) echo 27.0; exit 0;;'
@@ -271,6 +274,18 @@ def test_yes_needs_sudo_without_a_password(box):
     r = box.run("--yes", FAKE_SUDO_NOPASS=0)
     assert r.returncode != 0 and "sudo" in r.stderr
     assert not changes(box.calls())
+
+
+# `sudo guests/install.sh` made the services run as root, with HOME=/root and root-owned
+# data the dashboard (running as the user) can't write; the script calls sudo itself
+@pytest.mark.parametrize("args", ["", "--yes", "--check"])
+def test_refuses_to_run_as_root_and_says_to_drop_sudo(box, args):
+    box.fill_env()
+    r = box.run(args, FAKE_ROOT=1, SUDO_USER="tester")
+    assert r.returncode != 0
+    assert "without sudo" in r.stderr and "guests/install.sh" in r.stderr
+    assert not changes(box.calls())
+    assert not list(box.systemd.iterdir())
 
 
 # SUDO="" (as in the root installer's tests): the unit files land in the sandbox's

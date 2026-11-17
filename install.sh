@@ -649,8 +649,8 @@ ask_guests() {
   GUESTS=0
   human_here || return 0
   printf '\nWill other people work on this server too? Each would get their own sandbox\n' >&2
-  printf '(an AgentKennel of their own, in Docker) on your Claude subscription, with 5-hour\n' >&2
-  printf 'and weekly limits. You can turn it on any time later in the dashboard. [y/N] ' >&2
+  printf '(an AgentKennel of their own, in Docker) with Claude on your Anthropic API key and a\n' >&2
+  printf 'dollar limit a week, or their own key. You can turn it on any time later. [y/N] ' >&2
   read -r ans <"${AGENTKENNEL_TTY:-${AGENTDECK_TTY:-/dev/tty}}" || ans=""
   case "$ans" in [yY]|[yY][eE][sS]) GUESTS=1 ;; esac
   return 0
@@ -669,7 +669,7 @@ install_guests_prereqs() {
 guests_note() {
   if [ "$GUESTS" = 1 ]; then
     say "  Guests: open the Server page → Guests → Set up guests (a Telegram bot for them,"
-    say "  a domain); it ends with one command: sudo $DIR/guests/install.sh"
+    say "  a domain); it ends with one command (as you, not with sudo): $DIR/guests/install.sh"
   else
     say "  Other people can work here too, each in their own sandbox — turn it on any time:"
     say "  the dashboard's Server page → Guests."

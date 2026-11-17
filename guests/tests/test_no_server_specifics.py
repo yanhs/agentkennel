@@ -5,6 +5,7 @@ them either."""
 
 import hashlib
 import re
+import subprocess
 from pathlib import Path
 
 GUESTS = Path(__file__).resolve().parents[1]
@@ -19,8 +20,19 @@ CANDIDATE = re.compile(r"(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?![\d.])|(?<!\d)\d{6,
 SKIP_DIRS = {"__pycache__", "data", "public", "sites", "build", ".pytest_cache"}
 
 
+def _candidates():
+    """What gets published: the files git tracks (a live server's guests/disks and other
+    runtime data, often not even readable, are not the module). Outside git: every file."""
+    try:
+        out = subprocess.run(["git", "-C", str(GUESTS), "ls-files", "-z", "--", "."],
+                             capture_output=True, check=True).stdout
+        return sorted(GUESTS / f for f in out.decode().split("\0") if f)   # relative to GUESTS
+    except (OSError, subprocess.CalledProcessError):
+        return sorted(GUESTS.rglob("*"))
+
+
 def files():
-    for p in sorted(GUESTS.rglob("*")):
+    for p in _candidates():
         if p.is_file() and not SKIP_DIRS & set(p.relative_to(GUESTS).parts) \
                 and p.name != ".env" and p != Path(__file__).resolve():
             yield p

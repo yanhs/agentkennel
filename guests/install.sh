@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # AgentKennel guests — set the module up on a server where AgentKennel is installed.
-# Other people work on your server, each in a Docker sandbox of their own, on your Claude
-# subscription with a daily limit, through one shared Telegram bot (see guests/README.md).
+# Other people work on your server, each in a Docker sandbox of their own, with a Claude
+# of their own (your API key with a dollar limit a week, or their own key), through one
+# shared Telegram bot (see guests/README.md). Run it as yourself, not with sudo.
 #
 #   guests/install.sh            set up, or upgrade / repair (running it again is safe)
 #   guests/install.sh --check    only the checks, change nothing
@@ -274,8 +275,17 @@ Done. Next:
 EOF
 }
 
+# the services run as the user who runs this script; under sudo that is root (HOME=/root,
+# root-owned data the dashboard can't write). The script asks for sudo itself where needed.
+refuse_root() {
+  [ "$(id -u)" = 0 ] || return 0
+  [ "${AGENTKENNEL_ALLOW_ROOT:-}" = 1 ] && return 0
+  die "run it without sudo, as the user AgentKennel runs as${SUDO_USER:+ ($SUDO_USER)}: $GUESTS_DIR/install.sh — it asks for your sudo password itself where needed (AgentKennel itself runs as root? then AGENTKENNEL_ALLOW_ROOT=1)"
+}
+
 main() {
   parse_args "$@"
+  refuse_root
   step "Checks"
   if ! preflight; then
     [ "$CHECK" = 1 ] && { say ""; say "--check: ${#PROBLEMS[@]} problem(s) above; nothing was changed"; exit 1; }

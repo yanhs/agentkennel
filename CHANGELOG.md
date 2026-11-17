@@ -2,14 +2,22 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## v2.6.1 — guests: the setup command without sudo; what a guest needs, written down
+
+### Guests
+- **`guests/install.sh` runs as you, not with sudo.** The README, the installer's last message and the Server page's guest setup said `sudo …/guests/install.sh`; under sudo the guest services were written to run as root (HOME=/root, data the dashboard can't write). The command is now shown without sudo, and the script refuses to run as root with a hint (it asks for your sudo password itself; `AGENTKENNEL_ALLOW_ROOT=1` when AgentKennel itself runs as root).
+- **No "on your subscription" for guests in the installer.** The question "Will other people work on this server too?" and the README's top now say a guest's Claude runs on your API key with a dollar limit a week, or their own key.
+- **What the first guest needs, in the README:** your own Telegram bot, your API key, DNS (a wildcard record or a Cloudflare token), sudo without a password, and for web addresses nginx with certbot on 80/443 (with the script install's Caddy there, set Web off for new guests: Telegram only).
+- **Upgrading:** new guests default to your API key on an upgraded install too; add the key first.
+
 ## v2.6.0 — guests: whose Claude they run on (your API key, their own key, or your subscription)
 
 ### Guests
-- **Whose Claude, per guest.** A guest's Claude can run on your Anthropic API key (the default for new guests, with a dollar limit a week, $20 unless changed), on their own API key or `claude setup-token` login, or on your subscription (an option that needs an explicit "I understand": Anthropic's terms don't allow sharing one Claude subscription between several people). Set it on the Server page (Guests, Settings, "For new guests", and a **Claude** button per guest) or with `guestctl claude <name> '<json>'`, `guestctl defaults [--set '<json>']` and `guestctl owner-key [--remove]` (key on stdin). Your key is checked with Anthropic before it is saved, kept on the host with mode 0600, shown only as its last 4 characters and never put in a sandbox. Rows read `your key · $6.10 of $20`, `own key`, `your subscription ⚠ · wk 1%`. "Tell me in Telegram at 80%" is on by default.
+- **Whose Claude, per guest.** A guest's Claude can run on your Anthropic API key (the default for new guests, with a dollar limit a week, $20 unless changed), on their own API key or `claude setup-token` login, or on your subscription (an option that needs an explicit "I understand": Anthropic's terms don't allow sharing one Claude subscription between several people). Set it on the Server page (Guests, Settings, "For new guests", and a **Claude** button per guest) or with `python3 guests/guestctl.py claude <name> '<json>'`, `… defaults [--set '<json>']` and `… owner-key [--remove]` (key on stdin). Your key is checked with Anthropic before it is saved, kept on the host with mode 0600, shown only as its last 4 characters and never put in a sandbox. Rows read `your key · $6.10 of $20`, `own key`, `your subscription ⚠ · wk 1%`. "Tell me in Telegram at 80%" is on by default.
 - **`/claude` for guests.** In the guest bot (and "Claude" in the guest's web panel) a guest sees what they run on and can send their own API key or `claude setup-token` token: the message is taken by the relay, never reaches the sandbox, and is deleted from the chat; anything containing `sk-ant-` is withheld from the sandbox. You get a Telegram message when a guest switches.
 - **No silent fallback to the subscription.** If your key is missing, revoked or out of credit, the guest is told Claude isn't available and you get one message an hour at most. Only `/v1/messages` and `/v1/messages/count_tokens` are forwarded (no batches). Dollars are priced from `guests/prices.json` (update it when Anthropic changes prices; an unknown model is priced at the table's highest price).
 - **Known limits.** Several requests running at once can overshoot a dollar limit by up to that many requests' cost; the once-an-hour owner messages are kept in memory, so a restart can repeat one.
-- **Upgrading.** Existing guests keep running exactly as before until you change them; on a fresh install new guests default to your API key.
+- **Upgrading.** Existing guests keep running exactly as before until you change them. New guests default to your API key, on an upgraded install too: add the key first, or pick another default under "For new guests".
 
 ## v2.5.0 — a second Telegram bot for notifications; the README tells about guests
 
