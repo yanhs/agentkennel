@@ -161,9 +161,19 @@ set -e
 tail -n 15 "$WORK/guests-install.log"
 expect "guests/install.sh exit 0" test "$rc" = 0
 [ "$rc" = 0 ] || exit 1
-for u in agentkennel-guest-turnstile agentkennel-guest-sitegate agentkennel-guest-tgrelay; do
+for u in agentkennel-guest-turnstile agentkennel-guest-sitegate; do
   expect "$u active" docker exec "$NAME" systemctl is-active --quiet "$u"
 done
+# the Telegram relay runs on a made-up bot token here: Telegram refuses it and the unit may
+# be between restarts — running or restarting is what can be checked, not failed
+tgrelay_up() {
+  local st; st="$(docker exec "$NAME" systemctl is-active agentkennel-guest-tgrelay || true)"
+  echo "  agentkennel-guest-tgrelay: $st"
+  case "$st" in active|activating) return 0 ;; esac
+  docker exec "$NAME" journalctl -u agentkennel-guest-tgrelay --no-pager -o cat -n 15 || true
+  return 1
+}
+expect "agentkennel-guest-tgrelay running or restarting (fake bot token)" tgrelay_up
 gctl doctor > "$WORK/doctor.log" 2>&1 || true
 cat "$WORK/doctor.log"
 expect "doctor: Web addresses OK on caddy" grep -q "^OK    Web addresses: caddy: " "$WORK/doctor.log"
