@@ -2,6 +2,13 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## v2.7.1 — the docs catch up with v2.7.0
+
+- **Upgrading with rules on:** recreate each guest with rules on (`python3 guests/guestctl.py recreate <name>`) so their command line and Ctrl+B are locked too; an old image keeps them open.
+- **The README's guests screenshot and the demo** show v2.7.0: Rules usable with web on, amber when on, the Telegram inbox as a fixed line.
+- **Alerts and the daily digest** are explained in guests/README: they come with "Tell me in Telegram…" (on by default).
+- Smaller fixes: `~/agentkennel/install.sh --https` (ports 80 and 443 free) instead of `./install.sh`, the full guests command list, `GUESTS_LOCALE_DIR`, one wording for the first "Getting started" terminal, `install.sh --help` names the :8443 fallback, a working Claude Code docs link, version examples at 2.7.0.
+
 ## v2.7.0 — guests: rules in the live terminal, web addresses on the script install, English only
 
 ### Guests
@@ -28,7 +35,7 @@ All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 - **What the first guest needs, in the README:** your own Telegram bot, your API key, DNS (a wildcard record or a Cloudflare token), sudo without a password, and for web addresses nginx with certbot on 80/443 (with the script install's Caddy there, set Web off for new guests: Telegram only).
 - **Upgrading:** new guests default to your API key on an upgraded install too; add the key first.
 
-## v2.6.0 — guests: whose Claude they run on (your API key, their own key, or your subscription)
+## v2.6.0 — guests: whose Claude they run on (your API key, their own key, or your subscription, with a warning)
 
 ### Guests
 - **Whose Claude, per guest.** A guest's Claude can run on your Anthropic API key (the default for new guests, with a dollar limit a week, $20 unless changed), on their own API key or `claude setup-token` login, or on your subscription (an option that needs an explicit "I understand": Anthropic's terms don't allow sharing one Claude subscription between several people). Set it on the Server page (Guests, Settings, "For new guests", and a **Claude** button per guest) or with `python3 guests/guestctl.py claude <name> '<json>'`, `… defaults [--set '<json>']` and `… owner-key [--remove]` (key on stdin). Your key is checked with Anthropic before it is saved, kept on the host with mode 0600, shown only as its last 4 characters and never put in a sandbox. Rows read `your key · $6.10 of $20`, `own key`, `your subscription ⚠ · wk 1%`. "Tell me in Telegram at 80%" is on by default.
