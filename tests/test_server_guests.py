@@ -576,6 +576,10 @@ def test_the_rules_button_shows_whether_the_guest_is_restricted(page, fake):
     others = page.eval_on_selector_all('#guests .guest:not([data-name="masha"]) button[data-act="rules"]',
                                        "els => els.map(e => [e.classList.contains('restricted'), e.title])")
     assert others and all(not r and "No rules" in t for r, t in others)
+    # the rows line up: a restricted Rules button is as wide as a free one
+    widths = page.eval_on_selector_all('#guests button[data-act="rules"]',
+                                       "els => els.map(e => Math.round(e.getBoundingClientRect().width))")
+    assert len(set(widths)) == 1, widths
 
 
 def test_only_this_work_needs_the_work_said(page, fake):

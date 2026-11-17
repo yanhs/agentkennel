@@ -275,11 +275,13 @@
       background: radial-gradient(circle at 14.5px 5.5px, var(--bg) 3.5px, transparent 4px), var(--green);
     }
     /* Rules at a glance (owner, 17.11.2026): amber with a dot while the guest is restricted */
-    .svc-btns button[data-act="rules"].restricted { color: var(--amber); border-color: var(--amber); }
-    .svc-btns button[data-act="rules"].restricted::before {
+    /* every Rules button carries the dot, so rows line up: hollow grey = no rules, amber = restricted */
+    .svc-btns button[data-act="rules"]::before {
       content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 5px; vertical-align: 1px;
-      border-radius: 50%; background: var(--amber);
+      border-radius: 50%; box-sizing: border-box; border: 1.5px solid var(--off);
     }
+    .svc-btns button[data-act="rules"].restricted { color: var(--amber); border-color: var(--amber); }
+    .svc-btns button[data-act="rules"].restricted::before { border-color: var(--amber); background: var(--amber); }
     /* the forms that open in the block: the agent's rules (web on or off), whose
        Claude a guest runs on, and Settings → For new guests (one look for all three) */
     .gform { margin: 0 0 10px 22px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px;
