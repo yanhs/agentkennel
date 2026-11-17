@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WEB_DIR = ROOT / "web"
 TASKS_DIR = ROOT / "tasks-dashboard"
 OUT = ROOT / "docs" / "screenshots"
-CYR = re.compile(r"[Ѐ-ӿ]")
+CYR = re.compile("[\u0400-\u04ff]")
 SCALE = 2
 
 

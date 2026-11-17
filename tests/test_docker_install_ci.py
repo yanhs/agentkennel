@@ -51,7 +51,7 @@ def test_building_the_checkout_leaves_the_release_tags_alone():
     assert "docker rmi" in text
 
 
-# HTTPS by default (owner, 31.10.2026: "должно быть https"): `docker compose up -d` serves
+# HTTPS by default (owner, 31.10.2026: "it must be https"): `docker compose up -d` serves
 # https://<ip>:8765 with a certificate the container makes for itself — encrypted, the
 # browser warns once — the same fallback install.sh uses. ./https.sh still gets a trusted
 # certificate; AGENTKENNEL_SITE=:8765 is plain http, behind a proxy of your own.

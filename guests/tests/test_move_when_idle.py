@@ -59,6 +59,7 @@ def test_idle_moves_checks_and_reports_success():
     assert run(w) == 0
     assert w.moved == [("anna", 20, "img:new")]
     assert len(w.told) == 1 and "✅" in w.told[0] and "anna" in w.told[0]
+    assert "moved onto its own disk (20 GB)" in w.told[0] and "img:new" in w.told[0]
 
 
 @pytest.mark.parametrize("after", [
@@ -71,12 +72,17 @@ def test_a_result_that_is_not_right_is_reported_as_a_failure(after):
     w = World(after=after)
     assert run(w) == 1
     assert len(w.told) == 1 and "🚨" in w.told[0]
+    assert "the check did not match" in w.told[0]
+    said = {"not-running": "the sandbox is not running", "old-image": "image img:old, not img:new",
+            "no-disk": "the disk is not mounted", "page-down": "the dashboard answers 502"}
+    assert any(v in w.told[0] for v in said.values()), w.told[0]
 
 
 def test_a_failed_move_is_reported_with_why():
     w = World(move_rc=1)
     assert run(w) == 1
     assert "🚨" in w.told[0] and "rsync: no space" in w.told[0]
+    assert "moving onto its own disk and the new version failed" in w.told[0]
 
 
 def test_a_dry_run_says_what_it_would_do_and_changes_nothing():

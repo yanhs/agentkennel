@@ -1,6 +1,6 @@
 # Guests: whose Claude they run on — design
 
-Owner, 13.11.2026. Mockup he approved ("хорошо", then two additions below):
+Owner, 13.11.2026. Mockup he approved ("good", then two additions below):
 https://files.agentkennel.com/agentkennel-guest-claude-1113/
 
 ## Why
@@ -50,8 +50,8 @@ key on the server yet).
 
 ## Guest side
 
-- **Bot menu item `/claude`** (next to /web, /newpassword, /services; owner: "можно пункт
-  меню такой добавить"). Shows what the guest runs on now ("The owner's key · $6.10 of $20
+- **Bot menu item `/claude`** (next to /web, /newpassword, /services; owner: "a menu item like
+  that can be added"). Shows what the guest runs on now ("The owner's key · $6.10 of $20
   this week") and buttons: Own API key / Own subscription (explains `claude setup-token`) /
   Back to the owner's key. The relay on the host handles it; **the message with the key is
   read by the relay, never forwarded to the sandbox, and deleted from the chat** (builder's
@@ -59,9 +59,9 @@ key on the server yet).
 - **Web panel** (sb-<name>): a "Claude" label next to cmd (where today's usage line is)
   opens "Your Claude": what it runs on now, paste an API key or a setup-token, "Check and
   save", "Back to the owner's key". The panel sends it to the turnstile with the guest's
-  own pass (like `GET /guest/usage` today). Owner's words: guests can set it "и через веб
-  интерфейс тоже".
-- **Takes effect immediately** after a successful check (owner: "сразу"), no approval.
+  own pass (like `GET /guest/usage` today). Owner's words: guests can set it "through the
+  web interface too".
+- **Takes effect immediately** after a successful check (owner: "right away"), no approval.
 - A guest can't pick `owner_sub` or `owner_key` themselves; "Back to the owner's key"
   returns to whatever the owner set for that guest (`owner_key` or `owner_sub`).
 
@@ -106,8 +106,8 @@ subscription for several people. Never "on your subscription" as the description
 
 ## Existing guests and this server (owner, 13.11)
 
-Owner: "оставить и по умолчанию конкретно у меня на сервере оставить все так как сейчас, а
-в релизе уже по другому".
+Owner: "keep it, and by default, on my server specifically, keep everything as it is now, but
+in the release do it differently".
 
 - **Guests that exist before the update stay on `owner_sub`**: a record without a `claude`
   field means `owner_sub`, on every install. Nothing stops working on upgrade; the owner
@@ -143,7 +143,7 @@ Owner: "оставить и по умолчанию конкретно у мен
   "Claude" label arrives when each sandbox is next recreated while idle (no terminal is
   closed for this). `GET /guest/usage` keeps its current fields for older images.
 
-## Limits follow the mode (owner, 13.11: "если подписка, то считаются не доллары")
+## Limits follow the mode (owner, 13.11: "if it's the subscription, it isn't dollars that are counted")
 
 - `owner_key`: dollars a week (above).
 - `owner_sub`: today's measure, unchanged — share of the owner's week (weighted tokens,

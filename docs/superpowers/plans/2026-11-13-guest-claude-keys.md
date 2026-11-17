@@ -261,7 +261,7 @@ Content: guests run on the owner's API key by default with a dollar limit; own k
 - [ ] **Step 5:** check live: `guestctl list --json` → every existing guest `mode: owner_sub`; turnstile log shows `PASS guest=…` for the next guest request with today's numbers; `/claude` in the guest bot answers for `yan` (the owner's own test guest); the Server page shows the labels; no `sk-ant` in `journalctl -u agentkennel-guest-turnstile`.
 - [ ] **Step 6:** CHANGELOG version + release like v2.5.0 (tag, `gh release`, image workflow green, `:latest` updated). Sandboxes are **not** recreated; their web label comes with the next idle recreate.
 
-### Task 14: agentkennel.com (owner, 14.11: "Сюда тоже надо внести изменения")
+### Task 14: agentkennel.com (owner, 14.11: "This needs changes too")
 
 The site (`/home/ubuntu/pr/agentkennel-web`, Next.js, branch `main`; live = `npm run build` then `rsync -a --delete out/ /home/ubuntu/pr/agentkennel-web-live/`) says nothing about guests in text today; only the demo (`public/assets/demo.mp4`, `public/assets/img/demo.gif`, made by `tests/make_demo.py` in this repo with `tests/make_screenshots.py:guests_payload`) shows the Guests block. It goes live together with the release in Task 13, not before.
 

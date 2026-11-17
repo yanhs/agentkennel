@@ -2545,7 +2545,7 @@ window.term = {
 };
 ta.addEventListener('keydown', e => {
   if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
-  // like xterm.js: the key CODE decides (Ctrl+V on a Russian layout is key 'м', keyCode 86)
+  // like xterm.js: the key CODE decides (Ctrl+V on a Greek layout is key 'ω', keyCode 86)
   const k = e.keyCode === 86 ? 'v' : e.keyCode === 67 ? 'c' : '';
   if (k === 'v') { sent.push('\\x16'); e.preventDefault(); }
   if (k === 'c') { sent.push('\\x03'); e.preventDefault(); }
@@ -2807,9 +2807,10 @@ def test_ctrl_c_in_another_terminal_after_a_selection_interrupts(browser, site):
         ctx.close()
 
 
-# On a Russian (or any non-Latin) layout the browser reports Ctrl+V as key 'м' and
-# Ctrl+C as 'с' — xterm still sends ^V / ^C (it goes by keyCode), so the check must
-# not rely on e.key alone, or dictated Russian text (Wispr Flow) is never pasted.
+# On a non-Latin layout (Greek here; Russian, Ukrainian … the same) the browser reports
+# Ctrl+V as key 'ω' and Ctrl+C as 'ψ' — xterm still sends ^V / ^C (it goes by keyCode), so
+# the check must not rely on e.key alone, or dictated non-Latin text (Wispr Flow) is never
+# pasted.
 def _ctrl_key_in_term(pg, key, code, key_code, paste_text=None):
     return _term_frame(pg).evaluate("""([key, code, kc, t]) => {
         const ta = document.querySelector('textarea');
@@ -2824,46 +2825,46 @@ def _ctrl_key_in_term(pg, key, code, key_code, paste_text=None):
         return kd.defaultPrevented; }""", [key, code, key_code, paste_text])
 
 
-def test_ctrl_v_on_a_russian_layout_pastes_text(browser, site):
+def test_ctrl_v_on_a_non_latin_layout_pastes_text(browser, site):
     ctx, pg, uploads = _paste_page(browser, site)
     try:
         _open_and_focus(pg)
-        prevented = _ctrl_key_in_term(pg, "м", "KeyV", 86, "Привет из Wispr Flow")
+        prevented = _ctrl_key_in_term(pg, "ω", "KeyV", 86, "Γεια από το Wispr Flow")
         pg.wait_for_timeout(400)
         assert prevented is False
         assert "\x16" not in _sent(pg)
-        assert _pasted(pg) == ["Привет из Wispr Flow"]
+        assert _pasted(pg) == ["Γεια από το Wispr Flow"]
         assert uploads == []
     finally:
         ctx.close()
 
 
-def test_ctrl_v_synthetic_russian_layout_without_code_pastes_text(browser, site):
-    """Wispr Flow (and other dictation apps) SIMULATE Ctrl+V: on a Russian layout the
-    event has key 'м', NO physical code (''), only keyCode 86. It must still paste."""
+def test_ctrl_v_synthetic_non_latin_layout_without_code_pastes_text(browser, site):
+    """Wispr Flow (and other dictation apps) SIMULATE Ctrl+V: on a non-Latin layout the
+    event has key 'ω', NO physical code (''), only keyCode 86. It must still paste."""
     ctx, pg, uploads = _paste_page(browser, site)
     try:
         _open_and_focus(pg)
-        prevented = _ctrl_key_in_term(pg, "м", "", 86, "Привет из Wispr Flow")
+        prevented = _ctrl_key_in_term(pg, "ω", "", 86, "Γεια από το Wispr Flow")
         pg.wait_for_timeout(400)
         assert prevented is False
         assert "\x16" not in _sent(pg)
-        assert _pasted(pg) == ["Привет из Wispr Flow"]
+        assert _pasted(pg) == ["Γεια από το Wispr Flow"]
         assert uploads == []
     finally:
         ctx.close()
 
 
-def test_ctrl_c_on_a_russian_layout_copies_a_selection(browser, site):
+def test_ctrl_c_on_a_non_latin_layout_copies_a_selection(browser, site):
     ctx, pg, _ = _paste_page(browser, site)
     try:
         _open_and_focus(pg)
-        _term_frame(pg).evaluate("window.__sel = 'выделено'")
-        _ctrl_key_in_term(pg, "с", "KeyC", 67)
+        _term_frame(pg).evaluate("window.__sel = 'επιλεγμένο'")
+        _ctrl_key_in_term(pg, "ψ", "KeyC", 67)
         pg.wait_for_timeout(500)
         assert "\x03" not in _sent(pg)
-        assert pg.evaluate("navigator.clipboard.readText()") == "выделено"
-        _ctrl_key_in_term(pg, "с", "KeyC", 67)              # nothing selected now
+        assert pg.evaluate("navigator.clipboard.readText()") == "επιλεγμένο"
+        _ctrl_key_in_term(pg, "ψ", "KeyC", 67)              # nothing selected now
         pg.wait_for_timeout(300)
         assert _sent(pg) == ["\x03"]
     finally:

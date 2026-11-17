@@ -1,6 +1,6 @@
 # Guests: web on/off and the agent's rules — design
 
-Owner, 12.11.2026. Mockup he approved ("делай"):
+Owner, 12.11.2026. Mockup he approved ("do it"):
 https://files.agentkennel.com/agentkennel-guest-rules-1112/
 
 ## Why

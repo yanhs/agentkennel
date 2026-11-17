@@ -24,7 +24,7 @@ STOP_HOOK = os.path.join(REPO, "hooks", "guard_dont_stop.py")
 # A path that is never exempt: not a temp dir, not ~/.claude/.
 PROJECT_FILE = "/srv/project/app.py"
 TRACKER = "cd tasks-dashboard && python3 tracker.py"
-CYRILLIC = re.compile(r"[Ѐ-ӿ]")
+CYRILLIC = re.compile("[\u0400-\u04ff]")
 # the author's own domain, spelled in parts so the repo itself never contains it
 OWNER_DOMAIN = "re" + "imake"
 

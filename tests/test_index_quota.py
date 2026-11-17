@@ -20,7 +20,7 @@ import pytest
 
 from tests.test_index_lib import FakeAPI, _open, browser, shot, site  # noqa: F401
 
-CYRILLIC = re.compile(r"[Ѐ-ӿ]")
+CYRILLIC = re.compile("[\u0400-\u04ff]")
 
 
 def quota(u5=0.07, u7=0.09, source="subscription", r5=None, r7=None):

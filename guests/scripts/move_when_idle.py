@@ -90,19 +90,20 @@ def run(name, gb, image, quiet_min, world, dry=False):
         return DONE
     rc, out = world.move(name, gb, image)
     if rc != 0:
-        world.tell(f"🚨 Гость {name}: перенос на свой диск и новую версию не удался.\n{out}")
+        world.tell(f"🚨 Guest {name}: moving onto its own disk and the new version failed.\n{out}")
         return FAILED
     st = world.state(name)
-    wrong = [k for k, ok in (("песочница не запущена", st.get("running")),
-                             (f"образ {st.get('image')} вместо {image}", st.get("image") == image),
-                             ("диск не смонтирован", st.get("disk")),
-                             (f"кабинет отвечает {st.get('login')}", st.get("login") == 200)) if not ok]
+    wrong = [k for k, ok in (("the sandbox is not running", st.get("running")),
+                             (f"image {st.get('image')}, not {image}", st.get("image") == image),
+                             ("the disk is not mounted", st.get("disk")),
+                             (f"the dashboard answers {st.get('login')}", st.get("login") == 200)) if not ok]
     if wrong:
-        world.tell(f"🚨 Гость {name}: перенос прошёл, но проверка не сошлась: " + "; ".join(wrong))
+        world.tell(f"🚨 Guest {name}: the move went through, but the check did not match: "
+                   + "; ".join(wrong))
         return FAILED
-    world.tell(f"✅ Гость {name}: песочница переехала на свой диск ({gb} ГБ) и новую версию "
-               f"({image}): видны расход «5h / wk» и своя страница «Сервер». Файлы на месте, "
-               "кабинет открывается.")
+    world.tell(f"✅ Guest {name}: the sandbox moved onto its own disk ({gb} GB) and the new "
+               f"version ({image}): the \"5h / wk\" usage and its own \"Server\" page are there. "
+               "The files are in place, the dashboard opens.")
     return DONE
 
 
@@ -119,7 +120,7 @@ def main(argv=None):
     try:
         rc = run(a.name, a.gb, a.image, a.quiet, world, dry=a.dry_run)
     except Exception as e:  # noqa: BLE001 — tell, never fail silently
-        world.tell(f"🚨 Гость {a.name}: перенос сорвался с ошибкой: {e!r}"[:900])
+        world.tell(f"🚨 Guest {a.name}: the move broke off with an error: {e!r}"[:900])
         rc = FAILED
     if a.timer and rc in (DONE, FAILED) and not a.dry_run:
         subprocess.run(["systemctl", "--user", "stop", a.timer], capture_output=True)

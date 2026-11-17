@@ -2615,7 +2615,7 @@
     // same terminal — otherwise Claude's interrupt would be silently swallowed later.
     let _tmuxSel = null;          // {text|null, doc, at} — the last mouse selection copied from tmux
     const TMUX_SEL_MS = 3000;
-    // Ctrl+<letter> by the key's CODE when the layout isn't Latin (Russian: Ctrl+V is 'м')
+    // Ctrl+<letter> by the key's CODE when the layout isn't Latin (Greek: Ctrl+V is 'ω'; Russian, Ukrainian … likewise)
     function _ctrlLetter(e) {
       const k = (e.key || '').toLowerCase();
       if (/^[a-z]$/.test(k)) return k;
