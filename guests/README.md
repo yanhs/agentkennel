@@ -48,6 +48,9 @@ a limit, through one shared Telegram bot. Off until you set it up.
   inside the sandbox can leave them out; the agent declines anything else politely. A new
   site is refused by the site gate itself when publishing isn't allowed. "Tell me when they
   ask for something strange or illegal" sends you a Telegram message (at most 5 an hour).
+  What the guest sends in Telegram lands in `/work/tg-uploads`, always open to the agent:
+  pictures, fonts and documents go into the work; code only after the agent has read it,
+  as part of the work's own files and build. Nothing is run or installed straight from there.
   The folders rule is the agent's, not the file system's: a read-only /work would break a
   site's own publish script. While web is on, the rules don't apply.
 

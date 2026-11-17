@@ -711,13 +711,14 @@ def test_folders_lists_the_sandboxs_work_folders(monkeypatch, capsys):
     calls = []
 
     class R:
-        returncode, stdout = 0, "angels-help\nangels-help-live\npublic\n"
+        returncode, stdout = 0, "angels-help\nangels-help-live\npublic\ntg-uploads\n"
 
     monkeypatch.setattr(gc, "_docker", lambda *a, **k: calls.append(a) or R())
     gc.cmd_folders(type("A", (), {"name": "anna"})())
     import json as _json
     assert _json.loads(capsys.readouterr().out) == {
-        "folders": ["/work/angels-help", "/work/angels-help-live", "/work/public"]}
+        "folders": ["/work/angels-help", "/work/angels-help-live", "/work/public"],
+        "always": ["/work/tg-uploads"]}    # the Telegram inbox: always allowed, no checkbox
     assert calls[0][:2] == ("exec", "sbx-anna")
 
 

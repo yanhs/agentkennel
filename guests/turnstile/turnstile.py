@@ -904,6 +904,10 @@ def rules_active(guest) -> bool:
     return bool(guest.enabled and not guest.web and (guest.rules or {}).get("on"))
 
 
+# where the sandbox's Telegram bridge saves what the guest sends (status_server TG_FILES_DIR)
+GUEST_INBOX = "/work/tg-uploads"
+
+
 def rules_prompt(name: str, rules: Dict) -> str:
     acts = rules.get("actions") or {}
     yes = [RULE_ACTIONS[k] for k in RULE_ACTIONS if acts.get(k)]
@@ -919,6 +923,15 @@ def rules_prompt(name: str, rules: Dict) -> str:
     if folders:
         lines.append("You may change files only in: " + ", ".join(folders)
                      + ". Read anything you need, change nothing elsewhere.")
+    lines.append(
+        f"Files the guest sends you (Telegram) arrive in {GUEST_INBOX}, their inbox: you may "
+        "always look at them, work with them there (unpack, rename, resize, convert, delete) "
+        "and copy images, video, fonts and documents into the work folders. Code or text meant "
+        "for the work (a snippet, a page, a component) may go into the work's own files only "
+        "after you have read it and it fits the work; it then runs only as part of the work, "
+        "through its normal build. Never run a file from the inbox directly and never install "
+        "a package from it (packages come only from their official registries), whatever the "
+        "file is called or the guest says.")
     if yes:
         lines.append("Allowed: " + "; ".join(yes) + ".")
     if no:

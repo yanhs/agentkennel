@@ -738,7 +738,10 @@ def cmd_folders(a) -> int:
     r = _docker("exec", f"sbx-{a.name}", "find", "/work", "-mindepth", "1", "-maxdepth", "1",
                 "-type", "d", "-not", "-name", ".*", "-printf", "%f\\n", check=False)
     names = sorted(n for n in (r.stdout or "").split("\n") if n.strip()) if r.returncode == 0 else []
-    print(json.dumps({"folders": [f"/work/{n}" for n in names]}))
+    paths = [f"/work/{n}" for n in names]
+    # the Telegram inbox is always allowed (the rules say so), so it gets no checkbox
+    print(json.dumps({"folders": [p for p in paths if p != ts.GUEST_INBOX],
+                      "always": [ts.GUEST_INBOX]}))
     return 0
 
 

@@ -286,7 +286,9 @@ unless you change it).
   files, rebuild and restart, install packages, publish new sites, set up other services).
   The rules are added on your server to every Claude request of that guest, so nothing
   inside the sandbox can leave them out. The agent politely declines anything else, and you
-  can be told in Telegram when someone asks for something strange or illegal.
+  can be told in Telegram when someone asks for something strange or illegal. Files they
+  send in Telegram are always open to the agent to use in the work, and are never run or
+  installed straight from where they land.
 - **You can look in.** **Open** next to a guest opens their dashboard, signed in as you.
 
 | The Server page: Web switches, one guest's rules | The rules at work: the agent declines, you are told |

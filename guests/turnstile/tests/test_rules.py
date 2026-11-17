@@ -111,6 +111,19 @@ def test_the_rules_text_says_the_work_the_folders_and_what_is_off():
     assert "/flag" in text and "$ANTHROPIC_AUTH_TOKEN" in text
 
 
+# 17.11.2026 (owner): what a guest sends in Telegram lands in /work/tg-uploads, their inbox.
+# The agent may always work with it there and copy media into the work folders, whatever
+# the folder rules say, and never runs or installs anything from it.
+@pytest.mark.parametrize("rules", [SITE, dict(SITE, folders=[])])
+def test_the_inbox_is_always_usable_and_nothing_in_it_is_run(rules):
+    text = ts.rules_prompt("vlad", rules)
+    assert "/work/tg-uploads" in text
+    low = text.lower()
+    assert "copy" in low and "never run a file from the inbox directly" in low
+    assert "never install a package from it" in low
+    assert "after you have read it" in low       # code for the work: read first, then built
+
+
 def test_without_flag_the_rules_dont_mention_reporting():
     assert "/flag" not in ts.rules_prompt("vlad", dict(SITE, flag=False))
 

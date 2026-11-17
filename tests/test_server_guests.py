@@ -527,6 +527,20 @@ def test_rules_open_as_they_were_saved(page, fake):
     assert not box.query_selector('input.grules-flag').is_checked()
 
 
+# the Telegram inbox (/work/tg-uploads) is always allowed: a fixed line, never a checkbox,
+# even when a saved rule from before listed it
+def test_the_telegram_inbox_is_a_fixed_line_not_a_checkbox(page, fake):
+    fake.guests[0]["rules"] = {"on": True, "work": "Site",
+                               "folders": ["/work/public", "/work/tg-uploads"],
+                               "actions": {"edit": True}, "flag": True}
+    guest_rows(page)
+    box = open_rules(page, fake)
+    page.wait_for_selector('#guests .grules input[data-folder="/work/public"]')
+    assert box.query_selector('input[data-folder="/work/tg-uploads"]') is None
+    inbox = box.query_selector(".grinbox")
+    assert inbox and "/work/tg-uploads" in inbox.inner_text() and "Never run" in inbox.inner_text()
+
+
 def test_only_this_work_needs_the_work_said(page, fake):
     guest_rows(page)
     box = open_rules(page, fake)

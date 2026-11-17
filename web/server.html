@@ -1492,7 +1492,9 @@
     ta.value = R.work || '';
     ta.placeholder = 'For example: the website example.com — its pages, texts, photos, prices';
     const folders = el('div', 'grfolders');
-    const addFolder = (p, on) => { if (!folders.querySelector(`input[data-folder="${CSS.escape(p)}"]`)) folders.append(check('checkbox', p, { data: { folder: p } }, on)); };
+    const addFolder = (p, on) => { if (p !== G_INBOX && !folders.querySelector(`input[data-folder="${CSS.escape(p)}"]`)) folders.append(check('checkbox', p, { data: { folder: p } }, on)); };
+    // what they send in Telegram: always theirs to work with, never run (turnstile's rules say so)
+    const inbox = el('div', 'grnote grinbox', `${G_INBOX} — what they send in Telegram: always allowed. Pictures, fonts and documents go into the work; code only after the agent has read it, as part of the work. Never run or installed straight from there.`);
     (R.folders || []).forEach(p => addFolder(p, true));
     const actsBox = el('div');
     G_RULE_ACTIONS.forEach(([k, t]) => actsBox.append(check('checkbox', t, { data: { action: k } }, acts[k])));
@@ -1500,7 +1502,7 @@
       f(null, check('radio', 'Anything in its sandbox', { props: { name: mode, value: 'any' } }, !R.on),
               check('radio', 'Only this work', { props: { name: mode, value: 'only' } }, !!R.on)),
       f('The work, in your words (the agent gets it with every request)', ta),
-      f('Folders it may change', folders),
+      f('Folders it may change', folders, inbox),
       f('Actions', actsBox),
       f('Anything else they ask for', el('div', 'grnote', 'The agent declines politely and does no part of it.')),
       f(null, check('checkbox', 'Tell me in Telegram when they ask for something strange or illegal', { cls: 'grules-flag' }, R.flag !== false)));
@@ -1515,6 +1517,7 @@
     }).catch(() => { /* the saved ones are still there */ });
     return box;
   }
+  const G_INBOX = '/work/tg-uploads';
   async function gSaveRules(name) {
     const box = gRows.get(name) && gRows.get(name).querySelector('.grules');
     if (!box) return;

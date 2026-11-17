@@ -2,6 +2,11 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## Unreleased
+
+### Guests
+- **What a guest sends in Telegram is always usable, and never run as it is.** It lands in `/work/tg-uploads`, which the rules now always open to the agent (unpack, resize, convert, copy pictures, fonts and documents into the work) instead of a checkbox among "Folders it may change". Code meant for the work goes into the work's own files only after the agent has read it, and runs only through the work's normal build; nothing is run or installed straight from the inbox. The Rules form shows the inbox as a fixed line.
+
 ## v2.6.1 — guests: the setup command without sudo; what a guest needs, written down
 
 ### Guests
