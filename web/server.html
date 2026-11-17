@@ -1917,6 +1917,9 @@
     u.textContent = ago < 2 ? 'live' : `updated ${ago}s ago`;
   }
   async function poll() {
+    // the three blocks load at once, each drawn as soon as it arrives (owner, 17.11.2026:
+    // the guests list waited for the server chart and the services before it even asked)
+    const side = Promise.all([pollServices(), pollGuests()]);
     try {
       const r = await fetch(API, { cache: 'no-store', credentials: 'same-origin' });
       const ct = r.headers.get('content-type') || '';
@@ -1934,8 +1937,7 @@
     } catch (e) {
       showStale('offline');
     } finally {
-      await pollServices();
-      await pollGuests();
+      await side;
       timer = setTimeout(loop, POLL);
     }
   }

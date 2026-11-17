@@ -134,6 +134,23 @@ def open_page(browser, site, fake, width=1280, height=900, mobile=False):  # noq
     return ctx, pg
 
 
+# owner, 17.11.2026: the guests list showed late — the page asked for it only after the
+# server chart and the services had arrived. Now it must not wait for /api/server at all.
+def test_the_guests_list_does_not_wait_for_the_server_chart(browser, site, fake):  # noqa: F811
+    held = []
+    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    ctx.set_default_timeout(10000)
+    ctx.route(re.compile(r"/api/services(/|\?|$)"), services_none)
+    ctx.route(re.compile(r"/api/guests(/|\?|$)"), fake.handle)
+    pg = ctx.new_page()
+    pg.route(re.compile(r"^https://fonts\.(googleapis|gstatic)\.com/"), lambda r: r.abort())
+    pg.route(re.compile(r"/api/server(\?|$)"), lambda route: held.append(route))   # never answers
+    pg.goto(site + "?poll=300")
+    pg.wait_for_selector("#guests .guest[data-name]", timeout=5000)
+    assert held, "the page should still have asked for /api/server"
+    ctx.close()
+
+
 @pytest.fixture
 def fake():
     return FakeGuests()
