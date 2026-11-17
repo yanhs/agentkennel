@@ -2,7 +2,7 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
-## Unreleased
+## v2.6.0 — guests: whose Claude they run on (your API key, their own key, or your subscription)
 
 ### Guests
 - **Whose Claude, per guest.** A guest's Claude can run on your Anthropic API key (the default for new guests, with a dollar limit a week, $20 unless changed), on their own API key or `claude setup-token` login, or on your subscription (an option that needs an explicit "I understand": Anthropic's terms don't allow sharing one Claude subscription between several people). Set it on the Server page (Guests, Settings, "For new guests", and a **Claude** button per guest) or with `guestctl claude <name> '<json>'`, `guestctl defaults [--set '<json>']` and `guestctl owner-key [--remove]` (key on stdin). Your key is checked with Anthropic before it is saved, kept on the host with mode 0600, shown only as its last 4 characters and never put in a sandbox. Rows read `your key · $6.10 of $20`, `own key`, `your subscription ⚠ · wk 1%`. "Tell me in Telegram at 80%" is on by default.

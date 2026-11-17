@@ -55,9 +55,9 @@ docker compose up -d --wait && docker compose logs agentkennel | grep setup
 > touch the host. [Safety](#-safety-what-agents-never-do-without-you) lists what they never
 > do without you.
 
-**Latest: v2.5.0** — a second Telegram bot just for notifications; v2.4.0: guests' web
-access on or off and their agent's rules, on the Server page; v2.3.0: a new install opens
-with a terminal → [CHANGELOG](CHANGELOG.md)
+**Latest: v2.6.0** — guests' Claude runs on your API key with a dollar limit, on their own
+key, or on your subscription; v2.5.0: a second Telegram bot just for notifications; v2.4.0:
+guests' web access on or off and their agent's rules → [CHANGELOG](CHANGELOG.md)
 
 ## Why AgentKennel
 
