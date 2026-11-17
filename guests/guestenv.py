@@ -14,7 +14,9 @@ call, so a changed .env is picked up without a restart of the command that reads
     GUESTS_NOTIFY_CMD  how to tell the owner something: a bash command, the text is "$1"
                        (default: a message from the guest bot to OWNER_TG_ID)
     GUEST_IMAGE        the sandbox image (default agentkennel-guest:<AgentKennel version>)
-    GUESTS_LANG        language of everything guests and the owner read: en (default) | ru
+    GUESTS_LANG        language of everything guests and the owner read: en (default), or
+                       a code with its file <GUESTS_LOCALE_DIR>/<code>.json (texts.py)
+    GUESTS_LOCALE_DIR  where language files are (default guests/locale/, not in git)
     GUESTS_WEB         nginx | caddy: which web server carries the guests' addresses
                        (default: the server decides, see webchoice.py)
     GUESTS_FILES_PORT  publicfiles.py's port on 127.0.0.1 (sbx.<domain>/f/ behind Caddy;
@@ -38,8 +40,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))   # the checkout: envcompat.py
 import envcompat  # noqa: E402  (AGENTKENNEL_*, then the old AGENTDECK_*)
 KEYS = ("GUESTS_DOMAIN", "GUEST_BOT_TOKEN", "OWNER_TG_ID", "SERVER_IP", "CF_TOKEN_FILE",
-        "CF_ZONE", "GUESTS_NOTIFY_CMD", "GUEST_IMAGE", "GUESTS_LANG", "GUESTS_WEB",
-        "GUESTS_FILES_PORT", "GUESTS_CADDY_ADMIN", "GUESTS_CERT_WAIT")
+        "CF_ZONE", "GUESTS_NOTIFY_CMD", "GUEST_IMAGE", "GUESTS_LANG", "GUESTS_LOCALE_DIR",
+        "GUESTS_WEB", "GUESTS_FILES_PORT", "GUESTS_CADDY_ADMIN", "GUESTS_CERT_WAIT")
 # Cloudflare answers "error 1010" to Python-urllib's own User-Agent
 USER_AGENT = "AgentKennel-guests/2.0 (+https://github.com/yanhs/agentkennel)"
 

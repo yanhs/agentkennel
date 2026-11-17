@@ -47,6 +47,7 @@ sys.path.insert(0, str(HERE / "turnstile"))
 import guestenv  # noqa: E402
 import disk as guest_disk  # noqa: E402  (a guest's own fixed-size disk)
 import envcompat  # noqa: E402  (on the path via guestenv: AGENTKENNEL_*, then AGENTDECK_*)
+import texts  # noqa: E402
 from texts import t as _t  # noqa: E402
 import turnstile as ts  # noqa: E402
 import claudekeys  # noqa: E402
@@ -1352,6 +1353,21 @@ def web_choice():
     return webchoice.probe()
 
 
+def check_language(settings: dict) -> "dict | None":
+    """Only when GUESTS_LANG names another language than English: is its file there?"""
+    code = texts.wanted(settings)
+    if code == texts.DEFAULT:
+        return None
+    title = "Language"
+    why = texts.problem(settings)
+    if not why:
+        return _check("language", title, True, f"{code} ({texts.locale_file(code, settings)})")
+    return _check("language", title, False, why,
+                  f"Put the language file at {texts.locale_file(code, settings)} (start from "
+                  "python3 guests/scripts/export_locale.py en), or set GUESTS_LANG=en in "
+                  f"{_env_name()}")
+
+
 def doctor(run=subprocess.run, get_me=telegram_get_me, resolve=resolve_ipv4,
            detect_ip=detect_server_ip, cf_zone=cloudflare_zone, is_active=unit_active,
            web=None) -> list:
@@ -1363,7 +1379,8 @@ def doctor(run=subprocess.run, get_me=telegram_get_me, resolve=resolve_ipv4,
               check_domain(d, ip, resolve, cf_zone), check_services(is_active)]
     if web is not None:
         checks.append(check_web(web()))
-    return checks
+    language = check_language(s)
+    return checks + [language] if language else checks
 
 
 def cmd_doctor(a) -> int:

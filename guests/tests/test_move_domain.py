@@ -83,23 +83,23 @@ def test_old_address_sends_everyone_to_the_new_one():
 
 
 # ── the agent's rules ─────────────────────────────────────────────────────────
-RULES_OLD = """# мои заметки
+RULES_OLD = """# my notes
 <!-- sbx-public-files -->
-`https://sbx.old.test/f/anna-KEY/<имя файла>` последней строкой сообщения.
+`https://sbx.old.test/f/anna-KEY/<file name>` as the last line of the message.
 <!-- sbx-sites -->
-## Сайт в интернет: <сайт>-<гость>.old.test
-ответ даст адрес https://test-anna.old.test
-мой собственный сайт на old.test не трогать
+## A site on the internet: <site>-<guest>.old.test
+the answer gives the address https://test-anna.old.test
+my own site on old.test, leave it alone
 """
 
 
 def test_rules_name_the_new_domain():
     out = gc.rules_on_new_domain(RULES_OLD, "old.test", "example.test")
     assert "https://sbx.example.test/f/anna-KEY/" in out
-    assert "## Сайт в интернет: <сайт>-<гость>.example.test" in out
+    assert "## A site on the internet: <site>-<guest>.example.test" in out
     # what the guest wrote themselves stays theirs
-    assert "мой собственный сайт на old.test не трогать" in out
-    assert "# мои заметки" in out
+    assert "my own site on old.test, leave it alone" in out
+    assert "# my notes" in out
 
 
 def test_rules_already_on_the_new_domain_are_left_alone():

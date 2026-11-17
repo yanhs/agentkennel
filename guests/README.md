@@ -143,8 +143,11 @@ hour: each change reloads the web server.
    - `GUEST_BOT_TOKEN` — a new bot from @BotFather, used only for guests;
    - `OWNER_TG_ID` — your Telegram id: the owner of your own AgentKennel bot (the dashboard's
      Guests wizard fills it in from there); requests to join go to that bot;
-   - `GUESTS_LANG` — `en` (default) or `ru`: the bot, invitations, alerts and the rules
-     written for the guests' agents;
+   - `GUESTS_LANG` — `en` (default): the bot, invitations, alerts and the rules written for
+     the guests' agents. Another language is a file you add, `guests/locale/<code>.json`
+     (`python3 guests/scripts/export_locale.py en -o guests/locale/<code>.json` gives the
+     English template to translate); without its file the texts stay English and
+     `guestctl.py doctor` says why;
    - DNS: a Cloudflare API token in `~/.cf_token` (names are created per guest), or a
      wildcard A record `*.<domain>` pointing at this server;
    - optional: `SERVER_IP`, `CF_TOKEN_FILE`, `CF_ZONE`, `GUESTS_NOTIFY_CMD`, `GUEST_IMAGE`,

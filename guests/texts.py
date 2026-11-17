@@ -1,22 +1,34 @@
 """Every text the guests module shows a person — the guest bot, the owner's invitations and
 alerts, the turnstiles' refusals, the rules written into a sandbox's CLAUDE.md, the
-owner's command-line output — in one table per language.
+owner's command-line output — in one table: English, built in (EN below).
 
-GUESTS_LANG in guests/.env picks the table: ``en`` (default) or ``ru``. Read on every
-call, so a changed .env applies without a restart. Templates use str.format: a literal
-brace is written ``{{`` / ``}}``. Both tables have the same keys and the same fields
-(tests/test_texts.py checks it); the Russian table is the module's original wording,
-byte for byte (tests/golden_ru.json).
+Another language is a local file, not part of AgentKennel: GUESTS_LANG=<code> in guests/.env
+reads ``<locale dir>/<code>.json``, a JSON object {key: template} with the keys of EN. The
+locale dir is GUESTS_LOCALE_DIR, else ``guests/locale/`` (git-ignored). Start a translation
+from the English template: ``python3 guests/scripts/export_locale.py en -o guests/locale/<code>.json``.
+
+Read on every call (the file again only when it changed), so a changed .env or language
+file applies without a restart. Templates use str.format: a literal brace is written
+``{{`` / ``}}``. A key the file lacks, or a template that isn't one or names a {field} the
+English one doesn't, is said in English. GUESTS_LANG naming a language without a usable file
+falls back to English — said once on stderr (the service's log) and in ``guestctl.py doctor``;
+never a crash.
 """
 
 from __future__ import annotations
 
+import json
+import re
 import string
-from typing import Mapping, Optional
+import sys
+from pathlib import Path
+from typing import Mapping, Optional, Tuple
 
 import guestenv
 
 DEFAULT = "en"
+HERE = Path(__file__).resolve().parent
+CODE = re.compile(r"[a-z]{2,3}(?:[-_][a-z0-9]{2,8})?")    # en, xx, pt-br, zh_hans
 
 EN = {
     # -- the guest bot ---------------------------------------------------------------- #
@@ -253,247 +265,105 @@ EN = {
                            "(warning from {warn} GB, a lot from {high} GB). The guest was told.",
 }
 
-RU = {
-    "stranger": "Это закрытый бот. Доступ выдаёт владелец.",
-    "cmd_web": "адрес в браузере и пароль",
-    "cmd_newpassword": "новый пароль для браузера",
-    "cmd_services": "что работает без терминала",
-    "cmd_claude": "на чём работает Claude, или свой ключ",
-    "cl_now_owner_key": "Claude работает на API-ключе владельца. За эту неделю: ${used:.2f} "
-                        "из ${limit:.2f}.",
-    "cl_now_owner_key_plain": "Claude работает на API-ключе владельца.",
-    "cl_now_owner_sub": "Claude работает на подписке владельца, с недельными лимитами.",
-    "cl_now_own": "Claude работает на вашем ключе или входе (оканчивается на {last4}).",
-    "cl_now_own_none": "Claude настроен на ваш собственный ключ или вход, но он ещё не "
-                       "добавлен. Добавить — кнопками ниже.",
-    "cl_send_key": "Пришлите свой API-ключ Anthropic сюда сообщением (он начинается с "
-                   "sk-ant-api). Бот сразу удалит сообщение и хранит ключ только на сервере, "
-                   "не в песочнице.",
-    "cl_send_token": "В терминале выполните `claude setup-token`, войдите и пришлите сюда "
-                     "сообщением выданный токен (он начинается с sk-ant-oat). Бот сразу удалит "
-                     "сообщение и хранит токен только на сервере, не в песочнице.",
-    "cl_withheld": "Это сообщение не передано агенту: в нём есть что-то похожее на ключ "
-                   "Anthropic. Чтобы использовать свой ключ, пришлите его отдельным "
-                   "сообщением или откройте /claude.",
-    "cl_delete_it": "Удалите, пожалуйста, своё сообщение с ключом сами: у бота не вышло. "
-                    "Дальше оно никому не передано.",
-    "btn_cl_own_key": "Свой API-ключ",
-    "btn_cl_own_sub": "Своя подписка",
-    "btn_cl_back_key": "Вернуться на ключ владельца",
-    "btn_cl_back_sub": "Вернуться на подписку владельца",
-    "ago_min": "{m} мин",
-    "ago_h_min": "{h} ч {m} мин",
-    "ago_h": "{h} ч",
-    "ago_d": "{d} дн",
-    "svc_refresh": "🔄 Обновить",
-    "svc_unavailable": "Список служб сейчас недоступен: песочница перезапускается или ещё на "
-                       "старой версии. Попробуйте через минуту.",
-    "svc_none": "Служб пока нет.\n\nСлужба — программа, которая работает без открытого "
-                "терминала: Tailscale, сервер сайта, бот. Попросите агента: "
-                "«сделай это службой».",
-    "svc_header": "Службы песочницы (работают {running} из {total}):",
-    "svc_restarts": ", перезапусков: {n}",
-    "svc_running": "🟢 {name} — работает",
-    "svc_crashed": "упала (код {code}), скоро перезапуск",
-    "svc_starting": "запускается",
-    "svc_waiting": "🟠 {name} — {why}{tail}",
-    "svc_skipped_limit": "⚪ {name} — не запущена: разрешено не больше {limit} служб",
-    "svc_skipped": "⚪ {name} — не запущена: слишком много служб",
-    "svc_stopped": "⚪ {name} — остановлена",
-    "svc_logs": "Логи: /work/.services/<имя>.log",
-    "svc_note_restart": "Перезапускаю {svc}",
-    "svc_note_stop": "Останавливаю {svc}",
-    "svc_note_start": "Запускаю {svc}",
-    "svc_note_failed": "Не вышло",
-    "svc_note_unknown": "Неизвестная кнопка",
-    "web_not_ready": "Адрес в браузере для вас ещё не готов — спросите владельца.",
-    "web_intro": "Здравствуйте! Это ваша песочница с Claude.\n\n"
-                 "Пишите задачи прямо сюда. Команды:\n"
-                 "/new — новый терминал, /list — ваши терминалы, /use — переключиться,\n"
-                 "/restart — перезапустить зависший терминал, /esc — прервать Claude,\n"
-                 "/services — что работает без терминала (Tailscale, сайт, бот),\n"
-                 "/web — адрес и пароль ещё раз, /newpassword — новый пароль.\n",
-    "web_intro_noweb": "Здравствуйте! Это ваша песочница с Claude.\n\n"
-                       "Пишите задачи прямо сюда. Команды:\n"
-                       "/new — новый терминал, /list — ваши терминалы, /use — переключиться,\n"
-                       "/restart — перезапустить зависший терминал, /esc — прервать Claude,\n"
-                       "/services — что работает без терминала (Tailscale, сайт, бот).\n",
-    "web_url": "В браузере: {url}",
-    "web_password": "Пароль: {password}",
-    "web_change": "После первого входа смените его на свой: {url}/change-password",
-    "web_forgot": "Забыли пароль? /newpassword поставит новый и пришлёт его сюда.",
-    "web_own": "Пароль: вы поставили свой, действует он. Забыли? /newpassword поставит новый и пришлёт его сюда.",
-    "web_new": "(новый: прежний больше не действует)",
-    "web_reset_failed": "Не получилось поставить новый пароль. Попробуйте через минуту; если снова не выйдет — напишите владельцу.",
-    "web_sites": "Файлы агент присылает интернет-ссылками; сайт можно опубликовать "
-                 "как <сайт>-<ваше имя>.{domain}.",
-    "domain_placeholder": "<домен>",
-    "invite_sent": "Запрос на доступ отправлен владельцу. Как только он одобрит, "
-                   "я пришлю сюда адрес и пароль.",
-    "invite_waiting": "Запрос уже у владельца — ждём его ответа.",
-    "invite_refused": "Владелец не дал доступ.",
-    "invite_failed": "Не получилось создать песочницу — владелец уже знает и разберётся.",
-    "who_noname": "без имени",
-    "invite_request": "🔔 Запрос на доступ: {who}, Telegram ID {uid}.\n"
-                      "Пустить? Будет создана песочница «{name}» с лимитами по умолчанию.",
-    "invite_not_yours": "Это не ваша кнопка.",
-    "invite_decided": "Уже решено или в работе.",
-    "invite_rejected": "✖ Отказано: {who}.",
-    "invite_creating": "⏳ Создаю песочницу для {who}…",
-    "invite_created": "✅ {who} — песочница «{name}» создана, адрес и пароль отправлены.",
-    "invite_created_no_welcome": "✅ {who} — песочница «{name}» создана, но адрес и пароль "
-                                 "не ушли ({err}). Человек получит их, написав /start "
-                                 "в гостевой бот.",
-    "invite_create_failed": "🚨 Не вышло создать песочницу «{name}» для {who}: {err}\n"
-                            "Можно нажать ещё раз.",
-    "btn_allow": "✅ Пустить",
-    "btn_deny": "✖ Отказать",
-    "gate_bad_pass": "Неверный пропуск.",
-    "gate_bad_body": "Запрос — не JSON.",
-    "gate_flag_off": "Для этого гостя сообщения владельцу не включены.",
-    "gate_flag_many": "За этот час сообщений уже слишком много; прежние владелец получил.",
-    "flag_owner": "⚠️ {name} попросил странное или незаконное: «{text}». Агент отказал.",
-    "gate_disabled": "Доступ гостя выключен.",
-    "gate_path": "Этот адрес закрыт.",
-    "gate_limit_5h": "Лимит на 5 часов исчерпан ({spent} из {limit}). Сбросится в {at} по Лос-Анджелесу.",
-    "gate_limit_week": "Недельный лимит исчерпан ({spent} из {limit}). "
-                       "Сбросится в {day} в {at} по Лос-Анджелесу.",
-    "weekdays": "понедельник вторник среду четверг пятницу субботу воскресенье",
-    "gate_upstream": "Сервер Claude недоступен.",
-    "spend_alert": "⚠️ Песочница {guest}: за последний час потрачено ≈{hour_pct:.1f}% "
-                   "недели подписки ({hour_m:.1f} млн). Сегодня всего ≈{today_pct:.1f}%.\n"
-                   "Если это не ожидалось — посмотреть, что крутится: службы гостя (/services) "
-                   "или `turnstile.py disable {guest}`.",
-    "gate_no_owner_key": "Claude сейчас недоступен: владельцу сообщили.",
-    "gate_no_own_key": "Эта песочница работает на вашем собственном ключе или входе Claude, а он "
-                       "ещё не добавлен. Добавить: /claude в боте или «Claude» в панели.",
-    "gate_limit_usd": "Недельный лимит исчерпан (${spent:.2f} из ${limit:.2f}). "
-                      "Сбросится в {day} в {at} по Лос-Анджелесу.",
-    "owner_key_problem": "⚠️ Claude на вашем API-ключе, гость {guest}: {error}",
-    "ownerkey_missing": "API-ключ не сохранён. Гостям на вашем ключе отказывается, пока вы его "
-                        "не добавите (Сервер → Гости → Настройки) или не переведёте их на "
-                        "другой способ.",
-    "ownerkey_refused": "Anthropic не принял ключ (HTTP {status}: {message}). Гости на вашем "
-                        "ключе получают эту ошибку, пока это не исправлено.",
-    "ownerkey_prices": "не читается таблица цен ({error}), доллары не посчитать. Гостям на "
-                       "вашем ключе отказывается, пока это не исправлено.",
-    "owner_guest_own": "🔑 Гость {guest}: переход на свой ключ или вход Claude. Claude гостя больше не работает на вашем.",
-    "owner_guest_back": "↩️ Гость {guest}: возврат со своего ключа к тому, что вы задали для гостя.",
-    "own_not_a_key": "Это не похоже на ключ или токен Anthropic (он начинается с sk-ant-).",
-    "own_refused": "Anthropic не принял: {error}",
-    "own_saved": "Сохранено (оканчивается на {last4}). Теперь Claude работает на вашем ключе или входе.",
-    "own_failed": "Не удалось сохранить. Ничего не изменилось.",
-    "own_back": "Вернулись к настройке владельца. Ваш ключ удалён.",
-    "own_back_not_allowed": "Вы не на своём ключе, возвращаться неоткуда.",
-    "own_back_key_stays": "Вернулись к настройке владельца, но сохранённый ключ удалить не "
-                          "удалось. Скажите владельцу.",
-    "own_settings_broken": "Владельцу нужно сначала исправить настройки Claude для этого гостя. "
-                           "Владельцу сообщили.",
-    "gate_claude_many": "Слишком много попыток. Подождите час и попробуйте снова.",
-    "owner_claude_broken": "⚠️ Гость {guest}: настройки Claude в guests.json неверны ({error}). "
-                           "Запросам гостя отказывается, пока их не исправят (кнопка Claude "
-                           "в строке гостя сохраняет верные).",
-    "owner_login_problem": "⚠️ Гость {guest} работает на вашей подписке, но вход в неё не "
-                           "читается ({error}). Запросам гостя отказывается, пока это не "
-                           "исправлено.",
-    "usd_notice": "💵 Гость {guest} потратил ${spent:.2f} из ${limit:.2f} в неделю на вашем "
-                  "API-ключе.",
-    "usd_spend_alert": "⚠️ Песочница {guest}: за последний час потрачено ${hour:.2f} на вашем "
-                       "API-ключе — больше четверти недельных ${limit:.2f}.\n"
-                       "Если это не ожидалось — посмотреть, что крутится: службы гостя "
-                       "(/services) или `turnstile.py disable {guest}`.",
-    "ts_on": "вкл",
-    "ts_off": "ВЫКЛ",
-    "ts_unlimited_until": " БЕЗ ЛИМИТА до {until}",
-    "ts_list_line": "{name}\t{state}\t5 ч {five_used} из {five_limit} · неделя {week_used} из "
-                    "{week_limit} (≈{week_pct:.2f}% недели подписки){lifted}\ttg={tg}",
-    "ts_unlimited_set": "{name}: без лимита до {until} (Лос-Анджелес)",
-    "site_bad_name": "имя сайта: латиница a-z, цифры и дефис, 1–20 знаков",
-    "site_bad_port": "порт — число от 1024 до 65535",
-    "site_no_domain": "сайты выключены: владелец не задал домен (GUESTS_DOMAIN)",
-    "site_too_long": "слишком длинное имя",
-    "site_guest_off": "гость выключен",
-    "site_rules_no_publish": "Правила владельца сервера не разрешают вам публиковать новые сайты.",
-    "site_no_ip": "у песочницы нет постоянного адреса — нужен guestctl recreate",
-    "site_taken": "этот адрес занят",
-    "site_reserved": "имена сайтов sb, sbx, sb-… и sbx-… заняты под панели — выберите другое",
-    "site_too_often": "не чаще раза в минуту — попробуйте через {wait} с",
-    "site_too_busy": "за последний час на сервере слишком много изменений сайтов — попробуйте позже",
-    "site_too_many": "не больше {max} сайтов на гостя — сначала снимите старый",
-    "site_failed": "не получилось опубликовать: {err}",
-    "site_published": "🌐 Гость {guest} опубликовал сайт https://{host} "
-                      "(порт {port} в его песочнице). Снять: sitegate.py remove {host}",
-    "site_removed": "🌐 Гость {guest} снял сайт https://{host}",
-    "site_not_yours": "такого вашего сайта нет",
-    "site_need_pass": "нужен пропуск: Authorization: Bearer <пропуск>",
-    "site_routes": "есть: GET /sites, POST /publish, DELETE /publish/<site>",
-    "rule_files": "## Файлы для пользователя — интернет-ссылкой\n"
-                  "Чтобы отдать файл пользователю, положи его в `/work/public/` и пришли ссылку\n"
-                  "`{url}/<имя файла>` последней строкой сообщения. Имена — латиницей, без пробелов.\n"
-                  "Всё в `/work/public/` доступно по ссылке любому, у кого она есть; секретов туда не клади.\n",
-    "rule_sites": "## Сайт в интернет: <сайт>-<гость>.{domain}\n"
-                  "Подними сервер в песочнице на 0.0.0.0:<порт> (1024–65535), затем:\n"
-                  "`curl -s -X POST http://172.31.250.1:8794/publish -H \"Authorization: Bearer $ANTHROPIC_AUTH_TOKEN\" "
-                  "-d '{{\"site\":\"test\",\"port\":3000}}'` — ответ даст адрес "
-                  "https://test-<гость>.{domain}\n"
-                  "(DNS и сертификат создаются ~1 минуту). Список: `GET /sites`, снять: `DELETE /publish/<сайт>`.\n"
-                  "Не больше 3 сайтов. Владелец сервера получает уведомление о каждом сайте.\n",
-    "rule_services": "## Службы: то, что должно работать без терминала\n"
-                     "Терминал выгружается после 2 часов простоя, и всё запущенное из него (`&`, nohup,\n"
-                     "tmux) умирает вместе с ним. Программу, которая должна работать постоянно (Tailscale,\n"
-                     "сервер опубликованного сайта, бот), сделай службой:\n"
-                     "1. Файл `/work/.services/<имя>.sh` (имя: строчная латиница, цифры, `-`, `_`). Внутри —\n"
-                     "   команда, которая работает на переднем плане, без `&` и без режима демона,\n"
-                     "   например `exec python3 /work/site/server.py`.\n"
-                     "2. Сторож запустит её за несколько секунд, перезапустит после падения; вывод —\n"
-                     "   `/work/.services/<имя>.log`; состояние — `curl -s localhost:9876/status`.\n"
-                     "3. `curl -X POST localhost:9876/stop/<имя>` — остановить (файл станет `<имя>.sh.off`),\n"
-                     "   `/start/<имя>` — запустить, `/restart/<имя>` — перезапустить. Удалить файл — убрать службу.\n"
-                     "Не больше {max} служб. Заведя, остановив или удалив службу, скажи об этом человеку одной\n"
-                     "строкой: что за служба и зачем. Свои службы человек видит командой /services в Телеграме.\n",
-    "ctl_web_done": "https://{host}  (пароль: {pw_file})",
-    "ctl_recreate_busy": "у {name} открыты терминалы ({n}): пересоздание их оборвёт. "
-                         "Подождите или --force.",
-    "ctl_no_container": "нет контейнера",
-    "ctl_list_line": "{name}\ttg={tg}\t:{port}\t{state}\t{on}\t5 ч {five_used} из {five_limit}"
-                     " · неделя {week_used} из {week_limit}",
-    "ctl_open": "ОТКРЫТ",
-    "ctl_closed": "закрыт",
-    "ctl_wall_claude": "турникет Claude",
-    "ctl_wall_telegram": "турникет Телеграм",
-    "ctl_wall_ssh": "ssh сервера",
-    "ctl_wall_nginx": "nginx сервера",
-    "ctl_wall_internet": "интернет (example.com:443)",
-    # -- свой диск песочницы (guests/disk.py, сторож) ---------------------------------- #
-    "disk_warn_guest": "⚠️ Диск вашей песочницы заполнен на {pct}%: {used} из {total} ГБ. Когда "
-                       "он заполнится, файлы перестанут сохраняться. Удалите ненужное или "
-                       "спросите агента: «что занимает больше всего места в песочнице?»",
-    "disk_full_guest": "🛑 Диск вашей песочницы заполнен: {used} из {total} ГБ. Новые файлы не "
-                       "сохраняются, программы могут сбоить. Удалите ненужное (агент подскажет, "
-                       "что занимает больше всего); песочница продолжает работать.",
-    "disk_programs_guest": "⚠️ Программы, установленные в вашу песочницу, занимают {size} ГБ "
-                           "(рекомендуем не больше {high} ГБ). Удалите те, что не нужны.",
-    "disk_warn_owner": "⚠️ {name}: диск песочницы заполнен на {pct}% ({used} из {total} ГБ). "
-                       "Гостю сказано.",
-    "disk_full_owner": "🛑 {name}: диск песочницы заполнен ({used} из {total} ГБ). Запись не "
-                       "проходит, песочница работает. Гостю сказано.",
-    "disk_programs_owner": "⚠️ {name}: программы в песочнице занимают {size} ГБ (предупреждаем "
-                           "с {warn} ГБ, много — с {high} ГБ). Гостю сказано.",
-}
 
-TEXTS = {"en": EN, "ru": RU}
+# --------------------------------------------------------------------------- #
+# the language files
+# --------------------------------------------------------------------------- #
+_cache: dict = {}          # path -> ((mtime_ns, size), table, problem)
+_warned: set = set()       # what was already said on stderr in this process
 
 
-def lang(settings: Optional[Mapping[str, str]] = None) -> str:
-    """GUESTS_LANG (en | ru); anything else is the default, English."""
-    raw = (settings if settings is not None else guestenv.load()).get("GUESTS_LANG") or ""
-    raw = raw.strip().lower()
-    return raw if raw in TEXTS else DEFAULT
+def _settings(settings: Optional[Mapping[str, str]]) -> Mapping[str, str]:
+    return settings if settings is not None else guestenv.load()
 
 
-def t(key: str, **fields) -> str:
-    return TEXTS[lang()][key].format(**fields)
+def wanted(settings: Optional[Mapping[str, str]] = None) -> str:
+    """GUESTS_LANG as written (lower-case), "en" when unset."""
+    return (_settings(settings).get("GUESTS_LANG") or "").strip().lower() or DEFAULT
+
+
+def locale_dir(settings: Optional[Mapping[str, str]] = None) -> Path:
+    raw = (_settings(settings).get("GUESTS_LOCALE_DIR") or "").strip()
+    return Path(raw).expanduser() if raw else HERE / "locale"
+
+
+def locale_file(code: str, settings: Optional[Mapping[str, str]] = None) -> Path:
+    return locale_dir(settings) / f"{code}.json"
 
 
 def fields(template: str) -> set:
     return {name for _, name, _, _ in string.Formatter().parse(template) if name}
+
+
+def _warn(message: str) -> None:
+    if message not in _warned:
+        _warned.add(message)
+        print(f"guests texts: {message}", file=sys.stderr, flush=True)
+
+
+def _read(path: Path) -> Tuple[Optional[dict], str]:
+    """(the table, "") — or (None, why not). Unusable keys are left out (English)."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None, f"{path} does not exist"
+    stamp = (st.st_mtime_ns, st.st_size)
+    hit = _cache.get(path)
+    if hit and hit[0] == stamp:
+        return hit[1], hit[2]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        table, problem = None, f"{path} can't be read: {exc}"
+    else:
+        if not isinstance(data, dict):
+            table, problem = None, f"{path} is not a JSON object of texts"
+        else:
+            table, bad = {}, []
+            for key, english in EN.items():
+                value = data.get(key)
+                try:
+                    usable = isinstance(value, str) and fields(value) <= fields(english)
+                except ValueError:
+                    usable = False
+                if usable:
+                    table[key] = value
+                else:
+                    bad.append(key)
+            problem = ""
+            if bad:
+                _warn(f"{path}: said in English (missing or unusable): {', '.join(bad)}")
+    _cache[path] = (stamp, table, problem)
+    return table, problem
+
+
+def _pick(settings: Optional[Mapping[str, str]] = None) -> Tuple[str, dict, str]:
+    """(language, its table, why GUESTS_LANG wasn't used — "" when it was)."""
+    settings = _settings(settings)
+    code = wanted(settings)
+    if code == DEFAULT:
+        return DEFAULT, EN, ""
+    if not CODE.fullmatch(code):
+        problem = f"GUESTS_LANG={code} is not a language code; the texts are in English"
+    else:
+        table, why = _read(locale_file(code, settings))
+        if table is not None:
+            return code, table, ""
+        problem = f"GUESTS_LANG={code}, but {why}; the texts are in English"
+    _warn(problem)
+    return DEFAULT, EN, problem
+
+
+def lang(settings: Optional[Mapping[str, str]] = None) -> str:
+    """The language the texts are in: GUESTS_LANG when its file is usable, else English."""
+    return _pick(settings)[0]
+
+
+def problem(settings: Optional[Mapping[str, str]] = None) -> str:
+    """Why GUESTS_LANG isn't the language of the texts; "" when it is (or is English)."""
+    return _pick(settings)[2]
+
+
+def t(key: str, **fields) -> str:
+    _, table, _ = _pick()
+    return table.get(key, EN[key]).format(**fields)

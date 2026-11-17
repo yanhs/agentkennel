@@ -201,10 +201,10 @@ class TestHttp:
         assert status == 401 and json.loads(body)["ok"] is False
 
     def test_form_encoded_send_message(self, server, passes, tg):
-        form = urllib.parse.urlencode({"chat_id": ANNA, "text": "привет"}).encode()
+        form = urllib.parse.urlencode({"chat_id": ANNA, "text": "γεια σου"}).encode()
         status, body = post(server, f"/bot{passes['anna']}/sendMessage", form)
         assert status == 200 and json.loads(body)["ok"] is True
-        assert tg.calls[-1][1]["text"] == "привет"
+        assert tg.calls[-1][1]["text"] == "γεια σου"
 
     def test_json_body_get_updates(self, server, passes, relay):
         relay.route(msg(ANNA, "x", 9))
@@ -269,15 +269,15 @@ def test_start_and_web_answer_with_address_and_password(info_relay, tg, cmd):
 
 
 def test_other_messages_still_go_to_the_sandbox(info_relay, tg):
-    info_relay.route(msg(ANNA, "сделай сайт", 31))
-    assert [u["message"]["text"] for u in info_relay.get_updates("anna", 0, 100, 0)] == ["сделай сайт"]
+    info_relay.route(msg(ANNA, "make a site", 31))
+    assert [u["message"]["text"] for u in info_relay.get_updates("anna", 0, 100, 0)] == ["make a site"]
     assert _sent(tg) == []
 
 
 def test_guest_without_web_info_gets_a_plain_answer(info_relay, tg):
     info_relay.route(msg(BORIS, "/web", 32))
     (_, params, _), = _sent(tg)
-    assert params["chat_id"] == BORIS and "ещё не" in params["text"]
+    assert params["chat_id"] == BORIS and "not ready yet" in params["text"]
 
 
 def test_web_is_added_to_the_menu_the_sandbox_sets(info_relay, tg):
@@ -382,9 +382,9 @@ def test_services_command_lists_them_with_buttons(svc_relay, tg):
     (_, params, _), = _sent(tg)
     text = params["text"]
     assert params["chat_id"] == ANNA
-    assert "tailscale" in text and "работает" in text
-    assert "site" in text and "упала" in text
-    assert "bot" in text and "остановлена" in text
+    assert "tailscale" in text and "running" in text
+    assert "site" in text and "crashed" in text
+    assert "bot" in text and "stopped" in text
     buttons = _buttons(params)
     assert "svc:restart:tailscale" in buttons and "svc:stop:tailscale" in buttons
     assert "svc:start:bot" in buttons and "svc:stop:bot" not in buttons
@@ -423,7 +423,7 @@ def test_other_buttons_still_go_to_the_sandbox(svc_relay):
 def test_no_services_explains_what_they_are(svc_relay, tg):
     svc_relay.route(msg(BORIS, "/services", 41))
     (_, params, _), = _sent(tg)
-    assert "Служб пока нет" in params["text"]
+    assert "No services yet" in params["text"]
 
 
 def test_keeper_out_of_reach_is_said_plainly(book, tg, passes):
@@ -433,7 +433,7 @@ def test_keeper_out_of_reach_is_said_plainly(book, tg, passes):
     relay = tr.Relay(book, tg, services=Down(), background=False, settle=0)
     relay.route(msg(ANNA, "/services", 42))
     (_, params, _), = _sent(tg)
-    assert "недоступ" in params["text"]
+    assert "not available" in params["text"]
 
 
 def test_services_is_added_to_the_menu(svc_relay, tg):
@@ -497,9 +497,9 @@ def test_a_slow_keeper_does_not_hold_up_other_guests(book, tg, passes):
     started = time.time()
     relay.route(msg(ANNA, "/services", 60))
     relay.route(press(ANNA, "svc:restart:web", 61))
-    relay.route(msg(BORIS, "привет", 62))
+    relay.route(msg(BORIS, "hello", 62))
     assert time.time() - started < 0.5
-    assert [u["message"]["text"] for u in relay.get_updates("boris", 0, 100, 0)] == ["привет"]
+    assert [u["message"]["text"] for u in relay.get_updates("boris", 0, 100, 0)] == ["hello"]
 
 
 def test_a_skipped_service_names_the_limit():
@@ -512,7 +512,7 @@ def test_a_skipped_service_names_the_limit():
 # --------------------------------------------------------------------------- #
 def test_welcome_names_the_configured_domain_for_sites():
     text = tr.web_text({"url": "https://x"}, welcome=True)
-    assert "<сайт>-<ваше имя>.example.test" in text
+    assert "<site>-<your name>.example.test" in text
 
 
 def test_dashboard_info_needs_the_web_address(tmp_path):
@@ -540,7 +540,7 @@ def test_bot_token_comes_from_the_settings(monkeypatch, tmp_path):
 
 def test_menu_items_added_to_the_sandbox_menu_are_in_its_language(svc_relay, tg):
     """The sandbox's own menu is English; what the relay adds to it is English too, even
-    with GUESTS_LANG=ru (the answers to /web and /services stay in GUESTS_LANG)."""
+    in another GUESTS_LANG (the answers to /web and /services stay in GUESTS_LANG)."""
     cmds = json.dumps([{"command": "list", "description": "terminals"}])
     svc_relay.call("anna", "setMyCommands", {"commands": cmds})
     sent = {c["command"]: c["description"] for c in json.loads(tg.calls[-1][1]["commands"])}
@@ -569,14 +569,14 @@ def test_web_text_for_an_own_password_names_newpassword():
     text = tr.web_text({"url": "https://sb-anna.example.test", "password": None, "own": True},
                        welcome=False)
     assert "https://sb-anna.example.test" in text
-    assert "свой" in text and "/newpassword" in text
+    assert "your own" in text and "/newpassword" in text
     assert "pw-" not in text                           # no password to show
 
 
 def test_web_text_with_the_bots_password_mentions_newpassword():
     text = tr.web_text({"url": "https://sb-anna.example.test", "password": "pw-1"}, welcome=False)
     assert "pw-1" in text and "/newpassword" in text
-    assert "действует ваш" not in text and "заменится" not in text
+    assert "you set your own" not in text
 
 
 RESET = {"anna": {"url": "https://sb-anna.example.test", "password": "pw-NEW-2", "changed": True}}
@@ -591,7 +591,7 @@ def test_newpassword_sends_the_new_one(book, tg, passes):
     assert resets == ["anna"]
     (_, params, _), = _sent(tg)
     assert params["chat_id"] == ANNA
-    assert "pw-NEW-2" in params["text"] and "прежний больше не действует" in params["text"]
+    assert "pw-NEW-2" in params["text"] and "the previous password no longer works" in params["text"]
 
 
 def test_web_never_resets(book, tg, passes):
@@ -605,7 +605,7 @@ def test_a_failed_newpassword_says_so(book, tg, passes):
     relay = tr.Relay(book, tg, info_for=INFO.get, reset_for=lambda name: None)
     relay.route(msg(ANNA, "/newpassword", 42))
     (_, params, _), = _sent(tg)
-    assert "Не получилось" in params["text"]
+    assert "Could not" in params["text"]
     assert "pw-ANNA-1" not in params["text"]
 
 
@@ -648,7 +648,7 @@ def test_no_web_start_greets_without_address_password_or_web_commands(noweb_rela
     assert params["chat_id"] == ANNA
     assert "/new" in text                                   # the welcome is still there
     for gone in ("https://sb-anna", "pw-ANNA-1", "/web", "/newpassword", "change-password",
-                 "Пароль"):
+                 "Password"):
         assert gone not in text, gone
     assert "\n\n\n" not in text                               # one blank line, not two
 
@@ -1086,17 +1086,19 @@ def test_claude_on_own_without_a_saved_key_says_none_is_saved(cl_relay, tg, book
     assert "…" not in text and "{last4}" not in texts.EN["cl_now_own_none"]
 
 
-def test_claude_buttons_follow_the_guests_language(cl_relay, tg, book, keys):
-    """The guests suite runs in Russian (conftest): the buttons are Russian too."""
-    import re
+def test_claude_buttons_follow_the_guests_language(cl_relay, tg, book, keys, monkeypatch,
+                                                  tmp_path):
+    """In another language (a synthetic one, tests/pseudo_locale.py) the buttons are in it too."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests"))
+    import pseudo_locale as px
+    px.use(monkeypatch, tmp_path, texts.EN, "xx")
     keys.put("anna", "api", KEY)
     book.set_claude("anna", mode="own", owner_mode="owner_key")
     cl_relay.route(msg(ANNA, "/claude", 111))
     kb = _claude_keyboard(tg)
-    assert kb == {"cl:own_key": texts.RU["btn_cl_own_key"],
-                  "cl:own_sub": texts.RU["btn_cl_own_sub"],
-                  "cl:back": texts.RU["btn_cl_back_key"]}
-    assert all(re.search("[А-Яа-яЁё]", v) for v in kb.values()), kb
+    assert kb == {"cl:own_key": px.pseudo(texts.EN["btn_cl_own_key"]),
+                  "cl:own_sub": px.pseudo(texts.EN["btn_cl_own_sub"]),
+                  "cl:back": px.pseudo(texts.EN["btn_cl_back_key"])}
 
 
 @pytest.mark.parametrize("owner_mode,key", [("owner_key", "btn_cl_back_key"),
@@ -1108,10 +1110,9 @@ def test_back_button_names_where_it_goes(cl_relay, tg, book, keys, owner_mode, k
     assert _claude_keyboard(tg)["cl:back"] == texts.t(key)
 
 
-def test_back_button_labels_in_both_languages():
+def test_back_button_labels():
     assert texts.EN["btn_cl_back_key"] == "Back to the owner's key"
     assert texts.EN["btn_cl_back_sub"] == "Back to the owner's subscription"
-    assert texts.RU["btn_cl_back_key"] != texts.EN["btn_cl_back_key"]
-    assert texts.RU["btn_cl_back_sub"] != texts.EN["btn_cl_back_sub"]
-    assert texts.RU["btn_cl_own_key"] != texts.EN["btn_cl_own_key"]
-    assert texts.RU["btn_cl_own_sub"] != texts.EN["btn_cl_own_sub"]
+    labels = [texts.EN[k] for k in ("btn_cl_back_key", "btn_cl_back_sub", "btn_cl_own_key",
+                                    "btn_cl_own_sub")]
+    assert len(set(labels)) == 4

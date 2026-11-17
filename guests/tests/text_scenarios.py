@@ -1,6 +1,8 @@
 """Every text the guests module shows a guest or the owner, produced through the real code
-paths. golden_ru.json holds what these produced BEFORE the texts moved into texts.py
-(GUESTS_LANG=ru must reproduce it byte for byte); test_texts.py also runs them in English.
+paths. golden_en.json holds what they produce in English (test_texts.py checks it byte for
+byte, and runs them in a synthetic language to find words the code left untranslated).
+Regenerate after a wording change made on purpose:
+    python3 guests/tests/text_scenarios.py > guests/tests/golden_en.json
 Not a test module itself (no test_ prefix)."""
 
 import json
@@ -74,11 +76,11 @@ def _invitation_flow(tmp: Path, ok: bool) -> list:
     tg = Recorder()
     inv = tr.Invitations(invites.RequestBook(tmp / "requests.json"), owner_tid=OWNER)
     relay = tr.Relay(book, tg, invites=inv)
-    who = {"id": MASHA, "first_name": "Маша", "username": "masha"}
+    who = {"id": MASHA, "first_name": "Masha", "username": "masha"}
     relay.route({"update_id": 1, "message": {"message_id": 1, "chat": {"id": MASHA},
                  "from": who, "text": "/start"}})
     relay.route({"update_id": 2, "message": {"message_id": 2, "chat": {"id": MASHA},
-                 "from": who, "text": "ну что?"}})
+                 "from": who, "text": "so what?"}})
     told = []
     desk = _desk(tmp, ok, told, taken=book.names())
     out = list(tg.calls)
@@ -241,4 +243,10 @@ def scenarios() -> dict:
 
 
 if __name__ == "__main__":
+    import os
+    # as the tests run them (guests/conftest.py): a test domain, English, no real bot
+    _env = Path(tempfile.mkdtemp(prefix="guests-env-")) / ".env"
+    _env.write_text("GUESTS_DOMAIN=example.test\nGUESTS_LANG=en\n")
+    os.environ["GUESTS_ENV_FILE"] = str(_env)
+    os.environ["AGENTKENNEL_TG_CONF"] = str(_env.parent / "no-telegram.json")
     print(json.dumps(scenarios(), ensure_ascii=False, indent=1))

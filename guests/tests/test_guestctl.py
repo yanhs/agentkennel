@@ -104,7 +104,7 @@ def test_recreate_refuses_while_terminals_are_open(monkeypatch):
     args = type("A", (), {"name": "anna", "image": None, "force": False})()
     with pytest.raises(SystemExit) as exc:
         gc.cmd_recreate(args)
-    assert "открыт" in str(exc.value)
+    assert "terminals open" in str(exc.value)
     assert not any(a[:1] == ("rm",) for a in removed)
 
 
@@ -121,14 +121,14 @@ def test_the_agent_is_told_how_to_run_services():
     assert "<!-- sbx-services -->" in rules_text()
     assert "/work/.services/" in rules_text()
     assert "/services" in rules_text()            # where the human sees them
-    assert "скажи" in rules_text()                # the agent must tell the human
+    assert "tell the person" in rules_text()      # the agent must tell the human
 
 
 def test_services_limit_is_one_number_everywhere():
     env = dict(e.split("=", 1) for e in pairs(args(), "-e"))
     assert gc.SERVICES_MAX == 10
     assert env["SERVICES_MAX"] == str(gc.SERVICES_MAX)      # the keeper reads it
-    assert f"Не больше {gc.SERVICES_MAX} служб" in rules_text()     # the agent's rule too
+    assert f"At most {gc.SERVICES_MAX} services" in rules_text()   # the agent's rule too
 
 
 def test_the_tmux_placeholder_is_not_a_terminal(monkeypatch):
@@ -223,16 +223,16 @@ def test_the_seed_gets_the_agents_rules_with_the_domain_and_link():
     rules = json.loads(argv[8])
     assert [m for m, _ in rules] == ["<!-- sbx-public-files -->", "<!-- sbx-sites -->",
                                      "<!-- sbx-services -->"]
-    assert "https://sbx.example.test/f/anna-k3y/<имя файла>" in rules[0][1]
-    assert "<сайт>-<гость>.example.test" in rules[1][1]
+    assert "https://sbx.example.test/f/anna-k3y/<file name>" in rules[0][1]
+    assert "<site>-<guest>.example.test" in rules[1][1]
     assert "sys.argv[3]" in gc.SEED
 
 
 def test_the_wall_check_names_only_the_module_s_own_walls():
     """turnstiles, the host's ssh and nginx, the internet — nothing of another setup."""
     labels = [label for label, _, _ in gc.check_targets()]
-    assert labels == ["турникет Claude", "турникет Телеграм", "ssh сервера", "nginx сервера",
-                      "интернет (example.com:443)"]
+    assert labels == ["Claude turnstile", "Telegram turnstile", "server's ssh", "server's nginx",
+                      "internet (example.com:443)"]
 
 
 def test_files_vhost_is_rendered_for_the_domain_and_public_folder():
@@ -314,7 +314,7 @@ def test_list_line_shows_the_five_hours_and_the_week(data, monkeypatch, capsys):
     _two_guests(data, monkeypatch)
     assert gc.main(["list"]) == 0
     anna = [x for x in capsys.readouterr().out.splitlines() if x.startswith("anna")][0]
-    assert "5 ч 1000 из 20000000" in anna and "неделя 1000 из 140000000" in anna, anna
+    assert "5h 1000 of 20000000" in anna and "week 1000 of 140000000" in anna, anna
 
 
 def test_a_new_guest_gets_a_week_of_seven_old_days():

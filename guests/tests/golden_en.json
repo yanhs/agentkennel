@@ -1,0 +1,414 @@
+{
+ "stranger": "This is a private bot. The owner gives access.",
+ "invite": [
+  "Your request has been sent to the owner. As soon as they approve it, I'll send the address and password here.",
+  "The owner has your request already — waiting for their answer.",
+  "The owner did not give access.",
+  "Couldn't create the sandbox — the owner already knows and will sort it out."
+ ],
+ "commands": [
+  {
+   "command": "web",
+   "description": "browser address and password"
+  },
+  {
+   "command": "services",
+   "description": "what runs without a terminal"
+  }
+ ],
+ "ago": [
+  "0 min",
+  "10 min",
+  "1 h 1 min",
+  "2 h",
+  "2 d"
+ ],
+ "services_none": [
+  "The list of services is not available right now: the sandbox is restarting or still on an old version. Try again in a minute.",
+  {
+   "inline_keyboard": [
+    [
+     {
+      "text": "🔄 Refresh",
+      "callback_data": "svc:refresh:"
+     }
+    ]
+   ]
+  }
+ ],
+ "services_empty": [
+  "No services yet.\n\nA service is a program that runs without an open terminal: Tailscale, a site's server, a bot. Ask the agent: \"make this a service\".",
+  {
+   "inline_keyboard": [
+    [
+     {
+      "text": "🔄 Refresh",
+      "callback_data": "svc:refresh:"
+     }
+    ]
+   ]
+  }
+ ],
+ "services_full": [
+  "Sandbox services (2 of 7 running):\n\n🟠 boot — starting\n🟢 bot — running\n🟠 crash — crashed (exit code 3), restarting soon, restarts: 5\n⚪ many — not started: at most 10 services allowed\n⚪ many2 — not started: too many services\n⚪ off — stopped\n🟢 web — running 3 h 2 min, restarts: 2\n\nLogs: /work/.services/<name>.log",
+  {
+   "inline_keyboard": [
+    [
+     {
+      "text": "🔁 boot",
+      "callback_data": "svc:restart:boot"
+     },
+     {
+      "text": "⏹ boot",
+      "callback_data": "svc:stop:boot"
+     }
+    ],
+    [
+     {
+      "text": "🔁 bot",
+      "callback_data": "svc:restart:bot"
+     },
+     {
+      "text": "⏹ bot",
+      "callback_data": "svc:stop:bot"
+     }
+    ],
+    [
+     {
+      "text": "🔁 crash",
+      "callback_data": "svc:restart:crash"
+     },
+     {
+      "text": "⏹ crash",
+      "callback_data": "svc:stop:crash"
+     }
+    ],
+    [
+     {
+      "text": "▶ off",
+      "callback_data": "svc:start:off"
+     }
+    ],
+    [
+     {
+      "text": "🔁 web",
+      "callback_data": "svc:restart:web"
+     },
+     {
+      "text": "⏹ web",
+      "callback_data": "svc:stop:web"
+     }
+    ],
+    [
+     {
+      "text": "🔄 Refresh",
+      "callback_data": "svc:refresh:"
+     }
+    ]
+   ]
+  }
+ ],
+ "web_none": "Your browser address is not ready yet — ask the owner.",
+ "web_welcome": "Hello! This is your sandbox with Claude.\n\nWrite your tasks right here. Commands:\n/new — a new terminal, /list — your terminals, /use — switch,\n/restart — restart a stuck terminal, /esc — interrupt Claude,\n/services — what runs without a terminal (Tailscale, a site, a bot),\n/web — the address and password again, /newpassword — a new password.\n\nIn the browser: https://sb-anna.example.test\nPassword: pw-1\nAfter the first login, change it to your own: https://sb-anna.example.test/change-password\nForgot it? /newpassword sets a new one and sends it here.\n\nThe agent sends you files as internet links; you can publish a site as <site>-<your name>.example.test.",
+ "web_again": "In the browser: https://sb-anna.example.test\nPassword: pw-1\nAfter the first login, change it to your own: https://sb-anna.example.test/change-password\nForgot it? /newpassword sets a new one and sends it here.",
+ "web_no_password": "In the browser: https://sb-anna.example.test",
+ "buttons": {
+  "inline_keyboard": [
+   [
+    {
+     "text": "✅ Let in",
+     "callback_data": "ginv:ok:5"
+    },
+    {
+     "text": "✖ Refuse",
+     "callback_data": "ginv:no:5"
+    }
+   ]
+  ]
+ },
+ "invite_ok": [
+  [
+   "sendMessage",
+   {
+    "chat_id": 5550001,
+    "text": "Your request has been sent to the owner. As soon as they approve it, I'll send the address and password here."
+   }
+  ],
+  [
+   "sendMessage",
+   {
+    "chat_id": 5550001,
+    "text": "The owner has your request already — waiting for their answer."
+   }
+  ],
+  [
+   "announce",
+   "5550001",
+   "🔔 Access request: Masha (@masha), Telegram ID 5550001.\nLet them in? A sandbox \"masha\" will be created with the default limits.",
+   [
+    [
+     "✅ Let in",
+     "ginv:ok:5550001"
+    ],
+    [
+     "✖ Refuse",
+     "ginv:no:5550001"
+    ]
+   ]
+  ],
+  [
+   "decide",
+   "✅ Masha (@masha) — sandbox \"masha\" created, address and password sent.",
+   null
+  ],
+  [
+   "decide",
+   "Already decided or in progress.",
+   null
+  ],
+  [
+   "tell",
+   5550001,
+   "Hello! This is your sandbox with Claude.\n\nWrite your tasks right here. Commands:\n/new — a new terminal, /list — your terminals, /use — switch,\n/restart — restart a stuck terminal, /esc — interrupt Claude,\n/services — what runs without a terminal (Tailscale, a site, a bot),\n/web — the address and password again, /newpassword — a new password.\n\nIn the browser: https://sb-masha.example.test\nPassword: pw-M\nAfter the first login, change it to your own: https://sb-masha.example.test/change-password\nForgot it? /newpassword sets a new one and sends it here.\n\nThe agent sends you files as internet links; you can publish a site as <site>-<your name>.example.test."
+  ]
+ ],
+ "invite_fail": [
+  [
+   "sendMessage",
+   {
+    "chat_id": 5550001,
+    "text": "Your request has been sent to the owner. As soon as they approve it, I'll send the address and password here."
+   }
+  ],
+  [
+   "sendMessage",
+   {
+    "chat_id": 5550001,
+    "text": "The owner has your request already — waiting for their answer."
+   }
+  ],
+  [
+   "announce",
+   "5550001",
+   "🔔 Access request: Masha (@masha), Telegram ID 5550001.\nLet them in? A sandbox \"masha\" will be created with the default limits.",
+   [
+    [
+     "✅ Let in",
+     "ginv:ok:5550001"
+    ],
+    [
+     "✖ Refuse",
+     "ginv:no:5550001"
+    ]
+   ]
+  ],
+  [
+   "decide",
+   "🚨 Couldn't create sandbox \"masha\" for Masha (@masha): docker: no space left\nYou can press again.",
+   [
+    [
+     "✅ Let in",
+     "ginv:ok:5550001"
+    ],
+    [
+     "✖ Refuse",
+     "ginv:no:5550001"
+    ]
+   ]
+  ],
+  [
+   "decide",
+   "🚨 Couldn't create sandbox \"masha\" for Masha (@masha): docker: no space left\nYou can press again.",
+   [
+    [
+     "✅ Let in",
+     "ginv:ok:5550001"
+    ],
+    [
+     "✖ Refuse",
+     "ginv:no:5550001"
+    ]
+   ]
+  ],
+  [
+   "tell",
+   5550001,
+   "Couldn't create the sandbox — the owner already knows and will sort it out."
+  ],
+  [
+   "tell",
+   5550001,
+   "Couldn't create the sandbox — the owner already knows and will sort it out."
+  ]
+ ],
+ "invite_no": [
+  [
+   "sendMessage",
+   {
+    "chat_id": 7,
+    "text": "Your request has been sent to the owner. As soon as they approve it, I'll send the address and password here."
+   }
+  ],
+  [
+   "decide",
+   "✖ Refused: no name.",
+   null
+  ],
+  [
+   "tell",
+   7,
+   "The owner did not give access."
+  ],
+  [
+   "sendMessage",
+   {
+    "chat_id": 7,
+    "text": "This is a private bot. The owner gives access."
+   }
+  ]
+ ],
+ "services_flow": [
+  [
+   "sendMessage",
+   {
+    "chat_id": 1001,
+    "text": "Sandbox services (1 of 1 running):\n\n🟢 web — running\n\nLogs: /work/.services/<name>.log",
+    "reply_markup": "{\"inline_keyboard\": [[{\"text\": \"🔁 web\", \"callback_data\": \"svc:restart:web\"}, {\"text\": \"⏹ web\", \"callback_data\": \"svc:stop:web\"}], [{\"text\": \"🔄 Refresh\", \"callback_data\": \"svc:refresh:\"}]]}"
+   }
+  ],
+  [
+   "answerCallbackQuery",
+   {
+    "callback_query_id": "c",
+    "text": "Restarting web"
+   }
+  ],
+  [
+   "editMessageText",
+   {
+    "chat_id": 1001,
+    "message_id": 5,
+    "text": "Sandbox services (1 of 1 running):\n\n🟢 web — running\n\nLogs: /work/.services/<name>.log",
+    "reply_markup": "{\"inline_keyboard\": [[{\"text\": \"🔁 web\", \"callback_data\": \"svc:restart:web\"}, {\"text\": \"⏹ web\", \"callback_data\": \"svc:stop:web\"}], [{\"text\": \"🔄 Refresh\", \"callback_data\": \"svc:refresh:\"}]]}"
+   }
+  ],
+  [
+   "answerCallbackQuery",
+   {
+    "callback_query_id": "c",
+    "text": "Stopping web"
+   }
+  ],
+  [
+   "editMessageText",
+   {
+    "chat_id": 1001,
+    "message_id": 5,
+    "text": "Sandbox services (1 of 1 running):\n\n🟢 web — running\n\nLogs: /work/.services/<name>.log",
+    "reply_markup": "{\"inline_keyboard\": [[{\"text\": \"🔁 web\", \"callback_data\": \"svc:restart:web\"}, {\"text\": \"⏹ web\", \"callback_data\": \"svc:stop:web\"}], [{\"text\": \"🔄 Refresh\", \"callback_data\": \"svc:refresh:\"}]]}"
+   }
+  ],
+  [
+   "answerCallbackQuery",
+   {
+    "callback_query_id": "c",
+    "text": "Starting web"
+   }
+  ],
+  [
+   "editMessageText",
+   {
+    "chat_id": 1001,
+    "message_id": 5,
+    "text": "Sandbox services (1 of 1 running):\n\n🟢 web — running\n\nLogs: /work/.services/<name>.log",
+    "reply_markup": "{\"inline_keyboard\": [[{\"text\": \"🔁 web\", \"callback_data\": \"svc:restart:web\"}, {\"text\": \"⏹ web\", \"callback_data\": \"svc:stop:web\"}], [{\"text\": \"🔄 Refresh\", \"callback_data\": \"svc:refresh:\"}]]}"
+   }
+  ],
+  [
+   "answerCallbackQuery",
+   {
+    "callback_query_id": "c",
+    "text": "Didn't work"
+   }
+  ],
+  [
+   "editMessageText",
+   {
+    "chat_id": 1001,
+    "message_id": 5,
+    "text": "Sandbox services (1 of 1 running):\n\n🟢 web — running\n\nLogs: /work/.services/<name>.log",
+    "reply_markup": "{\"inline_keyboard\": [[{\"text\": \"🔁 web\", \"callback_data\": \"svc:restart:web\"}, {\"text\": \"⏹ web\", \"callback_data\": \"svc:stop:web\"}], [{\"text\": \"🔄 Refresh\", \"callback_data\": \"svc:refresh:\"}]]}"
+   }
+  ],
+  [
+   "answerCallbackQuery",
+   {
+    "callback_query_id": "c",
+    "text": "Unknown button"
+   }
+  ],
+  [
+   "editMessageText",
+   {
+    "chat_id": 1001,
+    "message_id": 5,
+    "text": "Sandbox services (1 of 1 running):\n\n🟢 web — running\n\nLogs: /work/.services/<name>.log",
+    "reply_markup": "{\"inline_keyboard\": [[{\"text\": \"🔁 web\", \"callback_data\": \"svc:restart:web\"}, {\"text\": \"⏹ web\", \"callback_data\": \"svc:stop:web\"}], [{\"text\": \"🔄 Refresh\", \"callback_data\": \"svc:refresh:\"}]]}"
+   }
+  ],
+  [
+   "answerCallbackQuery",
+   {
+    "callback_query_id": "c",
+    "text": ""
+   }
+  ],
+  [
+   "editMessageText",
+   {
+    "chat_id": 1001,
+    "message_id": 5,
+    "text": "Sandbox services (1 of 1 running):\n\n🟢 web — running\n\nLogs: /work/.services/<name>.log",
+    "reply_markup": "{\"inline_keyboard\": [[{\"text\": \"🔁 web\", \"callback_data\": \"svc:restart:web\"}, {\"text\": \"⏹ web\", \"callback_data\": \"svc:stop:web\"}], [{\"text\": \"🔄 Refresh\", \"callback_data\": \"svc:refresh:\"}]]}"
+   }
+  ],
+  [
+   "sendMessage",
+   {
+    "chat_id": 99,
+    "text": "This is a private bot. The owner gives access."
+   }
+  ],
+  [
+   "setMyCommands",
+   {
+    "commands": "[{\"command\": \"list\", \"description\": \"x\"}, {\"command\": \"web\", \"description\": \"browser address and password\"}, {\"command\": \"newpassword\", \"description\": \"a new browser password\"}, {\"command\": \"claude\", \"description\": \"what Claude runs on, or add your own key\"}, {\"command\": \"services\", \"description\": \"what runs without a terminal\"}]",
+    "scope": "{\"type\": \"chat\", \"chat_id\": 1001}"
+   }
+  ]
+ ],
+ "gate": {
+  "bad_site": "site name: latin a-z, digits and hyphens, 1–20 characters",
+  "bad_port": "port: a number from 1024 to 65535",
+  "low_port": "port: a number from 1024 to 65535",
+  "long_host": "the name is too long",
+  "disabled": "the guest is turned off",
+  "no_ip": "the sandbox has no fixed address — needs guestctl recreate",
+  "failed": "couldn't publish: certbot failed",
+  "not_yours": "you have no such site",
+  "too_many": "at most 3 sites per guest — take an old one down first",
+  "taken": "this address is taken",
+  "notes": [
+   "🌐 Guest anna took down the site https://s0-anna.example.test",
+   "🌐 Guest anna published a site https://new-anna.example.test (port 4000 in their sandbox). Take down: sitegate.py remove new-anna.example.test"
+  ]
+ },
+ "spend_alert": [
+  "⚠️ Sandbox anna: ≈1.4% of the subscription week spent in the last hour (12.3M). Today in total ≈3.4%.\nIf this wasn't expected, see what keeps running: the guest's services (/services) or `turnstile.py disable anna`."
+ ],
+ "seed_blocks": [
+  "\n<!-- sbx-public-files -->\n## Files for the user — as an internet link\nTo give the user a file, put it into `/work/public/` and send the link\n`https://sbx.example.test/f/anna-k3y/<file name>` as the last line of the message. Names: latin letters, no spaces.\nEverything in `/work/public/` is open to anyone who has the link; never put secrets there.\n",
+  "\n<!-- sbx-sites -->\n## A site on the internet: <site>-<guest>.example.test\nRun a server in the sandbox on 0.0.0.0:<port> (1024–65535), then:\n`curl -s -X POST http://172.31.250.1:8794/publish -H \"Authorization: Bearer $ANTHROPIC_AUTH_TOKEN\" -d '{\"site\":\"test\",\"port\":3000}'` — the answer gives the address https://test-<guest>.example.test\n(DNS and the certificate take ~1 minute). List: `GET /sites`, take down: `DELETE /publish/<site>`.\nAt most 3 sites. The server's owner is told about every site.\n",
+  "\n<!-- sbx-services -->\n## Services: what must run without a terminal\nA terminal is unloaded after 2 hours idle, and everything started from it (`&`, nohup,\ntmux) dies with it. A program that must run all the time (Tailscale,\na published site's server, a bot) — make it a service:\n1. A file `/work/.services/<name>.sh` (name: lower-case latin, digits, `-`, `_`). Inside:\n   a command that runs in the foreground, without `&` and without daemon mode,\n   e.g. `exec python3 /work/site/server.py`.\n2. The keeper starts it within seconds and restarts it after a crash; output:\n   `/work/.services/<name>.log`; state: `curl -s localhost:9876/status`.\n3. `curl -X POST localhost:9876/stop/<name>` — stop (the file becomes `<name>.sh.off`),\n   `/start/<name>` — start, `/restart/<name>` — restart. Delete the file to remove the service.\nAt most 10 services. When you add, stop or remove a service, tell the person in one\nline: which service and why. The person sees their services with /services in Telegram.\n"
+ ]
+}

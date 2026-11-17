@@ -5,5 +5,7 @@ public/
 nginx/sites/
 build/
 *.log
+# language files (texts.py): local to a server, not part of AgentKennel
+locale/
 # guests' own disks (guests/disk.py): images and mount points
 disks/

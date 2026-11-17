@@ -74,9 +74,9 @@ class Runner:
 
 def test_notify_runs_the_owners_command_with_the_text():
     run, posts = Runner(), []
-    ge.notify_owner("привет", settings={"GUESTS_NOTIFY_CMD": 'tg "$1"'}, run=run,
+    ge.notify_owner("γεια σου", settings={"GUESTS_NOTIFY_CMD": 'tg "$1"'}, run=run,
                     post=lambda *a, **k: posts.append(a))
-    assert run.calls == [["bash", "-c", 'tg "$1"', "_", "привет"]]
+    assert run.calls == [["bash", "-c", 'tg "$1"', "_", "γεια σου"]]
     assert posts == []
 
 

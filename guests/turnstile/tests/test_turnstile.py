@@ -354,7 +354,7 @@ class TestWeek:
         book.add("maria", week_limit=10)
         ledger.record("maria", "m", {"input_tokens": 50}, ts_=self.WED - 24 * H)
         text = ts.over_limit(book.get("maria"), ledger, self.WED - 23 * H)
-        assert "Wednesday at 11:00" in text or "среду в 11:00" in text, text
+        assert "Wednesday at 11:00" in text, text
 
     def test_the_reset_is_kept_on_disk_and_garbage_is_ignored(self, ledger, tmp_path):
         assert ledger.week_reset() is None
@@ -457,9 +457,9 @@ class TestGate:
         assert err["type"] == "error"
         assert err["error"]["type"] == "rate_limit_error"
         assert upstream.requests == []
-        msg = err["error"]["message"]                             # GUESTS_LANG=ru here
+        msg = err["error"]["message"]
         at = datetime.fromtimestamp(opened + 5 * 3600, ts.DAY_TZ).strftime("%H:%M")
-        assert "5 часов" in msg and "100 из 100" in msg and at in msg, msg
+        assert "5-hour" in msg and "100 of 100" in msg and at in msg, msg
 
     def test_guest_over_the_weekly_limit_gets_429_saying_monday(self, gate, upstream, book, ledger):
         p = book.add("maria", week_limit=100, five_hour_limit=10**9)
@@ -467,13 +467,13 @@ class TestGate:
         status, _, body = call(gate, headers={"x-api-key": p})
         msg = json.loads(body)["error"]["message"]
         assert status == 429 and upstream.requests == []
-        assert "Недельный" in msg and "понедельник" in msg and "100 из 100" in msg, msg
+        assert "Weekly" in msg and "Monday" in msg and "100 of 100" in msg, msg
 
     def test_over_both_the_week_is_said_it_comes_back_later(self, gate, book, ledger):
         p = book.add("maria", week_limit=100, five_hour_limit=50)
         ledger.record("maria", "m", {"input_tokens": 100})
         status, _, body = call(gate, headers={"x-api-key": p})
-        assert status == 429 and "Недельный" in json.loads(body)["error"]["message"]
+        assert status == 429 and "Weekly" in json.loads(body)["error"]["message"]
 
     def test_a_closed_window_lets_the_guest_in_again(self, gate, upstream, book, ledger):
         import time
@@ -493,7 +493,7 @@ class TestGate:
         (tmp_path / "guests.json").write_text(json.dumps(data))
         ledger.record("maria", "m", {"input_tokens": 100})
         status, _, body = call(gate, headers={"x-api-key": p})
-        assert status == 429 and "5 часов" in json.loads(body)["error"]["message"]
+        assert status == 429 and "5-hour" in json.loads(body)["error"]["message"]
 
     def test_disabled_guest_is_refused(self, gate, upstream, book):
         p = book.add("maria", week_limit=10**9)
@@ -741,5 +741,5 @@ class TestCommandLine:
         ts.Ledger(tmp_path / "usage.db").record("maria", "m", {"input_tokens": 1000})
         capsys.readouterr()
         assert ts.main(["list"]) == 0
-        line = capsys.readouterr().out                            # GUESTS_LANG=ru here
-        assert "5 ч 1000 из 20000000" in line and "неделя 1000 из 140000000" in line, line
+        line = capsys.readouterr().out
+        assert "5h 1000 of 20000000" in line and "week 1000 of 140000000" in line, line

@@ -1,6 +1,6 @@
 """Invitations, the guest bot's side (decision 27.10.2026): a stranger writes to the guest
 bot -> the request is RECORDED (guests/invites.py RequestBook) and the person is told it
-went to the owner. "Пустить?" is asked by the owner's own bot (tg_bridge + invites.Desk,
+went to the owner. "Let them in?" is asked by the owner's own bot (tg_bridge + invites.Desk,
 see guests/tests/test_invites_desk.py); the guest bot can't create sandboxes and ignores
 any invitation button."""
 
@@ -55,7 +55,7 @@ def relay(book, tg, tmp_path):
     return make(book, tg, tmp_path)[0]
 
 
-def hello(uid, text="/start", username="Masha", first="Маша", update_id=1):
+def hello(uid, text="/start", username="Masha", first="Μαρία", update_id=1):
     who = {"id": uid, "first_name": first}
     if username:
         who["username"] = username
@@ -73,16 +73,16 @@ def test_a_stranger_becomes_a_recorded_request(relay, tg, tmp_path):
     relay.route(hello(MASHA))
     assert tg.to(OWNER) == []                    # the guest bot doesn't ask the owner
     (told,) = tg.to(MASHA)
-    assert "владельц" in told["text"]
+    assert "owner" in told["text"]
     saved = json.loads((tmp_path / "requests.json").read_text())
     assert saved[str(MASHA)]["state"] == "pending"
-    assert saved[str(MASHA)]["first_name"] == "Маша" and saved[str(MASHA)]["username"] == "Masha"
+    assert saved[str(MASHA)]["first_name"] == "Μαρία" and saved[str(MASHA)]["username"] == "Masha"
 
 
 def test_writing_again_says_waiting_once_then_quiet(relay, tg):
     relay.route(hello(MASHA, update_id=1))
-    relay.route(hello(MASHA, "можно?", update_id=2))
-    relay.route(hello(MASHA, "ау", update_id=3))
+    relay.route(hello(MASHA, "may I?", update_id=2))
+    relay.route(hello(MASHA, "hello?", update_id=3))
     assert len(tg.to(MASHA)) == 2            # "sent" + one "still waiting" (then quiet)
 
 
@@ -103,8 +103,8 @@ def test_invitation_buttons_do_nothing_in_the_guest_bot(relay, tg, tmp_path, pre
 def test_a_refused_person_is_told_no(relay, tg, tmp_path):
     relay.route(hello(MASHA))
     invites.RequestBook(tmp_path / "requests.json").reject(MASHA)   # the owner said no
-    relay.route(hello(MASHA, "ну пожалуйста", update_id=9))
-    assert tg.to(MASHA)[-1]["text"] == "Это закрытый бот. Доступ выдаёт владелец."
+    relay.route(hello(MASHA, "oh please", update_id=9))
+    assert tg.to(MASHA)[-1]["text"] == "This is a private bot. The owner gives access."
 
 
 def test_the_owner_writing_to_the_guest_bot_is_ignored(relay, tg, tmp_path):
@@ -116,4 +116,4 @@ def test_without_an_owner_strangers_are_just_told_no(book, tg):
     relay = tr.Relay(book, tg)                            # invitations off
     relay.route(hello(MASHA))
     assert tg.to(OWNER) == []
-    assert tg.to(MASHA)[0]["text"] == "Это закрытый бот. Доступ выдаёт владелец."
+    assert tg.to(MASHA)[0]["text"] == "This is a private bot. The owner gives access."

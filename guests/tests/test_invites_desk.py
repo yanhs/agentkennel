@@ -202,7 +202,6 @@ def test_a_long_running_bot_with_old_texts_still_sends_the_welcome(book, monkeyp
     stale = types.ModuleType("texts")                    # what the bot loaded weeks ago
     stale.__file__ = texts.__file__
     stale.EN = {k: v for k, v in texts.EN.items() if k != "web_forgot"}
-    stale.RU = {k: v for k, v in texts.RU.items() if k != "web_forgot"}
     stale.t = lambda key, **kw: (stale.EN[key]).format(**kw)
     monkeypatch.setitem(sys.modules, "texts", stale)
     monkeypatch.delitem(sys.modules, "tgrelay", raising=False)
