@@ -141,6 +141,23 @@ check_docker() {
   fi
 }
 
+# which web server carries the guests' addresses (sb-<name>, Open, their sites, sbx.):
+# nginx + certbot, or AgentKennel's own Caddy on 443 (guests/webchoice.py says which and why)
+check_web() {
+  local out rc=0
+  out="$(python3 "$GUESTS_DIR/webchoice.py" 2>&1)" || rc=$?
+  [ -n "$out" ] || return 0
+  if [ "$rc" = 0 ]; then
+    ok "web addresses: ${out%%$'\n'*}"
+    case "$out" in
+      nginx:*) command -v certbot >/dev/null 2>&1 \
+        || warn "certbot is needed next to nginx for the guests' web addresses (sb-<name>.<domain>)" ;;
+    esac
+  else
+    warn "web addresses: $(printf '%s' "$out" | tr '\n' ' ')— Telegram works without them"
+  fi
+}
+
 preflight() {
   PROBLEMS=()
   if [ -f "$REPO_DIR/Dockerfile" ] && [ -f "$REPO_DIR/services_keeper.py" ]; then
@@ -165,11 +182,7 @@ preflight() {
       break
     fi
   done
-  if command -v nginx >/dev/null 2>&1 && command -v certbot >/dev/null 2>&1; then
-    ok "nginx + certbot (web addresses for the guests)"
-  else
-    warn "nginx and certbot are needed for the guests' web addresses (sb-<name>.<domain>); Telegram works without them"
-  fi
+  check_web
   if [ -f "$HOME/.claude/oauth.env" ] || [ -n "${TURNSTILE_OAUTH_ENV:-}" ]; then
     ok "your Claude login for the turnstile (~/.claude/oauth.env)"
   else

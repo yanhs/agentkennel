@@ -136,12 +136,13 @@ def set_address(name: str, address: str, ops) -> None:
     new = dashboard_host(name)
     if new == old or not ops.vhost_exists(old):
         return
+    conf = sitegate.conf_for(ops)
     try:
-        _serve_new(ops, new, dashboard_vhost(name, reg[name]["port"]))
+        _serve_new(ops, new, dashboard_vhost(name, reg[name]["port"], conf=conf))
     except Exception:
         _save_registry(before)
         raise
-    ops.write_vhost(old, sitegate.render_moved(old, new))
+    ops.write_vhost(old, conf.moved(old, new))
     ops.reload()
     print(f"https://{old} -> https://{new}")
 
@@ -150,7 +151,9 @@ def cmd_address(a) -> int:
     sys.path.insert(0, str(HERE / "sitegate"))
     import sitegate  # noqa: E402
 
-    set_address(a.name, a.address, sitegate.RealOps())
+    ops = _site_ops()
+    _require_web(ops)
+    set_address(a.name, a.address, ops)
     return 0
 
 
@@ -167,13 +170,11 @@ SESSION_COOKIE = "agents_session"
 
 
 def owner_entry_location() -> str:
-    return (
-        f"    location = {OWNER_ENTRY} {{\n"
-        f"        proxy_pass {OWNER_PANEL_ENTRY};\n"
-        "        proxy_set_header Host $host;\n"
-        "        proxy_set_header X-Forwarded-Proto https;\n"
-        "    }\n"
-    )
+    """The nginx text of OWNER_ENTRY (sitegate.nginx_entry_location)."""
+    sys.path.insert(0, str(HERE / "sitegate"))
+    import sitegate  # noqa: E402
+
+    return sitegate.nginx_entry_location(OWNER_ENTRY, OWNER_PANEL_ENTRY)
 
 
 def sandbox_origin(name: str) -> str:
@@ -185,8 +186,10 @@ def sandbox_origin(name: str) -> str:
     return envcompat.get("ORIGIN", env=env) or ""
 
 
-def dashboard_vhost(name: str, port: int, container_origin: str | None = None) -> str:
-    """nginx for the guest's own AgentKennel dashboard (its password is AgentKennel's).
+def dashboard_vhost(name: str, port: int, container_origin: str | None = None,
+                    conf=None) -> str:
+    """The web server's config (nginx unless `conf` says otherwise: sitegate.conf_for) for
+    the guest's own AgentKennel dashboard (its password is AgentKennel's), with OWNER_ENTRY.
     A sandbox made for another address (the guests' domain moved, it wasn't recreated
     since) takes writes only from that address: the browser's Origin is swapped for it."""
     sys.path.insert(0, str(HERE / "sitegate"))
@@ -195,9 +198,9 @@ def dashboard_vhost(name: str, port: int, container_origin: str | None = None) -
     host = dashboard_host(name)
     known = sandbox_origin(name) if container_origin is None else container_origin
     here = f"https://{host}"
-    return sitegate.render_vhost(host, "127.0.0.1", port, tls=True,
-                                 extra=owner_entry_location(),
-                                 origin=(here, known) if known and known != here else None)
+    return (conf or sitegate.NginxConf).site(
+        host, "127.0.0.1", port, tls=True, entry=(OWNER_ENTRY, OWNER_PANEL_ENTRY),
+        origin=(here, known) if known and known != here else None)
 
 
 def refresh_web(name: str, port: int) -> None:
@@ -205,7 +208,7 @@ def refresh_web(name: str, port: int) -> None:
     if not web_exists(name):
         return
     ops = _site_ops()
-    ops.write_vhost(dashboard_host(name), dashboard_vhost(name, port))
+    ops.write_vhost(dashboard_host(name), dashboard_vhost(name, port, conf=_conf(ops)))
     ops.reload()
 
 
@@ -236,10 +239,33 @@ def owner_session(name: str, now: float | None = None, ttl: int = OWNER_TTL,
 
 
 def _site_ops():
+    """The ops of the web server that carries the guests' addresses here (nginx or Caddy:
+    webchoice.py decides)."""
     sys.path.insert(0, str(HERE / "sitegate"))
     import sitegate  # noqa: E402
 
-    return sitegate.RealOps()
+    return sitegate.make_ops()
+
+
+def _conf(ops):
+    """The renderer for these ops (Caddy blocks or nginx vhosts)."""
+    sys.path.insert(0, str(HERE / "sitegate"))
+    import sitegate  # noqa: E402
+
+    return sitegate.conf_for(ops)
+
+
+def _vhost_file(ops, host: str) -> Path:
+    return Path(ops.VHOSTS) / f"{host}{getattr(ops, 'SUFFIX', '.conf')}"
+
+
+def _require_web(ops) -> None:
+    """Before an address is opened: stop with the reason and the fix when this server's
+    web server can't serve guests (a Caddy without a public 443, say)."""
+    problem = getattr(ops, "problem", None)
+    problem = problem() if callable(problem) else ""
+    if problem:
+        raise SystemExit(f"guests' web addresses can't work on this server: {problem}")
 
 
 def ensure_owner_entry(name: str, port: int) -> None:
@@ -249,15 +275,14 @@ def ensure_owner_entry(name: str, port: int) -> None:
     if not guestenv.domain() or not port:
         return
     ops = _site_ops()
-    conf = ops.VHOSTS / f"{dashboard_host(name)}.conf"
+    render = _conf(ops)
     try:
-        text = conf.read_text()
+        text = _vhost_file(ops, dashboard_host(name)).read_text()
     except OSError:
         return
-    served = "listen 443" in text and f"proxy_pass http://127.0.0.1:{port};" in text
-    if not served or f"location = {OWNER_ENTRY} " in text:
+    if not render.serves(text, port) or render.has_entry(text, OWNER_ENTRY):
         return
-    ops.write_vhost(dashboard_host(name), dashboard_vhost(name, port))
+    ops.write_vhost(dashboard_host(name), dashboard_vhost(name, port, conf=render))
     ops.reload()
 
 
@@ -271,34 +296,35 @@ def cmd_session(a) -> int:
 
 
 def cmd_web(a) -> int:
-    """Open https://sb-<name>.<domain> — DNS, certificate, nginx (once per guest)."""
-    sys.path.insert(0, str(HERE / "sitegate"))
-    import sitegate  # noqa: E402
-
+    """Open https://sb-<name>.<domain> — DNS, certificate, the web server's config (once
+    per guest; nginx + certbot, or Caddy)."""
     info = _registry().get(a.name)
     if not info:
         raise SystemExit(f"no guest {a.name}")
-    ts.GuestBook(DATA / "guests.json").set_web(a.name, True)   # the owner opens it again
     host = dashboard_host(a.name)
-    ops = sitegate.RealOps()
+    ops = _site_ops()
+    _require_web(ops)
+    render = _conf(ops)
+    ts.GuestBook(DATA / "guests.json").set_web(a.name, True)   # the owner opens it again
     ops.dns_create(host)
-    ops.write_vhost(host, sitegate.render_vhost(host, "127.0.0.1", info["port"], tls=False))
+    ops.write_vhost(host, render.site(host, "127.0.0.1", info["port"], tls=False))
     ops.reload()
     ops.cert_issue(host)
-    ops.write_vhost(host, dashboard_vhost(a.name, info["port"]))
+    ops.write_vhost(host, dashboard_vhost(a.name, info["port"], conf=render))
     ops.reload()
     print(_t("ctl_web_done", host=host, pw_file=DATA / (a.name + ".dashboard-password")))
     return 0
 
 
 def web_exists(name: str) -> bool:
-    """Is sb-<name>.<domain> served (its vhost written by cmd_web)?"""
+    """Is sb-<name>.<domain> served (its nginx vhost or Caddy block written by cmd_web)?"""
     if not guestenv.domain():
         return False
     sys.path.insert(0, str(HERE / "sitegate"))
     import sitegate  # noqa: E402
 
-    return (sitegate.RealOps.VHOSTS / f"{dashboard_host(name)}.conf").exists()
+    host = dashboard_host(name)
+    return any(_vhost_file(cls, host).exists() for cls in (sitegate.RealOps, sitegate.CaddyOps))
 
 
 def take_down_web(name: str, ops=None, delay: float = 90) -> None:
@@ -309,9 +335,9 @@ def take_down_web(name: str, ops=None, delay: float = 90) -> None:
     sys.path.insert(0, str(HERE / "sitegate"))
     import sitegate  # noqa: E402
 
-    ops = ops or sitegate.RealOps()
+    ops = ops or _site_ops()
     host = dashboard_host(name)
-    ops.write_vhost(host, sitegate.render_gone(host))
+    ops.write_vhost(host, sitegate.conf_for(ops).gone(host))
     ops.reload()
     ops.dns_delete(host)
     if delay:
@@ -1020,26 +1046,24 @@ def files_host() -> str:
     return f"sbx.{domain()}"
 
 
-def files_vhost() -> str:
-    text = (HERE / "nginx" / "sbx.conf.template").read_text()
-    return text.replace("@DOMAIN@", domain()).replace("@PUBLIC_ROOT@", PUBLIC_ROOT)
-
-
-def cmd_files_web(a) -> int:
-    """Open https://sbx.<domain> — DNS, certificate, nginx (once per server)."""
+def files_vhost(conf=None) -> str:
+    """sbx.<domain>'s config: nginx (guests/nginx/sbx.conf.template) unless `conf` says
+    otherwise (Caddy: a block that proxies /f/ to sitegate/publicfiles.py)."""
     sys.path.insert(0, str(HERE / "sitegate"))
     import sitegate  # noqa: E402
 
+    return (conf or sitegate.NginxConf).files(domain(), PUBLIC_ROOT)
+
+
+def cmd_files_web(a) -> int:
+    """Open https://sbx.<domain> — DNS, certificate, the web server's config (once per
+    server)."""
     host = files_host()
     Path(PUBLIC_ROOT).mkdir(parents=True, exist_ok=True)
     Path(PUBLIC_ROOT).chmod(0o711)
-    ops = sitegate.RealOps()
-    ops.dns_create(host)
-    ops.write_vhost(host, sitegate.render_vhost(host, "127.0.0.1", 1, tls=False))
-    ops.reload()
-    ops.cert_issue(host)
-    ops.write_vhost(host, files_vhost())
-    ops.reload()
+    ops = _site_ops()
+    _require_web(ops)
+    _serve_new(ops, host, files_vhost(conf=_conf(ops)))
     print(f"https://{host}/f/<guest>-<key>/<file>")
     return 0
 
@@ -1074,7 +1098,7 @@ def _serve_new(ops, host: str, final: str) -> None:
     import sitegate  # noqa: E402
 
     ops.dns_create(host)
-    ops.write_vhost(host, sitegate.render_vhost(host, "127.0.0.1", 1, tls=False))
+    ops.write_vhost(host, sitegate.conf_for(ops).site(host, "127.0.0.1", 1, tls=False))
     ops.reload()
     ops.cert_issue(host)
     ops.write_vhost(host, final)
@@ -1092,17 +1116,18 @@ def move_domain(old: str, ops, guests: dict, fix_rules) -> None:
     if not old or old == new:
         raise SystemExit(f"move-domain: --from must be the old domain, not {new!r}")
     pairs = []
+    conf = sitegate.conf_for(ops)
     if ops.vhost_exists(f"sbx.{old}"):
-        _serve_new(ops, files_host(), files_vhost())
+        _serve_new(ops, files_host(), files_vhost(conf=conf))
         pairs.append((f"sbx.{old}", files_host()))
     for name, info in sorted(guests.items()):
         was = f"sb-{guestenv.address_of(name, guests)}.{old}"
         if ops.vhost_exists(was):
-            _serve_new(ops, dashboard_host(name), dashboard_vhost(name, info["port"]))
+            _serve_new(ops, dashboard_host(name), dashboard_vhost(name, info["port"], conf=conf))
             pairs.append((was, dashboard_host(name)))
         fix_rules(name, old, new)
     for was, now in pairs:
-        ops.write_vhost(was, sitegate.render_moved(was, now))
+        ops.write_vhost(was, conf.moved(was, now))
         print(f"https://{was} -> https://{now}")
     ops.reload()
 
@@ -1111,7 +1136,9 @@ def cmd_move_domain(a) -> int:
     sys.path.insert(0, str(HERE / "sitegate"))
     import sitegate  # noqa: E402
 
-    move_domain(a.old, sitegate.RealOps(), _registry(), fix_rules_in_sandbox)
+    ops = _site_ops()
+    _require_web(ops)
+    move_domain(a.old, ops, _registry(), fix_rules_in_sandbox)
     return 0
 
 
@@ -1269,17 +1296,34 @@ def detect_server_ip() -> str:
     return sitegate.server_ip()
 
 
+def check_web(choice) -> dict:
+    """Which web server carries the guests' addresses, why, and the fix when it can't."""
+    return _check("web", "Web addresses", choice.works, f"{choice.backend}: {choice.why}",
+                  choice.fix)
+
+
+def web_choice():
+    import webchoice  # noqa: E402
+
+    return webchoice.probe()
+
+
 def doctor(run=subprocess.run, get_me=telegram_get_me, resolve=resolve_ipv4,
-           detect_ip=detect_server_ip, cf_zone=cloudflare_zone, is_active=unit_active) -> list:
+           detect_ip=detect_server_ip, cf_zone=cloudflare_zone, is_active=unit_active,
+           web=None) -> list:
+    """The checks; `web` (a function giving webchoice's Choice) adds the web server's."""
     s = guestenv.load()
     d = guestenv.domain(s)
     ip = (s.get("SERVER_IP") or "").strip() or (detect_ip() if d else "")
-    return [check_docker(run), check_bot(s, get_me), check_owner(s),
-            check_domain(d, ip, resolve, cf_zone), check_services(is_active)]
+    checks = [check_docker(run), check_bot(s, get_me), check_owner(s),
+              check_domain(d, ip, resolve, cf_zone), check_services(is_active)]
+    if web is not None:
+        checks.append(check_web(web()))
+    return checks
 
 
 def cmd_doctor(a) -> int:
-    checks = doctor()
+    checks = doctor(web=web_choice)
     if a.json:
         print(json.dumps({"checks": checks}, ensure_ascii=False))
         return 0          # the JSON carries the answer; the wizard reads "ok" per check

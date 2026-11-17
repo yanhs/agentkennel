@@ -111,3 +111,9 @@
 		file_server
 	}
 }
+
+# Guests' addresses (guests/, when this Caddy serves 443): one <host>.caddy block per
+# sb-<guest>.<domain>, published site and sbx.<domain>, written by guestctl / the site gate.
+# install.sh sets AGENTKENNEL_CADDY_SITES=<install>/.sessions/caddy-sites/*.caddy (a glob
+# that matches nothing is fine); without it nothing is imported.
+import "{$AGENTKENNEL_CADDY_SITES:/dev/null}"

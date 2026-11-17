@@ -23,10 +23,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import socket
+import ssl
 import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -36,11 +40,16 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "turnstile"))
+sys.path.insert(0, str(HERE))         # run with python3 -I: its own folder isn't on the path
 import guestenv  # noqa: E402
 from texts import t as _t  # noqa: E402
 import turnstile as ts  # noqa: E402
+import webchoice  # noqa: E402  (nginx or Caddy carries the guests' addresses)
+import caddyconf  # noqa: E402
+import publicfiles  # noqa: E402
 
 MAX_SITES = 3
+FILES_PORT = 8795   # publicfiles.py on 127.0.0.1: sbx.<domain>/f/ behind Caddy
 SITE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,18}[a-z0-9])?$")
 IPV4_RE = re.compile(r"^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$")
 IP_LOOKUPS = ("https://api.ipify.org", "https://ifconfig.me", "https://icanhazip.com")
@@ -205,6 +214,71 @@ def render_moved(host: str, to: str) -> str:
     )
 
 
+def nginx_entry_location(path: str, upstream: str) -> str:
+    """One exact path of a guest's address that goes to the owner's panel (guestctl's
+    OWNER_ENTRY), put before the catch-all of the https block."""
+    return (
+        f"    location = {path} {{\n"
+        f"        proxy_pass {upstream};\n"
+        "        proxy_set_header Host $host;\n"
+        "        proxy_set_header X-Forwarded-Proto https;\n"
+        "    }\n"
+    )
+
+
+def files_port() -> int:
+    """Where publicfiles.py listens (127.0.0.1): GUESTS_FILES_PORT, default 8795."""
+    value = guestenv.get("GUESTS_FILES_PORT") or ""
+    return int(value) if value.isdigit() else FILES_PORT
+
+
+class NginxConf:
+    """The guests' addresses as nginx vhosts (the text every nginx server has had)."""
+    KIND = "nginx"
+
+    @staticmethod
+    def site(host: str, ip: str, port: int, tls: bool = True,
+             entry: Optional[Tuple[str, str]] = None,
+             origin: Optional[Tuple[str, str]] = None) -> str:
+        return render_vhost(host, ip, port, tls=tls,
+                            extra=nginx_entry_location(*entry) if entry else "", origin=origin)
+
+    gone = staticmethod(render_gone)
+    moved = staticmethod(render_moved)
+
+    @staticmethod
+    def files(domain: str, public_root: str) -> str:
+        text = (ROOT / "nginx" / "sbx.conf.template").read_text()
+        return text.replace("@DOMAIN@", domain).replace("@PUBLIC_ROOT@", public_root)
+
+    @staticmethod
+    def serves(text: str, port: int) -> bool:
+        return "listen 443" in text and f"proxy_pass http://127.0.0.1:{port};" in text
+
+    @staticmethod
+    def has_entry(text: str, path: str) -> bool:
+        return f"location = {path} " in text
+
+
+class CaddyConf:
+    """The same addresses as Caddy site blocks (caddyconf.py)."""
+    KIND = "caddy"
+    site = staticmethod(caddyconf.render_site)
+    gone = staticmethod(caddyconf.render_gone)
+    moved = staticmethod(caddyconf.render_moved)
+    serves = staticmethod(caddyconf.serves)
+    has_entry = staticmethod(caddyconf.has_entry)
+
+    @staticmethod
+    def files(domain: str, public_root: str) -> str:
+        return caddyconf.render_files(f"sbx.{domain}", files_port())
+
+
+def conf_for(ops) -> type:
+    """The renderer that goes with these ops: Caddy blocks for KIND "caddy", else nginx."""
+    return CaddyConf if getattr(ops, "KIND", "nginx") == "caddy" else NginxConf
+
+
 class Gate:
     def __init__(self, book: "ts.GuestBook", ops, registry: Path,
                  ip_of: Callable[[str], Optional[str]], cleanup_delay: float = 90,
@@ -237,6 +311,11 @@ class Gate:
         ip = self.ip_of(guest)
         if not ip:
             raise GateError(_t("site_no_ip"))
+        problem = getattr(self.ops, "problem", None)
+        problem = problem() if callable(problem) else ""
+        if problem:                      # e.g. a Caddy without a public 443
+            raise GateError(_t("site_failed", err=problem))
+        conf = conf_for(self.ops)
         host = host_for(site, guest, self.sandboxes())
         with self._lock:
             reg = self._load()
@@ -245,7 +324,7 @@ class Gate:
             if host in reg:
                 if reg[host]["guest"] != guest:
                     raise GateError(_t("site_taken"))
-                self.ops.write_vhost(host, render_vhost(host, ip, port, tls=True))
+                self.ops.write_vhost(host, conf.site(host, ip, port, tls=True))
                 self.ops.reload()
                 reg[host]["port"] = port
                 self._save(reg)
@@ -254,10 +333,10 @@ class Gate:
                 raise GateError(_t("site_too_many", max=MAX_SITES))
             try:
                 self.ops.dns_create(host)
-                self.ops.write_vhost(host, render_vhost(host, ip, port, tls=False))
+                self.ops.write_vhost(host, conf.site(host, ip, port, tls=False))
                 self.ops.reload()
                 self.ops.cert_issue(host)
-                self.ops.write_vhost(host, render_vhost(host, ip, port, tls=True))
+                self.ops.write_vhost(host, conf.site(host, ip, port, tls=True))
                 self.ops.reload()
             except Exception as exc:
                 for undo in (lambda: self.ops.remove_vhost(host), self.ops.reload,
@@ -294,7 +373,7 @@ class Gate:
         dashboard's login page). So: 404 stub first, then DNS, and only after
         cleanup_delay the stub and the certificate go.
         """
-        self.ops.write_vhost(host, render_gone(host))
+        self.ops.write_vhost(host, conf_for(self.ops).gone(host))
         self.ops.reload()
         self.ops.dns_delete(host)
 
@@ -313,7 +392,10 @@ class Gate:
 class RealOps:
     """The actual server changes. Every name here was validated by the Gate."""
 
+    KIND = "nginx"
+    SUFFIX = ".conf"
     VHOSTS = ROOT / "nginx" / "sites"
+    choice: "Optional[webchoice.Choice]" = None      # how make_ops chose this backend
 
     def __init__(self) -> None:
         self.VHOSTS.mkdir(parents=True, exist_ok=True)
@@ -398,6 +480,197 @@ class RealOps:
         except Exception as exc:  # noqa: BLE001 — a site is up even if the owner isn't told
             print(f"NOTIFY-FAILED {exc!r}", file=sys.stderr, flush=True)
 
+    def problem(self) -> str:
+        """Why a new address can't be served here ("" = go ahead). An installed nginx is
+        left to say it itself (nginx -t, certbot), as it always was."""
+        c = self.choice
+        if c is None or c.works or (c.backend == webchoice.NGINX and nginx_installed()):
+            return ""
+        return f"{c.why}. Fix: {c.fix}" if c.fix else c.why
+
+
+def nginx_installed() -> bool:
+    return bool(shutil.which("nginx") or os.path.exists("/usr/sbin/nginx"))
+
+
+def caddy_data_dir() -> Path:
+    """Where Caddy keeps certificates: $XDG_DATA_HOME/caddy (agentkennel-caddy.service sets
+    XDG_DATA_HOME=~/.local/share)."""
+    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(base) / "caddy"
+
+
+class CaddyOps(RealOps):
+    """The same server changes on the script install's Caddy, with no sudo:
+    site blocks in <AgentKennel>/.sessions/caddy-sites/<host>.caddy (the Caddyfile imports
+    them: AGENTKENNEL_CADDY_SITES), reload = the Caddyfile Caddy runs on, POSTed to its
+    admin API (Caddy adapts it with its own environment, as `systemctl reload
+    agentkennel-caddy` would), certificates = Caddy's own. DNS and the owner's messages are
+    RealOps'. A reload Caddy refuses changes nothing: every file is put back."""
+
+    KIND = "caddy"
+    SUFFIX = ".caddy"
+    VHOSTS = guestenv.caddy_sites_dir()
+    CADDYFILE = ROOT.parent / ".sessions" / "Caddyfile.run"   # ExecStartPre writes it
+
+    def __init__(self, admin: Optional[str] = None, caddyfile: Optional[Path] = None,
+                 https_port: Optional[int] = None, cert_wait: Optional[float] = None,
+                 poll: float = 2.0) -> None:
+        super().__init__()
+        self.admin = (admin or guestenv.get("GUESTS_CADDY_ADMIN")
+                      or "http://localhost:2019").rstrip("/")
+        self.caddyfile = Path(caddyfile or self.CADDYFILE)
+        self.https_port = int(https_port or 443)
+        wait = guestenv.get("GUESTS_CERT_WAIT") or ""
+        self.cert_wait = float(cert_wait if cert_wait is not None
+                               else (wait if wait.isdigit() else 120))
+        self.poll = poll
+        self._undo: Dict[str, Optional[str]] = {}   # host -> its text before (None: no file)
+
+    def _file(self, host: str) -> Path:
+        if not isinstance(host, str) or not caddyconf.HOST_RE.fullmatch(host) or ".." in host:
+            raise ValueError(f"bad host {host!r}")
+        return self.VHOSTS / f"{host}{self.SUFFIX}"
+
+    def _remember(self, host: str) -> None:
+        if host not in self._undo:
+            f = self._file(host)
+            self._undo[host] = f.read_text() if f.exists() else None
+
+    def write_vhost(self, host: str, text: str) -> None:
+        f = self._file(host)
+        self._remember(host)
+        tmp = f.with_name(f".{f.name}.tmp")
+        tmp.write_text(text)
+        tmp.chmod(0o644)
+        tmp.replace(f)
+
+    def vhost_exists(self, host: str) -> bool:
+        return self._file(host).exists()
+
+    def remove_vhost(self, host: str) -> None:
+        f = self._file(host)
+        self._remember(host)
+        f.unlink(missing_ok=True)
+
+    def _put_back(self) -> None:
+        for host, text in self._undo.items():
+            f = self._file(host)
+            if text is None:
+                f.unlink(missing_ok=True)
+            else:
+                f.write_text(text)
+        self._undo.clear()
+
+    def _admin(self, method: str, path: str, body: Optional[bytes] = None,
+               ctype: str = "") -> bytes:
+        req = urllib.request.Request(self.admin + path, data=body, method=method,
+                                     headers={"Content-Type": ctype} if ctype else {})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return resp.read()
+
+    def reload(self) -> None:
+        try:
+            text = self.caddyfile.read_text()
+        except OSError:
+            self._put_back()
+            raise RuntimeError(f"caddy: no {self.caddyfile} (the Caddyfile.run "
+                               "agentkennel-caddy.service writes when it starts: is it "
+                               "running?)")
+        try:
+            self._admin("POST", "/load", text.encode(), "text/caddyfile")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode(errors="replace")
+            try:
+                detail = json.loads(detail).get("error") or detail
+            except ValueError:
+                pass
+            self._put_back()
+            raise RuntimeError(f"caddy refused the change, nothing changed: {detail[-400:]}")
+        except (urllib.error.URLError, OSError) as exc:
+            self._put_back()
+            raise RuntimeError(f"caddy: its admin API {self.admin} doesn't answer ({exc}); is "
+                               "agentkennel-caddy running? (systemctl status agentkennel-caddy)")
+        served = [h for h, _ in self._undo.items() if self._file(h).exists()]
+        self._undo.clear()
+        if served:
+            loaded = self._admin("GET", "/config/apps/http/servers").decode(errors="replace")
+            missing = [h for h in served if json.dumps(h) not in loaded]
+            if missing:
+                raise RuntimeError(
+                    f"caddy reloaded but doesn't serve {', '.join(missing)}: its Caddyfile "
+                    "doesn't import the guests' sites folder (AGENTKENNEL_CADDY_SITES in "
+                    "agentkennel-caddy.service) — run ./install.sh again")
+
+    def _tls_ok(self, host: str) -> bool:
+        """Does Caddy hand out a valid certificate for this name on its https port?"""
+        ctx = ssl.create_default_context()
+        root = caddy_data_dir() / "pki" / "authorities" / "local" / "root.crt"
+        if root.exists():                       # Caddy's own CA (local_certs / tests)
+            ctx.load_verify_locations(cafile=str(root))
+        try:
+            with socket.create_connection(("127.0.0.1", self.https_port), timeout=5) as raw:
+                with ctx.wrap_socket(raw, server_hostname=host):
+                    return True
+        except (OSError, ssl.SSLError):
+            return False
+
+    def cert_issue(self, host: str) -> None:
+        """Caddy gets the certificate by itself after the reload; wait until it is served."""
+        deadline = time.monotonic() + self.cert_wait
+        while True:
+            if self._tls_ok(host):
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"caddy has no certificate for {host} after {int(self.cert_wait)} s "
+                    "(does the name point at this server, are 80 and 443 open?): "
+                    "journalctl -u agentkennel-caddy")
+            time.sleep(self.poll)
+
+    def cert_delete(self, host: str) -> None:
+        self._file(host)                          # the name is checked before it names a folder
+        for d in (caddy_data_dir() / "certificates").glob(f"*/{host}"):
+            if d.name == host and d.is_dir() and not d.is_symlink():
+                shutil.rmtree(d, ignore_errors=True)
+
+
+def make_ops(choice: "Optional[webchoice.Choice]" = None) -> RealOps:
+    """The ops of the web server that carries the guests' addresses on this server."""
+    choice = choice or webchoice.probe()
+    ops = CaddyOps() if choice.backend == webchoice.CADDY else RealOps()
+    ops.choice = choice
+    return ops
+
+
+class AutoOps:
+    """make_ops for the long-running site gate: the choice is asked again after `ttl`
+    seconds (at boot it may start before Caddy or nginx), the same instance kept while the
+    backend stays the same."""
+
+    def __init__(self, probe=None, clock=time.monotonic, ttl: float = 30) -> None:
+        self._probe = probe or webchoice.probe
+        self._clock, self._ttl = clock, ttl
+        self._ops: Optional[RealOps] = None
+        self._at = None
+
+    def current(self) -> RealOps:
+        now = self._clock()
+        if self._ops is None or now - self._at >= self._ttl:
+            choice = self._probe()
+            if self._ops is None or self._ops.KIND != choice.backend:
+                self._ops = make_ops(choice)
+            self._ops.choice = choice
+            self._at = now
+        return self._ops
+
+    @property
+    def KIND(self) -> str:  # noqa: N802 — the ops attribute conf_for reads
+        return self.current().KIND
+
+    def __getattr__(self, name: str):
+        return getattr(self.current(), name)
+
 
 # --------------------------------------------------------------------------- #
 def make_server(bind: str, port: int, gate: Gate) -> ThreadingHTTPServer:
@@ -466,7 +739,7 @@ def main(argv=None) -> int:
     def ip_of(name: str) -> Optional[str]:
         return (registry().get(name) or {}).get("ip")
 
-    gate = Gate(book, RealOps(), data / "sites.json", ip_of, sandboxes=registry)
+    gate = Gate(book, AutoOps(), data / "sites.json", ip_of, sandboxes=registry)
     args = list(sys.argv[1:] if argv is None else argv)
     if args[:1] == ["remove"] and len(args) == 2:  # owner: take any site down
         host = args[1]
@@ -485,6 +758,9 @@ def main(argv=None) -> int:
         return 0
     bind = os.environ.get("SITEGATE_BIND", "127.0.0.1")
     port = int(os.environ.get("SITEGATE_PORT", "8794"))
+    # sbx.<domain>/f/ when Caddy carries the guests' addresses (localhost only; harmless
+    # and unused behind nginx, which serves the folder itself)
+    publicfiles.start_in_background("127.0.0.1", files_port(), ROOT / "public")
     print(f"sitegate on {bind}:{port}", file=sys.stderr, flush=True)
     make_server(bind, port, gate).serve_forever()
     return 0

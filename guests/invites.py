@@ -291,7 +291,8 @@ def desk_for_admin(owner_id: int, log=lambda line: print(line, file=sys.stderr, 
     data = Path(os.environ.get("TURNSTILE_DATA") or HERE / "turnstile" / "data")
 
     def info_for(name: str) -> Optional[Dict]:
-        return fresh_tgrelay().dashboard_info(name, data, HERE / "nginx" / "sites")
+        return fresh_tgrelay().dashboard_info(
+            name, data, (HERE / "nginx" / "sites", guestenv.caddy_sites_dir()))
 
     def taken() -> set:
         names = set()

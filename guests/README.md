@@ -34,7 +34,7 @@ a limit, through one shared Telegram bot. Off until you set it up.
 - **You can look in.** **Open** next to a guest on the dashboard's Server page opens their
   dashboard signed in as you, without their password, which stays as it is. The panel
   signs a login with the sandbox's own key and hands it over through a one-time link
-  (one minute, one use, only on that guest's address): the guest's nginx sends the one
+  (one minute, one use, only on that guest's address): the guest's address sends the one
   path `/_owner-entry` to your panel, everything else goes to the sandbox. Pages made
   before this get that path the first time you press Open.
 - **Web on or off.** The **Web** switch next to a guest (or `guestctl web-off <name>` /
@@ -107,10 +107,25 @@ pick another default under "For new guests".
 
 You need AgentKennel installed from a checkout (this folder lives inside it), Docker that
 your user may use, systemd, sudo without a password for your user (the services make each
-guest's disk and web address in the background), and — for web addresses — nginx and
-certbot on ports 80/443 (the guest's dashboard address, **Open**, the guests' own sites and
-the shared files address all go through it). The script install puts Caddy on those ports;
-there, set Web off for new guests (Telegram only) until you move the server to nginx.
+guest's disk, and behind nginx its web address, in the background), and a web server on ports 80/443 for the web addresses
+(the guest's dashboard address, **Open**, the guests' own sites and the shared files
+address all go through it). Either one works:
+
+- **The script install's Caddy** (`agentkennel-caddy`), when it serves 443 — the default
+  HTTPS install. Each address is a small file in `<AgentKennel>/.sessions/caddy-sites/`
+  that the Caddyfile imports; Caddy gets every name's certificate itself and is reloaded
+  through its admin API, so nothing needs sudo. Shared files are handed to Caddy by a small
+  server inside the site gate (127.0.0.1:8795) that never follows a symbolic link a guest
+  puts in their folder. An install with `--http` or a self-signed certificate on :8765 has
+  no public 443: run `./install.sh --https` first (or set Web off for new guests: Telegram
+  only). An install from before this needs `./install.sh` once more, so its Caddy imports
+  that folder.
+- **nginx with certbot**, when nginx holds 80/443: a vhost per address in
+  `guests/nginx/sites` (linked into `/etc/nginx/sites-enabled`) and a certificate per name.
+
+The server decides (Caddy when AgentKennel's Caddy is on 443, else nginx); `GUESTS_WEB=nginx`
+or `GUESTS_WEB=caddy` in `guests/.env` overrides it. `guests/install.sh --check` and
+`guestctl.py doctor` say which one is used and why.
 
 1. **Settings.** `cp guests/.env.example guests/.env` (the installer does it on the first
    run) and fill in:
@@ -122,7 +137,8 @@ there, set Web off for new guests (Telegram only) until you move the server to n
      written for the guests' agents;
    - DNS: a Cloudflare API token in `~/.cf_token` (names are created per guest), or a
      wildcard A record `*.<domain>` pointing at this server;
-   - optional: `SERVER_IP`, `CF_TOKEN_FILE`, `CF_ZONE`, `GUESTS_NOTIFY_CMD`, `GUEST_IMAGE`.
+   - optional: `SERVER_IP`, `CF_TOKEN_FILE`, `CF_ZONE`, `GUESTS_NOTIFY_CMD`, `GUEST_IMAGE`,
+     `GUESTS_WEB` (nginx or caddy).
 
    The Claude turnstile uses your login from `~/.claude/oauth.env`
    (`CLAUDE_CODE_OAUTH_TOKEN=…`, from `claude setup-token`) only for guests on your
@@ -133,7 +149,8 @@ there, set Web off for new guests (Telegram only) until you move the server to n
    the sandbox network and firewall, builds the guest image from this checkout and starts
    the services `agentkennel-guest-turnstile`, `agentkennel-guest-tgrelay` and
    `agentkennel-guest-sitegate`. Running it again upgrades.
-3. **Check.** `python3 guests/guestctl.py doctor` — Docker, bot, owner, domain, services.
+3. **Check.** `python3 guests/guestctl.py doctor` — Docker, bot, owner, domain, services,
+   and which web server carries the addresses.
 4. **Shared files address (once).** `python3 guests/guestctl.py files-web`.
 
 ## Commands

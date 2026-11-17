@@ -7,7 +7,8 @@ import os
 import tempfile
 
 _KEYS = ("GUESTS_DOMAIN", "GUEST_BOT_TOKEN", "OWNER_TG_ID", "SERVER_IP", "CF_TOKEN_FILE",
-         "CF_ZONE", "GUESTS_NOTIFY_CMD", "GUEST_IMAGE", "GUESTS_LANG", "SITEGATE_SERVER_IP")
+         "CF_ZONE", "GUESTS_NOTIFY_CMD", "GUEST_IMAGE", "GUESTS_LANG", "SITEGATE_SERVER_IP",
+         "GUESTS_WEB", "GUESTS_FILES_PORT", "GUESTS_CADDY_ADMIN", "GUESTS_CERT_WAIT")
 for _k in _KEYS:
     os.environ.pop(_k, None)
 # the live terminal's own settings, under either name — but not the throwaway pane

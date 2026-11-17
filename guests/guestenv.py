@@ -15,6 +15,12 @@ call, so a changed .env is picked up without a restart of the command that reads
                        (default: a message from the guest bot to OWNER_TG_ID)
     GUEST_IMAGE        the sandbox image (default agentkennel-guest:<AgentKennel version>)
     GUESTS_LANG        language of everything guests and the owner read: en (default) | ru
+    GUESTS_WEB         nginx | caddy: which web server carries the guests' addresses
+                       (default: the server decides, see webchoice.py)
+    GUESTS_FILES_PORT  publicfiles.py's port on 127.0.0.1 (sbx.<domain>/f/ behind Caddy;
+                       default 8795)
+    GUESTS_CADDY_ADMIN Caddy's admin API (default http://localhost:2019)
+    GUESTS_CERT_WAIT   seconds to wait for Caddy's certificate of a new name (default 120)
 """
 
 from __future__ import annotations
@@ -32,7 +38,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))   # the checkout: envcompat.py
 import envcompat  # noqa: E402  (AGENTKENNEL_*, then the old AGENTDECK_*)
 KEYS = ("GUESTS_DOMAIN", "GUEST_BOT_TOKEN", "OWNER_TG_ID", "SERVER_IP", "CF_TOKEN_FILE",
-        "CF_ZONE", "GUESTS_NOTIFY_CMD", "GUEST_IMAGE", "GUESTS_LANG")
+        "CF_ZONE", "GUESTS_NOTIFY_CMD", "GUEST_IMAGE", "GUESTS_LANG", "GUESTS_WEB",
+        "GUESTS_FILES_PORT", "GUESTS_CADDY_ADMIN", "GUESTS_CERT_WAIT")
 # Cloudflare answers "error 1010" to Python-urllib's own User-Agent
 USER_AGENT = "AgentKennel-guests/2.0 (+https://github.com/yanhs/agentkennel)"
 
@@ -77,6 +84,12 @@ def load(path: Optional[Path] = None, environ: Optional[Mapping[str, str]] = Non
 def get(key: str, default: Optional[str] = None) -> Optional[str]:
     value = load().get(key)
     return value if value else default
+
+
+def caddy_sites_dir() -> Path:
+    """Where the guests' Caddy site blocks live: <AgentKennel>/.sessions/caddy-sites
+    (install.sh points agentkennel-caddy's AGENTKENNEL_CADDY_SITES at <it>/*.caddy)."""
+    return HERE.parent / ".sessions" / "caddy-sites"
 
 
 def address_of(name: str, registry: Mapping) -> str:

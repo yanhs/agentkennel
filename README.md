@@ -311,11 +311,16 @@ Before the first guest:
 - **DNS:** a wildcard `*.<domain>` A record pointing at the server, or a Cloudflare token in
   `~/.cf_token`;
 - **sudo without a password** for your user (a cloud server's default user has it): the
-  guest services make each guest's disk and web address in the background;
-- **web addresses** (`https://sb-<name>.<domain>`) need nginx and certbot on ports 80/443.
-  The script install puts Caddy there, so on such a server turn **Web** off for new guests
-  (Settings → "For new guests"): they work through Telegram. **Open**, the guests' own
-  sites and the shared files address need the same nginx, so they wait for it too.
+  guest services make each guest's disk (and, behind nginx, its web address) in the
+  background;
+- **web addresses** (`https://sb-<name>.<domain>`, **Open**, the guests' own sites and the
+  shared files address) go through the script install's Caddy when it serves port 443 (the
+  default HTTPS install): Caddy gets each name's certificate itself, nothing more to install.
+  An install with `--http`, or one that fell back to a self-signed certificate on :8765, has
+  no public 443: run `./install.sh --https` first, or turn **Web** off for new guests
+  (Settings → "For new guests") and they work through Telegram. A server where nginx with
+  certbot already holds 80/443 keeps using it. `python3 ~/agentkennel/guests/guestctl.py
+  doctor` says which one carries the addresses and why.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yanhs/agentkennel/master/install.sh | bash -s -- --guests

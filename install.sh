@@ -394,6 +394,8 @@ Wants=network-online.target
 [Service]
 $(unit_service_common)
 $(sd_env AGENTKENNEL_CADDY_GLOBAL "$AGENTKENNEL_DIR/.sessions/caddy-global.caddy")
+# the guests' addresses (guests/webchoice.py): a block per name, written by guestctl
+$(sd_env AGENTKENNEL_CADDY_SITES "$AGENTKENNEL_DIR/.sessions/caddy-sites/*.caddy")
 $(o="$(dotenv_old EMAIL)" && sd_env AGENTKENNEL_EMAIL "$o")
 # Let's Encrypt refuses an @example.* contact address (the Caddyfile default): drop it then
 ExecStartPre=/bin/sh -c 'case "\$\${AGENTKENNEL_EMAIL:-\$\${AGENTDECK_EMAIL:-}}" in ""|*@example.com|*@example.org|*@example.net) grep -v "^[[:space:]]*email " Caddyfile ;; *) cat Caddyfile ;; esac > .sessions/Caddyfile.run'
@@ -972,7 +974,7 @@ install_services() {
   local u
   # what the units are rendered from (render_unit, unit_service_common)
   AGENTKENNEL_DIR="$DIR" AGENTKENNEL_USER="$(id -un)" AGENTKENNEL_SITE="$(caddy_address)"
-  mkdir -p "$DIR/.sessions"
+  mkdir -p "$DIR/.sessions" "$DIR/.sessions/caddy-sites"
   { printf '# written by install.sh for AGENTKENNEL_SITE=%s — rewritten on every install\n' "$SITE"
     caddy_global_conf; } > "$DIR/.sessions/caddy-global.caddy"
   AGENTKENNEL_HOME="$(getent passwd "$AGENTKENNEL_USER" | cut -d: -f6)"; AGENTKENNEL_HOME="${AGENTKENNEL_HOME:-$HOME}"

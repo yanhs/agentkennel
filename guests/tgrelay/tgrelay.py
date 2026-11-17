@@ -872,8 +872,10 @@ def _bot_token() -> str:
     return token
 
 
-def dashboard_info(name: str, data: Path, sites: Path, status=None) -> Optional[Dict]:
+def dashboard_info(name: str, data: Path, sites, status=None) -> Optional[Dict]:
     """sb-<address>.<domain> and its password, once its web address has been opened.
+    `sites`: the folder (or folders) its config is in — guests/nginx/sites (<host>.conf)
+    and, when Caddy carries the addresses, .sessions/caddy-sites (<host>.caddy).
     status(name, data) -> (the bot's password if in force, whether the guest set their
     own) — guests/dashpass.status; without it, the bot's copy as it is."""
     try:
@@ -881,7 +883,10 @@ def dashboard_info(name: str, data: Path, sites: Path, status=None) -> Optional[
     except (OSError, ValueError):
         registry = {}
     host = guestenv.dashboard_host(name, registry)
-    if not guestenv.domain() or not (Path(sites) / f"{host}.conf").exists():
+    folders = [sites] if isinstance(sites, (str, Path)) else list(sites)
+    opened = any((Path(d) / f"{host}{suffix}").exists()
+                 for d in folders for suffix in (".conf", ".caddy"))
+    if not guestenv.domain() or not opened:
         return None
     if status is not None:
         password, own = status(name, Path(data))
@@ -899,7 +904,7 @@ def main() -> int:
     book = ts.GuestBook(data / "guests.json")
     api = TelegramAPI(_bot_token(), log=lambda line: print(line, file=sys.stderr, flush=True))
 
-    sites = HERE.parent / "nginx" / "sites"
+    sites = (HERE.parent / "nginx" / "sites", guestenv.caddy_sites_dir())
 
     def info_for(name: str) -> Optional[Dict]:
         return dashboard_info(name, data, sites, status=dashpass.status)
