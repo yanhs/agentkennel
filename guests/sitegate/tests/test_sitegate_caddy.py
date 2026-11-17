@@ -491,6 +491,8 @@ def test_live_caddy_serves_a_guest(live):
     ops.reload()
     ops.cert_delete(host)
     assert not list((live["data"] / "caddy" / "certificates").glob(f"*/{host}"))
+    assert curl(live, host)[0] == 0          # no block, no certificate: the TLS handshake fails
+    assert curl(live, new)[0] == 200
 
 
 def test_live_caddy_serves_shared_files(live):

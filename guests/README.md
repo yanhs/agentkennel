@@ -107,9 +107,9 @@ pick another default under "For new guests".
 
 You need AgentKennel installed from a checkout (this folder lives inside it), Docker that
 your user may use, systemd, sudo without a password for your user (the services make each
-guest's disk, and behind nginx its web address, in the background), and a web server on ports 80/443 for the web addresses
-(the guest's dashboard address, **Open**, the guests' own sites and the shared files
-address all go through it). Either one works:
+guest's disk, and behind nginx its web address, in the background), and a web server on
+ports 80/443 for the web addresses (the guest's dashboard address, **Open**, the guests'
+own sites and the shared files address all go through it). Either one works:
 
 - **The script install's Caddy** (`agentkennel-caddy`), when it serves 443 — the default
   HTTPS install. Each address is a small file in `<AgentKennel>/.sessions/caddy-sites/`

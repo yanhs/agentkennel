@@ -526,6 +526,8 @@ class CaddyOps(RealOps):
                                else (wait if wait.isdigit() else 120))
         self.poll = poll
         self._undo: Dict[str, Optional[str]] = {}   # host -> its text before (None: no file)
+        # the site gate's delayed clean-up runs on a timer thread next to a new publish
+        self._lock = threading.RLock()
 
     def _file(self, host: str) -> Path:
         if not isinstance(host, str) or not caddyconf.HOST_RE.fullmatch(host) or ".." in host:
@@ -539,22 +541,24 @@ class CaddyOps(RealOps):
 
     def write_vhost(self, host: str, text: str) -> None:
         f = self._file(host)
-        self._remember(host)
-        tmp = f.with_name(f".{f.name}.tmp")
-        tmp.write_text(text)
-        tmp.chmod(0o644)
-        tmp.replace(f)
+        with self._lock:
+            self._remember(host)
+            tmp = f.with_name(f".{f.name}.tmp")
+            tmp.write_text(text)
+            tmp.chmod(0o644)
+            tmp.replace(f)
 
     def vhost_exists(self, host: str) -> bool:
         return self._file(host).exists()
 
     def remove_vhost(self, host: str) -> None:
         f = self._file(host)
-        self._remember(host)
-        f.unlink(missing_ok=True)
+        with self._lock:
+            self._remember(host)
+            f.unlink(missing_ok=True)
 
     def _put_back(self) -> None:
-        for host, text in self._undo.items():
+        for host, text in list(self._undo.items()):
             f = self._file(host)
             if text is None:
                 f.unlink(missing_ok=True)
@@ -570,6 +574,10 @@ class CaddyOps(RealOps):
             return resp.read()
 
     def reload(self) -> None:
+        with self._lock:
+            self._reload()
+
+    def _reload(self) -> None:
         try:
             text = self.caddyfile.read_text()
         except OSError:
@@ -594,7 +602,10 @@ class CaddyOps(RealOps):
         served = [h for h, _ in self._undo.items() if self._file(h).exists()]
         self._undo.clear()
         if served:
-            loaded = self._admin("GET", "/config/apps/http/servers").decode(errors="replace")
+            try:
+                loaded = self._admin("GET", "/config/apps/http/servers").decode(errors="replace")
+            except (urllib.error.URLError, OSError) as exc:
+                raise RuntimeError(f"caddy reloaded, but its config can't be read back ({exc})")
             missing = [h for h in served if json.dumps(h) not in loaded]
             if missing:
                 raise RuntimeError(
