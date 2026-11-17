@@ -10,7 +10,7 @@ example on a server that already has nginx and a certificate for your domain.
 
 - Linux, **Python 3.11+**
 - [`tmux`](https://github.com/tmux/tmux) and [`ttyd`](https://github.com/tsl0922/ttyd)
-- The **Claude Code CLI** (`claude`) — https://docs.claude.com/claude-code
+- The **Claude Code CLI** (`claude`) — https://code.claude.com/docs/en/overview
 - a reverse proxy for TLS, the login gate and WebSockets: `nginx` (this page) or
   [Caddy](https://caddyserver.com/download) (`./start.sh`)
 - *(optional, for the Telegram bridge)* `python-telegram-bot`

@@ -152,7 +152,8 @@ curl -fsSL https://raw.githubusercontent.com/yanhs/agentkennel/master/install.sh
    `https://<host>/login?setup=<token>`. Only that link can set the password, so a stranger
    who finds the fresh server first can't. Lost it? Run the install command again.
 2. Open it and set your password.
-3. **＋ New** (it opens in `~/projects`), sign in to Claude once, give the agent a task.
+3. Open the "Getting started" terminal it made (or press **＋ New**; it opens in
+   `~/projects`), sign in to Claude once, give the agent a task.
 
 - **HTTPS by default, no domain needed.** Ports 80 and 443 free → a trusted certificate for
   `https://<your-ip-with-dashes>.sslip.io`. Only 443 taken → the same on `:8443`. Otherwise a
@@ -184,14 +185,15 @@ docker compose up -d --wait && docker compose logs agentkennel | grep setup
 
 `docker compose up -d` downloads the ready image of the latest release,
 `ghcr.io/yanhs/agentkennel` (amd64 and arm64), so nothing is built on your machine.
-`AGENTKENNEL_VERSION=2.2.0 docker compose up -d` pins a version;
+`AGENTKENNEL_VERSION=2.7.0 docker compose up -d` pins a version;
 `docker compose up -d --build` builds your checkout instead.
 
 1. Open that link and set the password. The
    certificate is one the container made for itself: the browser warns once, the
    connection is encrypted.
-2. **＋ New**, then sign in to Claude once: it asks for a colour theme, then how to
-   log in (subscription or API key). The login is kept in a volume.
+2. Open the "Getting started" terminal it made (or press **＋ New**), then sign in to
+   Claude once: it asks for a colour theme, then how to log in (subscription or API key).
+   The login is kept in a volume.
 3. A trusted certificate, no warning: `./https.sh` (a free `<ip>.sslip.io` name, needs
    ports 80 and 443) or `./https.sh your-domain.com`; `./https.sh --off` goes back.
    Plain http behind a proxy of your own: `AGENTKENNEL_SITE=:8765 docker compose up -d`.
@@ -317,7 +319,8 @@ Before the first guest:
   shared files address) go through the script install's Caddy when it serves port 443 (the
   default HTTPS install): Caddy gets each name's certificate itself, nothing more to install.
   An install with `--http`, or one that fell back to a self-signed certificate on :8765, has
-  no public 443: run `./install.sh --https` first, or turn **Web** off for new guests
+  no public 443: run `~/agentkennel/install.sh --https` (ports 80 and 443 free) first, or
+  turn **Web** off for new guests
   (Settings → "For new guests") and they work through Telegram. A server where nginx with
   certbot already holds 80/443 keeps using it. `python3 ~/agentkennel/guests/guestctl.py
   doctor` says which one carries the addresses and why.

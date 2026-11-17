@@ -46,8 +46,11 @@ a limit, through one shared Telegram bot. Off until you set it up.
   work's files, rebuild and restart, install packages, publish new sites, set up other
   services). The turnstile adds the rules to every Claude request of that guest, so nothing
   inside the sandbox can leave them out; the agent declines anything else politely. A new
-  site is refused by the site gate itself when publishing isn't allowed. "Tell me when they
-  ask for something strange or illegal" sends you a Telegram message (at most 5 an hour).
+  site is refused by the site gate itself when publishing isn't allowed. With "Tell me in
+  Telegram when they ask for something strange or illegal" on (the default), you are also
+  told at once of attempts to get around the rules (at most 5 an hour per guest), and get
+  one digest a day, from 09:00, of the off-topic requests the agents declined (a line per
+  guest; nothing when there were none).
   What the guest sends in Telegram lands in `/work/tg-uploads`, always open to the agent:
   pictures, fonts and documents go into the work; code only after the agent has read it,
   as part of the work's own files and build. Nothing is run or installed straight from there.
@@ -57,6 +60,12 @@ a limit, through one shared Telegram bot. Off until you set it up.
   sandbox by `guestctl rules`; docs/superpowers/specs/2026-11-17-guest-rules-live-terminal.md).
 
 ![The Guests block on the Server page: a Web switch per guest, one guest Telegram only with the Rules form open](../docs/screenshots/guests-rules.png)
+
+**Upgrading to v2.7.0 with rules on.** After `guests/install.sh` (it builds the new guest
+image), run `python3 guests/guestctl.py recreate <name>` for each guest with rules on, onto
+the new image, so the command line and Ctrl+B are locked too. On an older image the **cmd**
+button and `/sess/?arg=shell` still open a shell, and Ctrl+B comes back once all their
+terminals are closed (`!` commands are refused either way).
 
 ## Whose Claude
 
@@ -117,9 +126,9 @@ own sites and the shared files address all go through it). Either one works:
   through its admin API, so nothing needs sudo. Shared files are handed to Caddy by a small
   server inside the site gate (127.0.0.1:8795) that never follows a symbolic link a guest
   puts in their folder. An install with `--http` or a self-signed certificate on :8765 has
-  no public 443: run `./install.sh --https` first (or set Web off for new guests: Telegram
-  only). An install from before this needs `./install.sh` once more, so its Caddy imports
-  that folder.
+  no public 443: run `~/agentkennel/install.sh --https` (ports 80 and 443 free) first (or
+  set Web off for new guests: Telegram only). An install from before this needs
+  `~/agentkennel/install.sh` once more, so its Caddy imports that folder.
 - **nginx with certbot**, when nginx holds 80/443: a vhost per address in
   `guests/nginx/sites` (linked into `/etc/nginx/sites-enabled`) and a certificate per name.
 
@@ -151,7 +160,8 @@ hour: each change reloads the web server.
    - DNS: a Cloudflare API token in `~/.cf_token` (names are created per guest), or a
      wildcard A record `*.<domain>` pointing at this server;
    - optional: `SERVER_IP`, `CF_TOKEN_FILE`, `CF_ZONE`, `GUESTS_NOTIFY_CMD`, `GUEST_IMAGE`,
-     `GUESTS_WEB` (nginx or caddy).
+     `GUESTS_WEB` (nginx or caddy), `GUESTS_LOCALE_DIR` (where the language files are;
+     default `guests/locale/`, not in git).
 
    The Claude turnstile uses your login from `~/.claude/oauth.env`
    (`CLAUDE_CODE_OAUTH_TOKEN=…`, from `claude setup-token`) only for guests on your
@@ -171,6 +181,8 @@ hour: each change reloads the web server.
 ```
 python3 guests/guestctl.py add <name> --tg <telegram id> [--limit N]   new sandbox
 python3 guests/guestctl.py web <name>              https://sb-<name>.<domain> (DNS, certificate)
+python3 guests/guestctl.py address <name> <address>   sb-<address>.<domain> instead; the old one redirects
+python3 guests/guestctl.py files-web               https://sbx.<domain>, the shared files address (once)
 python3 guests/guestctl.py web-off <name>          Telegram only: the browser terminals go down
 python3 guests/guestctl.py rules <name> '<json>'   the agent's rules (web on: Claude-only terminals)
 python3 guests/guestctl.py folders <name>          folders in the sandbox's /work (for the rules)
@@ -182,12 +194,18 @@ python3 guests/guestctl.py list [--json]           guests, state, use and limits
 python3 guests/guestctl.py limit <name> <tokens>   the weekly token limit (subscription mode; 5 hours: a seventh)
 python3 guests/guestctl.py stop|start <name>       pause / resume (the pass stops working too)
 python3 guests/guestctl.py recreate <name>         new container on the current image, same data
+python3 guests/guestctl.py disk-move <name> [--gb N]   onto a disk of its own (no open terminals; old volumes kept)
+python3 guests/guestctl.py move-domain --from <old>   every address on <old> moves to GUESTS_DOMAIN; old ones redirect
+python3 guests/guestctl.py image-tag               the guest image new sandboxes get
 python3 guests/guestctl.py remove <name>           container, pass and address go; volumes stay
 python3 guests/guestctl.py check <name>            the network walls, seen from inside
 python3 guests/guestctl.py doctor [--json]         is everything set up?
 python3 guests/turnstile/turnstile.py unlimited <name> --hours N   lift the limit for a while
 python3 guests/sitegate/sitegate.py list | remove <host>           guests' published sites
 ```
+
+`add … --limit N` is tokens a week, used only in subscription mode; guests on your API key
+are limited in dollars (`claude <name> '{"usd_week": N}'`, or `defaults`).
 
 `list --json` and `doctor --json` print one JSON object for scripts and the dashboard.
 
