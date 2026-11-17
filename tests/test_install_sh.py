@@ -246,6 +246,13 @@ def test_help_mentions_every_flag(box):
     assert not changes(box.calls())
 
 
+def test_help_mentions_the_8443_fallback(box):
+    """Like the README: 80 and 443 free, only 443 taken (:8443), otherwise self-signed :8765."""
+    r = box.run("--help")
+    assert r.returncode == 0
+    assert ":8443" in r.stdout and ":8765" in r.stdout
+
+
 def test_help_says_agentkennel_and_the_renamed_repo(box):
     r = box.run("--help")
     assert r.returncode == 0

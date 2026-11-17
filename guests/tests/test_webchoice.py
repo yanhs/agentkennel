@@ -67,13 +67,13 @@ def test_caddy_without_a_public_443_says_why_and_how_to_fix(site, mode):
     c = wc.decide("", nginx_active=False, caddy_active=True, caddy_site=site)
     assert c.backend == "caddy" and not c.works
     assert mode in c.why
-    assert "install.sh --https" in c.fix
+    assert "~/agentkennel/install.sh --https" in c.fix
 
 
 def test_nothing_serving_web():
     c = wc.decide("", nginx_active=False, caddy_active=False, caddy_site="")
     assert not c.works and c.fix
-    assert "install.sh --https" in c.fix
+    assert "~/agentkennel/install.sh --https" in c.fix
 
 
 @pytest.mark.parametrize("value", ["nginx", "NGINX", " nginx "])
@@ -89,7 +89,7 @@ def test_setting_caddy_wins():
 
 def test_setting_caddy_on_a_caddy_without_443_still_says_it_cant_work():
     c = wc.decide("caddy", nginx_active=True, caddy_active=True, caddy_site=":8765")
-    assert c.backend == "caddy" and not c.works and "install.sh --https" in c.fix
+    assert c.backend == "caddy" and not c.works and "~/agentkennel/install.sh --https" in c.fix
 
 
 def test_a_wrong_setting_is_named():
@@ -102,7 +102,7 @@ def test_caddy_that_does_not_import_the_sites_folder():
     never see the guests' addresses — run install.sh again."""
     c = wc.decide("", nginx_active=False, caddy_active=True, caddy_site=SSLIP, caddy_imports=False)
     assert c.backend == "caddy" and not c.works
-    assert "install.sh" in c.fix and "AGENTKENNEL_CADDY_SITES" in c.why
+    assert "~/agentkennel/install.sh" in c.fix and "AGENTKENNEL_CADDY_SITES" in c.why
 
 
 def test_as_dict_is_json():
@@ -143,7 +143,15 @@ def test_cli_prints_the_choice(monkeypatch, capsys):
     monkeypatch.setattr(wc, "probe", lambda: wc.decide("", False, True, ":8765"))
     assert wc.main([]) == 1
     out = capsys.readouterr().out
-    assert "caddy" in out and "install.sh --https" in out
+    assert "caddy" in out and "~/agentkennel/install.sh --https" in out
     monkeypatch.setattr(wc, "probe", lambda: wc.decide("", True, False, ""))
     assert wc.main(["--json"]) == 0
     assert json.loads(capsys.readouterr().out)["backend"] == "nginx"
+
+
+def test_the_fix_names_the_installer_by_its_folder_not_a_relative_path():
+    """Guests' doctor runs from anywhere: `./install.sh` only works in the AgentKennel folder."""
+    for c in (wc.decide("", False, True, ":8765"), wc.decide("", False, False, ""),
+              wc.decide("", False, True, SSLIP, caddy_imports=False)):
+        assert "./install.sh" not in c.fix and "~/agentkennel/install.sh" in c.fix
+    assert "./install.sh" not in wc.INTERNAL_CA_WARNING

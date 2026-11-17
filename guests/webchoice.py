@@ -36,9 +36,9 @@ import guestenv  # noqa: E402
 NGINX, CADDY = "nginx", "caddy"
 CADDY_UNIT = "agentkennel-caddy.service"
 NGINX_UNIT = "nginx.service"
-HTTPS_FIX = ("run ./install.sh --https (ports 80 and 443 free, or --https your-domain.com): "
-             "AgentKennel's Caddy then serves 443 and gives every guest address its own "
-             "certificate")
+HTTPS_FIX = ("run ~/agentkennel/install.sh --https (ports 80 and 443 free, or --https "
+             "your-domain.com): AgentKennel's Caddy then serves 443 and gives every guest "
+             "address its own certificate")
 
 
 @dataclass(frozen=True)
@@ -78,7 +78,7 @@ _MODE_WORDS = {"http": "plain http on :8765 (--http)",
 INTERNAL_CA_WARNING = (
     "AgentKennel's Caddy uses its own certificate authority (AGENTKENNEL_TLS_INTERNAL=1, "
     "local_certs): browsers won't trust the guests' addresses — for real certificates run "
-    "./install.sh --https without AGENTKENNEL_TLS_INTERNAL")
+    "~/agentkennel/install.sh --https without AGENTKENNEL_TLS_INTERNAL")
 
 
 def decide(setting: str, nginx_active: bool, caddy_active: bool, caddy_site: str,
@@ -98,7 +98,7 @@ def decide(setting: str, nginx_active: bool, caddy_active: bool, caddy_site: str
             return Choice(CADDY, False, f"{why}; but {CADDY_UNIT} has no "
                                         "AGENTKENNEL_CADDY_SITES (installed before guests "
                                         "could use Caddy), so it would not see their sites",
-                          "run ./install.sh again (as you, in the AgentKennel folder): it "
+                          "run ~/agentkennel/install.sh again (as you, not with sudo): it "
                           "adds the guests' sites folder to Caddy")
         own_ca = any(line.strip() == "local_certs" for line in (caddy_global or "").splitlines())
         return Choice(CADDY, True, why, warning=INTERNAL_CA_WARNING if own_ca else "")

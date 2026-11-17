@@ -498,7 +498,8 @@ usage() {
   cat <<'EOF'
 AgentKennel installer — agents get the whole server (use a dedicated VPS).
 HTTPS by default: a free Let's Encrypt certificate on https://<ip>.sslip.io when ports
-80/443 are free, otherwise a self-signed one on :8765 (the browser warns once).
+80/443 are free, the same on :8443 when only 443 is taken, otherwise a self-signed one on
+:8765 (the browser warns once).
 
   curl -fsSL https://raw.githubusercontent.com/yanhs/agentkennel/master/install.sh | bash
   ./install.sh [options]          (from a clone)
