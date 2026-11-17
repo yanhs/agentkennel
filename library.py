@@ -47,7 +47,7 @@ RULES_FLAG = "/etc/agentkennel/rules/on"
 
 
 def rules_flag():
-    return os.environ.get("AGENTKENNEL_RULES_FLAG") or RULES_FLAG
+    return envcompat.get("RULES_FLAG") or RULES_FLAG
 
 
 def shell_locked():

@@ -87,8 +87,9 @@ def test_managed_settings_keep_the_agent_working():
     s = g.managed_settings()
     assert "disableBypassPermissionsMode" not in s
     assert "allowManagedHooksOnly" not in s     # the sandbox's own guard hooks keep running
-    # the bypass warning defaults to "No, exit": a guest's Enter must not close the terminal
-    assert s["skipDangerousModePermissionPrompt"] is True
+    # exactly these keys: nothing else is decided for the sandbox — in particular no
+    # pre-accepted bypass-permissions consent (tests/test_convo_sync.py)
+    assert set(s) == {"env", "hooks", "strictKnownMarketplaces", "disableCommandPluginSources"}
 
 
 def test_hook_commands_from_settings_files(tmp_path):
@@ -158,7 +159,7 @@ def test_hook_commands_pass_exactly(tmp_path):
 
 # ── the prefix itself ──────────────────────────────────────────────────────────────────
 def run_prefix(root: Path, cmdline: str, env_extra=None):
-    env = {**os.environ, "AGENTKENNEL_RULES_ROOT": str(root), "ANTHROPIC_BASE_URL": "",
+    env = {**os.environ, "RULES_GATE_ROOT": str(root), "ANTHROPIC_BASE_URL": "",
            **(env_extra or {})}
     return subprocess.run([sys.executable, str(GUESTS / "rules_gate.py"), "prefix", cmdline],
                           capture_output=True, text=True, env=env, timeout=20)
@@ -194,7 +195,7 @@ def test_prefix_lets_everything_through_with_the_rules_off(tmp_path):
 
 
 def test_ticket_hook_never_blocks(tmp_path):
-    env = {**os.environ, "AGENTKENNEL_RULES_ROOT": str(tmp_path)}
+    env = {**os.environ, "RULES_GATE_ROOT": str(tmp_path)}
     for stdin in ("not json", json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls"}})):
         r = subprocess.run([sys.executable, str(GUESTS / "rules_gate.py"), "ticket"],
                            input=stdin, capture_output=True, text=True, env=env, timeout=20)
@@ -364,7 +365,7 @@ def test_no_editor_refuses_while_on_and_hands_over_while_off(tmp_path):
     marker = tmp_path / "edited"
     (bin_ / "editor").write_text(f'#!/bin/sh\necho "$1" > {marker}\n')
     (bin_ / "editor").chmod(0o755)
-    env = {"AGENTKENNEL_RULES_ROOT": str(tmp_path), "PATH": f"{bin_}:/usr/bin:/bin",
+    env = {"RULES_GATE_ROOT": str(tmp_path), "PATH": f"{bin_}:/usr/bin:/bin",
            "ANTHROPIC_BASE_URL": ""}
     r = run_sh(g.NO_EDITOR_SH, tmp_path, env, "/tmp/file.txt")
     assert r.returncode == 0 and marker.read_text().strip() == "/tmp/file.txt"    # off
@@ -377,14 +378,14 @@ def test_no_editor_refuses_while_on_and_hands_over_while_off(tmp_path):
 
 def test_a_missing_gate_refuses_with_a_clear_reason_never_exit_2(tmp_path):
     """Exit 2 from a PreToolUse hook (hooks run through the prefix) would block every tool."""
-    r = run_sh(g.SHELL_GATE_SH, tmp_path, {"AGENTKENNEL_RULES_ROOT": str(tmp_path)}, "true")
+    r = run_sh(g.SHELL_GATE_SH, tmp_path, {"RULES_GATE_ROOT": str(tmp_path)}, "true")
     assert r.returncode == g.REFUSED
     assert "gate" in r.stderr and "owner" in r.stderr
 
 
 def test_a_gate_that_crashes_refuses_with_a_clear_reason(tmp_path, monkeypatch, capsys):
     g.install(tmp_path, True, source="# gate", run=lambda *a, **k: None)
-    monkeypatch.setenv("AGENTKENNEL_RULES_ROOT", str(tmp_path))
+    monkeypatch.setenv("RULES_GATE_ROOT", str(tmp_path))
     monkeypatch.setattr(g, "decide", lambda *a, **k: 1 / 0)
     assert g.main(["prefix", "echo hi"]) == g.REFUSED
     err = capsys.readouterr().err
@@ -398,7 +399,7 @@ def test_the_gate_works_in_a_folder_that_was_deleted(tmp_path):
     r = subprocess.run(["bash", "-c", f'cd "{gone}" && rmdir "{gone}" && exec "$0" "$@"',
                         sys.executable, str(GUESTS / "rules_gate.py"), "prefix", "echo hi"],
                        capture_output=True, text=True, timeout=20,
-                       env={**os.environ, "AGENTKENNEL_RULES_ROOT": str(tmp_path),
+                       env={**os.environ, "RULES_GATE_ROOT": str(tmp_path),
                             "ANTHROPIC_BASE_URL": ""})
     assert r.returncode == g.REFUSED and "Traceback" not in r.stderr
 
@@ -442,7 +443,7 @@ def test_install_on_counts_claudes_started_without_the_settings_folder(tmp_path)
 
 
 def test_main_prints_how_many_claudes_need_a_restart(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("AGENTKENNEL_RULES_ROOT", str(tmp_path))
+    monkeypatch.setenv("RULES_GATE_ROOT", str(tmp_path))
     monkeypatch.setattr(g, "install", lambda *a, **k: {"stale_claudes": 3})
     assert g.main(["install", "on"], source="# gate") == 0
     assert "stale-claudes: 3" in capsys.readouterr().out
@@ -499,7 +500,7 @@ def test_a_refused_command_is_reported_to_the_turnstile(tmp_path, flags):
 def test_report_command_reports_what_the_core_refused(tmp_path, flags, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_BASE_URL", flags.url)
     monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "sbx-PASS")
-    monkeypatch.setenv("AGENTKENNEL_RULES_ROOT", str(tmp_path))
+    monkeypatch.setenv("RULES_GATE_ROOT", str(tmp_path))
     g.install(tmp_path, True, source="# gate", run=lambda *a, **k: None)
     assert g.main(["report", "shell"]) == 0
     assert flags.got[0][2] == {"kind": "bypass", "text": g.REPORTS["shell"]}
@@ -508,13 +509,13 @@ def test_report_command_reports_what_the_core_refused(tmp_path, flags, monkeypat
 
 def test_nothing_is_reported_with_the_rules_off(tmp_path, flags, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_BASE_URL", flags.url)
-    monkeypatch.setenv("AGENTKENNEL_RULES_ROOT", str(tmp_path))
+    monkeypatch.setenv("RULES_GATE_ROOT", str(tmp_path))
     g.main(["report", "shell"])
     assert flags.got == []
 
 
 def test_a_report_that_cannot_be_sent_is_not_an_error(tmp_path, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9")    # nothing listens
-    monkeypatch.setenv("AGENTKENNEL_RULES_ROOT", str(tmp_path))
+    monkeypatch.setenv("RULES_GATE_ROOT", str(tmp_path))
     g.install(tmp_path, True, source="# gate", run=lambda *a, **k: None)
     assert g.main(["report", "editor"]) == 0

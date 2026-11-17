@@ -60,8 +60,13 @@ def test_repo_ships_tmux_conf_with_the_mouse_and_copy_settings():
                  "unbind -T root MouseDown3StatusLeft",
                  "unbind -T root M-MouseDown3Pane"):
         assert want in lines, want
-    # the user's own config comes last, so it still applies on top
-    assert lines[-1] == 'if-shell "test -f ~/.tmux.conf" "source-file ~/.tmux.conf"'
+    # the user's own config comes last, so it still applies on top — of everything but a
+    # guest's rules lock (guests/rules_gate.py), which must hold over it while the root-owned
+    # flag is up (17.11.2026); without the flag that line does nothing
+    assert lines[-2] == 'if-shell "test -f ~/.tmux.conf" "source-file ~/.tmux.conf"'
+    assert lines[-1] == ('if-shell "test -f /etc/agentkennel/rules/on -a -f '
+                         '/etc/agentkennel/rules/tmux.conf" '
+                         '"source-file /etc/agentkennel/rules/tmux.conf"')
 
 
 def test_dockerignore_keeps_tmux_conf_in_the_image():

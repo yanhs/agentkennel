@@ -64,10 +64,11 @@ TMUX_LOCK = ("# a guest's rules are on (guests/rules_gate.py): no tmux commands 
              "set -g prefix None\n"
              "set -g prefix2 None\n")
 
-# AGENTKENNEL_RULES_ROOT: tests only (unset in a sandbox: the paths are /etc/...)
+# RULES_GATE_ROOT: tests only (unset in a sandbox: the paths are /etc/...). Not an
+# AGENTKENNEL_* setting: the gate runs standalone, without envcompat
 SHELL_GATE_SH = """#!/bin/sh
 # CLAUDE_CODE_SHELL_PREFIX (guests/rules_gate.py). Never exit 2: hooks run through here too.
-G="${AGENTKENNEL_RULES_ROOT:-}/etc/agentkennel/rules/gate.py"
+G="${RULES_GATE_ROOT:-}/etc/agentkennel/rules/gate.py"
 if [ ! -r "$G" ]; then
   echo "AgentKennel: the rules gate ($G) is missing, so no command can run. Tell the server's owner." >&2
   exit 126
@@ -76,7 +77,7 @@ exec python3 "$G" prefix "$1"
 """
 NO_EDITOR_SH = """#!/bin/sh
 # EDITOR/VISUAL (guests/rules_gate.py): refused while a guest's rules are on, a real editor otherwise
-R="${AGENTKENNEL_RULES_ROOT:-}/etc/agentkennel/rules"
+R="${RULES_GATE_ROOT:-}/etc/agentkennel/rules"
 if [ ! -e "$R/on" ]; then
   for e in editor nano vim vi; do
     command -v "$e" >/dev/null 2>&1 && exec "$e" "$@"
@@ -91,7 +92,7 @@ exit 1
 
 
 def root_dir() -> Path:
-    return Path(os.environ.get("AGENTKENNEL_RULES_ROOT") or "/")
+    return Path(os.environ.get("RULES_GATE_ROOT") or "/")
 
 
 def tickets_dir(root: Path) -> Path:
@@ -112,9 +113,8 @@ def managed_settings() -> dict:
             {"type": "command", "command": TICKET_HOOK}]}]},
         "strictKnownMarketplaces": [],
         "disableCommandPluginSources": True,
-        # the agent runs with --dangerously-skip-permissions; its one-time warning defaults to
-        # "No, exit", so a guest's Enter would close the terminal
-        "skipDangerousModePermissionPrompt": True,
+        # nothing about the bypass-permissions consent: the lock neither gives nor takes it
+        # (the sandbox's own, from guestctl's seed, stays as it is)
     }
 
 

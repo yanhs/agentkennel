@@ -56,8 +56,9 @@ Facts the design rests on (all seen, not read):
 
 * `guests/rules_gate.py install on`: writes the gate (`/etc/agentkennel/rules/`), the flag
   `on`, managed settings (shell prefix → gate, PreToolUse ticket hook, EDITOR/VISUAL → refusal,
-  `strictKnownMarketplaces: []`, `disableCommandPluginSources`, and
-  `skipDangerousModePermissionPrompt` — the bypass warning defaults to "No, exit"), sets tmux
+  `strictKnownMarketplaces: []`, `disableCommandPluginSources`; the bypass-permissions consent
+  is left as the sandbox has it — the spike's "No, exit" dialog came from a test that had
+  overwritten that consent, not from the lock), sets tmux
   `prefix None` on running servers and closes `cmd-shell`. `off` lifts it; the gate stays and
   passes everything (a claude started earlier still calls it). Someone else's
   managed-settings.json is never overwritten.
