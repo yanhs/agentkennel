@@ -41,6 +41,17 @@ TMUX_PREFIX = "cs-"
 # The dashboard's one plain command line (the "cmd" button): a bash shell, not a
 # topic — never counted toward MAX_ACTIVE, never an eviction victim.
 SHELL_TMUX = "cmd-shell"
+# A guest's rules (the guests module, guests/rules_gate.py) make a sandbox Claude-only: while
+# this root-owned flag exists there is no plain command line, whatever the page asks for.
+RULES_FLAG = "/etc/agentkennel/rules/on"
+
+
+def rules_flag():
+    return os.environ.get("AGENTKENNEL_RULES_FLAG") or RULES_FLAG
+
+
+def shell_locked():
+    return os.path.exists(rules_flag())
 
 _ID = re.compile(r"[0-9a-f]{8}")
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")

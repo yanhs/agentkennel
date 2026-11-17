@@ -1295,3 +1295,100 @@ def test_claude_leaving_own_when_the_key_cannot_be_deleted(data, monkeypatch, ca
     assert res["ok"] is True and res["claude"]["mode"] == "owner_key"
     assert res["key_not_deleted"] is True and "could not be deleted" in res["message"]
     assert "KEY-NOT-DELETED guest=anna" in cap.err and GUEST_KEY not in cap.err + cap.out
+
+
+# --------------------------------------------------------------------------- #
+# rules in the live terminal too (owner, 17.11.2026): guestctl puts the lock into the
+# sandbox as root (guests/rules_gate.py) — Claude-only terminals while the rules are on
+# --------------------------------------------------------------------------- #
+def test_rules_lock_pipes_the_gate_into_the_sandbox_as_root():
+    import rules_gate
+    seen = {}
+
+    class R:
+        returncode, stdout, stderr = 0, "rules lock: on\n", ""
+
+    def run(argv, **kw):
+        seen.update(argv=argv, **kw)
+        return R()
+    assert gc.rules_lock("anna", True, run=run) == ""
+    argv = seen["argv"]
+    assert argv[:6] == ["docker", "exec", "-i", "-u", "0", "sbx-anna"]
+    assert argv[6:9] == ["python3", "-c", rules_gate.LOADER] and argv[9:] == ["install", "on"]
+    assert seen["input"] == (gc.HERE / "rules_gate.py").read_text()
+    seen.clear()
+    gc.rules_lock("anna", False, run=run)
+    assert seen["argv"][-2:] == ["install", "off"]
+
+
+def test_rules_lock_says_what_failed():
+    class R:
+        returncode, stdout, stderr = 1, "", "Error: No such container: sbx-anna\n"
+    assert "No such container" in gc.rules_lock("anna", True, run=lambda *a, **k: R())
+
+
+def lock_calls(monkeypatch, state="running"):
+    calls = []
+    monkeypatch.setattr(gc, "container_state", lambda name: state)
+    monkeypatch.setattr(gc, "rules_lock", lambda name, on, **k: calls.append((name, on)) or "")
+    return calls
+
+
+def test_setting_rules_locks_a_running_sandbox_web_or_not(monkeypatch, tmp_path, capsys):
+    import json as _json
+    _book_with_anna(monkeypatch, tmp_path)               # web on (the default)
+    calls = lock_calls(monkeypatch)
+    gc.cmd_rules(ns(name="anna", rules=_json.dumps(SITE_RULES)))
+    assert calls == [("anna", True)]
+    assert _json.loads(capsys.readouterr().out) == {"ok": True, "lock": "on"}
+    gc.cmd_rules(ns(name="anna", rules=_json.dumps({**SITE_RULES, "on": False})))
+    assert calls[-1] == ("anna", False)
+
+
+def test_rules_on_a_stopped_sandbox_wait_for_its_start(monkeypatch, tmp_path, capsys):
+    import json as _json
+    book = _book_with_anna(monkeypatch, tmp_path)
+    calls = lock_calls(monkeypatch, state="exited")
+    gc.cmd_rules(ns(name="anna", rules=_json.dumps(SITE_RULES)))
+    assert calls == []
+    assert _json.loads(capsys.readouterr().out)["lock"] == "at start"
+    monkeypatch.setattr(gc, "_docker", lambda *a, **k: None)
+    calls = lock_calls(monkeypatch, state="running")
+    book.set_enabled("anna", False)
+    gc.cmd_simple(ns(cmd="start", name="anna"))
+    assert calls == [("anna", True)]
+
+
+def test_a_lock_that_fails_is_an_error(monkeypatch, tmp_path):
+    import json as _json
+    _book_with_anna(monkeypatch, tmp_path)
+    monkeypatch.setattr(gc, "container_state", lambda name: "running")
+    monkeypatch.setattr(gc, "rules_lock", lambda name, on, **k: "exec failed")
+    with pytest.raises(SystemExit) as e:
+        gc.cmd_rules(ns(name="anna", rules=_json.dumps(SITE_RULES)))
+    assert "exec failed" in str(e.value)
+
+
+def test_add_locks_a_new_sandbox_with_rules_from_the_defaults(data, monkeypatch, capsys):
+    fake_add_env(data, monkeypatch)
+    calls = lock_calls(monkeypatch)
+    gdefaults.save(data, {**gdefaults.load(data), "rules": SITE_RULES})
+    gc.cmd_add(add_args())
+    assert calls == [("newbie", True)]
+
+
+def test_add_without_rules_touches_nothing(data, monkeypatch, capsys):
+    fake_add_env(data, monkeypatch)
+    calls = lock_calls(monkeypatch)
+    gc.cmd_add(add_args())
+    assert calls == []
+
+
+def test_the_report_counts_rules_active_with_web_on(monkeypatch, tmp_path):
+    book = _book_with_anna(monkeypatch, tmp_path)
+    book.set_rules("anna", SITE_RULES)
+    monkeypatch.setattr(gc, "_registry", lambda: {"anna": {"port": 18101}})
+    monkeypatch.setattr(gc, "container_state", lambda name: "running")
+    monkeypatch.setattr(gc, "web_exists", lambda name: True)
+    [row] = gc.guests_report()
+    assert row["web"] is True and row["rules_active"] is True

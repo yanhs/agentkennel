@@ -856,9 +856,11 @@ def over_limit(guest, ledger, now: Optional[float] = None) -> Optional[str]:
 
 
 # --------------------------------------------------------------------------- #
-# a guest's rules (owner, 12.11.2026, Vlad — "only the website"): with web access off the
-# agent is the guest's only hand, and every request of it passes here, so the owner's
-# rules go into each one; nothing inside the sandbox can leave them out.
+# a guest's rules (owner, 12.11.2026, Vlad — "only the website"): every request of the
+# guest's agent passes here, so the owner's rules go into each one; nothing inside the
+# sandbox can leave them out. With web access off the agent is the guest's only hand; with
+# it on (owner, 17.11.2026) the sandbox is made Claude-only by guests/rules_gate.py (no `!`,
+# no command line, no tmux keys), so the rules hold in the live terminal too.
 # --------------------------------------------------------------------------- #
 RULE_ACTIONS = {          # key -> what it lets the agent do (said to the agent as it is)
     "edit": "edit the files of this work",
@@ -900,8 +902,8 @@ def validate_rules(rules) -> Dict:
 
 
 def rules_active(guest) -> bool:
-    """Applied only while the guest is on, without web access, with the rules on."""
-    return bool(guest.enabled and not guest.web and (guest.rules or {}).get("on"))
+    """Applied while the guest is on with the rules on, web access or not (17.11.2026)."""
+    return bool(guest.enabled and (guest.rules or {}).get("on"))
 
 
 # where the sandbox's Telegram bridge saves what the guest sends (status_server TG_FILES_DIR)

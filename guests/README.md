@@ -41,7 +41,7 @@ a limit, through one shared Telegram bot. Off until you set it up.
   `guestctl web <name>`). Off takes their terminals in the browser down and keeps them down:
   the bot and the agent go on working, the sandbox and its sites keep running. The bot's
   menu loses /web and /newpassword, and /start greets without an address or password.
-- **The agent's rules.** With web off, **Rules** next to a guest keeps their agent to one
+- **The agent's rules.** **Rules** next to a guest keeps their agent to one
   job: the work in your words, the folders it may change, and what it may do (edit the
   work's files, rebuild and restart, install packages, publish new sites, set up other
   services). The turnstile adds the rules to every Claude request of that guest, so nothing
@@ -52,7 +52,9 @@ a limit, through one shared Telegram bot. Off until you set it up.
   pictures, fonts and documents go into the work; code only after the agent has read it,
   as part of the work's own files and build. Nothing is run or installed straight from there.
   The folders rule is the agent's, not the file system's: a read-only /work would break a
-  site's own publish script. While web is on, the rules don't apply.
+  site's own publish script. With web on, the rules make the guest's terminals Claude-only:
+  no `!` commands, no plain command line, no tmux keys (guests/rules_gate.py, put into the
+  sandbox by `guestctl rules`; docs/superpowers/specs/2026-11-17-guest-rules-live-terminal.md).
 
 ![The Guests block on the Server page: a Web switch per guest, one guest Telegram only with the Rules form open](../docs/screenshots/guests-rules.png)
 
@@ -140,7 +142,7 @@ there, set Web off for new guests (Telegram only) until you move the server to n
 python3 guests/guestctl.py add <name> --tg <telegram id> [--limit N]   new sandbox
 python3 guests/guestctl.py web <name>              https://sb-<name>.<domain> (DNS, certificate)
 python3 guests/guestctl.py web-off <name>          Telegram only: the browser terminals go down
-python3 guests/guestctl.py rules <name> '<json>'   the agent's rules (while web is off)
+python3 guests/guestctl.py rules <name> '<json>'   the agent's rules (web on: Claude-only terminals)
 python3 guests/guestctl.py folders <name>          folders in the sandbox's /work (for the rules)
 python3 guests/guestctl.py session <name>          your login to their dashboard (the panel's Open)
 python3 guests/guestctl.py claude <name> '<json>'  whose Claude: mode, usd_week, notify_at (own key on stdin)

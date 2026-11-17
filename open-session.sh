@@ -43,6 +43,11 @@ SOCK="${AGENTKENNEL_TMUX_SOCKET:-${AGENTDECK_TMUX_SOCKET:-}}"   # compat: the ol
 [ -n "$SOCK" ] && TMUX_CMD=(tmux -L "$SOCK")
 
 if [ "$ID" = "shell" ]; then
+  # a guest's rules are on (guests/rules_gate.py): this sandbox is Claude-only
+  if [ -e "${AGENTKENNEL_RULES_FLAG:-/etc/agentkennel/rules/on}" ]; then
+    echo "The command line is off: the server's owner has limited this sandbox to its work. Ask Claude in a terminal instead."
+    done_with 2
+  fi
   if [ "${DRY_RUN:-}" = "1" ]; then
     echo "cmd-shell: bash -l"
     exit 0

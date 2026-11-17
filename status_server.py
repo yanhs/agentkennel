@@ -815,7 +815,9 @@ def lib_listing(include_archived=False, trash=False):
             # the "cmd" button's shell: not a topic, so not in sessions[]
             "shell": {"active": shell is not None,
                       "attached": bool(shell and shell["attached"]),
-                      "status": lib_status(shell is not None, working.get(_SHELL_KEY, False))},
+                      "status": lib_status(shell is not None, working.get(_SHELL_KEY, False)),
+                      # a guest's rules: no command line here (the page hides cmd)
+                      **({"locked": True} if library.shell_locked() else {})},
             "_system": get_system_stats()}      # CPU/RAM for the top bar, same as GET /
 
 
@@ -1615,8 +1617,9 @@ class GuestsPanel:
         return name
 
     def rules(self, body):
-        """POST /api/guests/rules {name, rules}: what the guest's agent may do while its web
-        access is off (owner, 12.11.2026). guestctl checks them; its refusal is said."""
+        """POST /api/guests/rules {name, rules}: what the guest's agent may do (owner,
+        12.11.2026), web access on or off (17.11.2026: guestctl then makes the sandbox's
+        terminals Claude-only). guestctl checks them; its refusal is said."""
         name = self._guest_name(body)
         rules = body.get("rules")
         if not isinstance(rules, dict):

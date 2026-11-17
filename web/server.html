@@ -274,7 +274,7 @@
     .svc-btns button[data-act="web"][aria-pressed="true"]::before, .gform button.gsw[aria-pressed="true"]::before {
       background: radial-gradient(circle at 14.5px 5.5px, var(--bg) 3.5px, transparent 4px), var(--green);
     }
-    /* the forms that open in the block: the agent's rules while web access is off, whose
+    /* the forms that open in the block: the agent's rules (web on or off), whose
        Claude a guest runs on, and Settings → For new guests (one look for all three) */
     .gform { margin: 0 0 10px 22px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px;
       background: var(--s2); font-size: 12.5px; max-width: 760px; }
@@ -1196,7 +1196,7 @@
       link.textContent = g.url.replace(/^https?:\/\//, '');
     } else if (link) link.remove();
     const noWeb = g.web === false;
-    note.textContent = [noWeb && 'Telegram only', noWeb && g.rules_active && 'rules on',
+    note.textContent = [noWeb && 'Telegram only', g.rules_active && 'rules on',
       on ? said : g.state === 'missing' ? 'off · no container' : 'off'].filter(Boolean).join(' · ');
     gSpend(r.querySelector('.gspend'), g);
     const want = gButtons(g), box = r.querySelector('.svc-btns');
@@ -1218,11 +1218,11 @@
     wb.setAttribute('aria-pressed', noWeb ? 'false' : 'true');
     wb.title = noWeb ? `Web access is off: ${g.name} works through the bot only. Click to open their terminals in the browser again`
       : `Web access to ${g.name}'s terminals is on. Click to turn it off: the address goes, the bot and the agent stay`;
-    rb.disabled = busy || !noWeb;
-    rb.title = noWeb ? `What ${g.name}'s agent may do` + (g.rules_active ? ' (rules on)' : '')
-      : `Rules work only with web access off: in a terminal ${g.name} types commands themselves, nothing can hold them`;
+    rb.disabled = busy;
+    // with web on too (owner, 17.11.2026): rules on make their terminals Claude-only
+    rb.title = `What ${g.name}'s agent may do` + (g.rules_active ? ' (rules on)' : '')
+      + (noWeb ? '' : `. With rules on, ${g.name}'s terminals in the browser are Claude-only: no command line, no ! commands`);
     rb.classList.toggle('on', gRulesOpen.has(g.name));
-    if (!noWeb) gRulesOpen.delete(g.name);
     const cb = box.querySelector('button[data-act="claude"]');
     if (cb) {
       cb.classList.toggle('on', gClaudeOpen.has(g.name));
@@ -1675,7 +1675,7 @@
     const rules = gGrf('What the agent may do',
       gChoice('radio', 'gnew-rules', 'any', 'Anything in its sandbox', !R.on),
       gChoice('radio', 'gnew-rules', 'only', 'Only this work…', !!R.on), work,
-      el('div', 'grsub', 'Applies while web access is off.'));
+      el('div', 'grsub', 'With web access on, their terminals are then Claude-only: no command line, no ! commands.'));
     const acts = el('div', 'gracts'); acts.append(save, cancel, saved);
     const f = el('div');                  // a new element per build: its listeners go with it
     f.append(el('h4', null, 'For new guests'), nokey,
@@ -1802,7 +1802,7 @@
     if (act === 'web') {
       const on = g.web !== false;
       if (!confirm(on ? `Turn off web access for ${name}? Their terminals in the browser go away (the address is taken down); the bot and the agent keep working.`
-                      : `Turn on web access for ${name}? Their terminals open in the browser again (about a minute). While it is on, the agent's rules don't apply.`)) return;
+                      : `Turn on web access for ${name}? Their terminals open in the browser again (about a minute). With rules on, those terminals are Claude-only: no command line, no ! commands.`)) return;
       act = on ? 'web-off' : 'web';
     }
     if (act === 'remove' && !confirm(`Remove ${name}'s sandbox? Their terminals close and their page goes away; their files stay on this server's disk.`)) return;

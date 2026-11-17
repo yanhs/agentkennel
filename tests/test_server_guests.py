@@ -78,7 +78,7 @@ class FakeGuests:
                                          body=json.dumps({"error": self.rules_error}))
                 g = next(x for x in self.guests if x["name"] == body["name"])
                 g["rules"] = body["rules"]
-                g["rules_active"] = bool(body["rules"].get("on")) and not g.get("web", True)
+                g["rules_active"] = bool(body["rules"].get("on"))      # web on or off (17.11.2026)
             elif what == "open":
                 if self.open_error:
                     return route.fulfill(status=409, content_type="application/json",
@@ -94,7 +94,7 @@ class FakeGuests:
                 elif what == "remove":
                     self.guests.remove(g)
                 elif what == "web":
-                    g.update(web=True, url=f"https://sb-{g['name']}.example.com", rules_active=False)
+                    g.update(web=True, url=f"https://sb-{g['name']}.example.com")
                 elif what == "web-off":
                     g.update(web=False, url=None,
                              rules_active=bool((g.get("rules") or {}).get("on")))
@@ -427,11 +427,12 @@ def btn(pg, name, act):
     return pg.query_selector(f'#guests .guest[data-name="{name}"] button[data-act="{act}"]')
 
 
-def test_web_is_a_switch_and_rules_wait_for_it_off(page):
+def test_web_is_a_switch_and_rules_work_with_web_on_too(page):
+    """Owner, 17.11.2026: the rules hold in the live terminal too (Claude-only)."""
     guest_rows(page)
     web, rules = btn(page, "masha", "web"), btn(page, "masha", "rules")
     assert web.get_attribute("aria-pressed") == "true"
-    assert rules.is_disabled() and "web" in rules.get_attribute("title").lower()
+    assert not rules.is_disabled() and "claude-only" in rules.get_attribute("title").lower()
 
 
 def test_turning_web_off_asks_then_does_it(page, fake):
@@ -473,9 +474,12 @@ def test_turning_web_on_asks_too(page, fake):
 
 def open_rules(page, fake):
     fake.guests[0].update(web=False, url=None)
+    # the Rules button works with web on too (17.11.2026): wait for the poll that brings
+    # what the test just put into the fake, not only for the button
     page.wait_for_function(
         "() => { const b = document.querySelector('#guests .guest[data-name=\"masha\"] button[data-act=\"rules\"]');"
-        " return b && !b.disabled; }")
+        " const n = document.querySelector('#guests .guest[data-name=\"masha\"] .gnote');"
+        " return b && !b.disabled && n && n.textContent.includes('Telegram only'); }")
     btn(page, "masha", "rules").click()
     return page.wait_for_selector('#guests .guest[data-name="masha"] .grules')
 

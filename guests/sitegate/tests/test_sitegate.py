@@ -179,9 +179,10 @@ class TestPublish:
         book.set_rules("anna", self.RULES)
         assert gate.publish("anna", "test", 3001)["port"] == 3001
 
-    def test_rules_allowing_publishing_or_web_on_dont_stop_it(self, gate, book):
-        book.set_rules("anna", self.RULES)                  # web on: rules not applied
-        gate.publish("anna", "one", 3000)
+    def test_rules_allowing_publishing_dont_stop_it_web_on_does_not_lift_them(self, gate, book):
+        book.set_rules("anna", self.RULES)                  # web on: the rules hold (17.11.2026)
+        with pytest.raises(sg.GateError):
+            gate.publish("anna", "one", 3000)
         book.set_web("anna", False)
         book.set_rules("anna", dict(self.RULES, actions={"publish": True}))
         gate.publish("anna", "two", 3001)

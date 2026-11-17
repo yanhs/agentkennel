@@ -579,6 +579,10 @@ def cmd_add(a) -> int:
         _docker("rm", "-f", f"sbx-{a.name}", check=False)
         err = getattr(exc, "stderr", "") or str(exc)
         raise SystemExit(f"failed, rolled back: {err.strip()[:400]}")
+    if d["rules"].get("on"):     # Claude-only terminals from the start (rules_lock)
+        failed = rules_lock(a.name, True)
+        if failed:
+            print(f"warning: {a.name}'s terminals are not locked to Claude: {failed}")
     reg[a.name] = {"port": port, "telegram_id": a.tg, "image": a.image,
                    "public_key": public_key, "ip": ip,
                    "created": time.strftime("%Y-%m-%d %H:%M:%S")}
@@ -647,6 +651,7 @@ def cmd_recreate(a) -> int:
                    capture_output=True)
     _docker("restart", f"sbx-{a.name}")
     _wait_running(a.name)
+    sync_rules_lock(a.name, only_when_on=True)   # a new container: its lock is gone with the old
     info.update(public_key=public_key, image=image, ip=ip)
     _save_registry(reg)
     refresh_web(a.name, info["port"])
@@ -716,9 +721,44 @@ def cmd_list(a) -> int:
     return 0
 
 
+def rules_lock(name: str, on: bool, run=subprocess.run) -> str:
+    """The sandbox Claude-only while the guest's rules are on (owner, 17.11.2026), web on or
+    off: guests/rules_gate.py runs in it as root, piped in (any image has python3), and
+    closes the ways around the agent — `!` commands, the command line, tmux keys, an editor,
+    plugins. "" when done, else what failed."""
+    import rules_gate
+    argv = ["docker", "exec", "-i", "-u", "0", f"sbx-{name}", "python3", "-c",
+            rules_gate.LOADER, "install", "on" if on else "off"]
+    try:
+        r = run(argv, input=(HERE / "rules_gate.py").read_text(), capture_output=True,
+                text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return str(exc)[:300]
+    if r is not None and r.returncode != 0:
+        return ((r.stderr or "") + (r.stdout or "")).strip()[:300] or f"exit {r.returncode}"
+    return ""
+
+
+def sync_rules_lock(name: str, only_when_on: bool = False) -> str:
+    """Bring a running sandbox's lock in line with the book: "on", "off", "at start" (not
+    running: `start` applies it), or "" when only_when_on and the rules are off."""
+    g = ts.GuestBook(DATA / "guests.json").get(name)
+    on = bool(g and (g.rules or {}).get("on"))
+    if only_when_on and not on:
+        return ""
+    if container_state(name) != "running":
+        return "at start"
+    failed = rules_lock(name, on)
+    if failed:
+        raise SystemExit(f"{name}: the rules are saved, but the sandbox's terminals could not "
+                         f"be {'locked' if on else 'unlocked'}: {failed}")
+    return "on" if on else "off"
+
+
 def cmd_rules(a) -> int:
     """guestctl rules <name> '<json>': what the guest's agent may do (owner, 12.11.2026);
-    the turnstile applies them while web access is off."""
+    the turnstile applies them to every request, and since 17.11.2026 with web access on too:
+    the sandbox's terminals are then Claude-only (rules_lock)."""
     try:
         rules = json.loads(a.rules)
     except ValueError:
@@ -729,7 +769,7 @@ def cmd_rules(a) -> int:
         raise SystemExit(f"no guest {a.name}")
     except ValueError as exc:
         raise SystemExit(str(exc))
-    print(json.dumps({"ok": True}))
+    print(json.dumps({"ok": True, "lock": sync_rules_lock(a.name)}))
     return 0
 
 
@@ -914,6 +954,8 @@ def cmd_simple(a) -> int:
     elif a.cmd == "start":
         book.set_enabled(a.name, True)
         _docker("start", f"sbx-{a.name}")
+        if (book.get(a.name).rules or {}):   # ever set: they may have changed while stopped
+            sync_rules_lock(a.name)
     elif a.cmd == "web-off":             # the bot and the agent stay, the sandbox runs on
         if web_exists(a.name):
             take_down_web(a.name)

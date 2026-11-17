@@ -281,7 +281,8 @@ unless you change it).
 - **Web on or off.** The **Web** switch on the Server page: on, their terminals open in
   the browser at `https://sb-<name>.<your-domain>`; off, Telegram only, and the bot and the
   agent keep working.
-- **What their agent may do.** With web off, **Rules** keeps the agent to one job: the
+- **What their agent may do.** **Rules** keeps the agent to one job (with web on, their
+  terminals are then Claude-only: no command line, no `!` commands): the
   work in your words, the folders it may change, and the actions it may take (edit the
   files, rebuild and restart, install packages, publish new sites, set up other services).
   The rules are added on your server to every Claude request of that guest, so nothing

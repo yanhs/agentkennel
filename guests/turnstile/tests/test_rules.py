@@ -1,7 +1,8 @@
-"""A guest's rules (owner, 12.11.2026: Vlad — only the website). With web access off the
-agent is the guest's only hand; the turnstile puts the owner's rules into every Claude
-request of that guest, so nothing inside the sandbox can skip them. Strange or illegal
-asks are reported to the owner through POST /flag."""
+"""A guest's rules (owner, 12.11.2026: Vlad — only the website). The turnstile puts the
+owner's rules into every Claude request of that guest, so nothing inside the sandbox can skip
+them. Since 17.11.2026 with web access on too: the live terminal is then Claude-only
+(guests/rules_gate.py closes the ways around the agent). Strange or illegal asks are reported
+to the owner through POST /flag."""
 
 import http.client
 import json
@@ -93,13 +94,15 @@ def test_bad_rules_are_refused(book, bad):
         book.set_rules("vlad", bad)
 
 
-def test_rules_apply_only_with_web_off_and_rules_on(book):
+def test_rules_apply_with_rules_on_web_or_not(book):
     vlad(book)
     assert ts.rules_active(book.get("vlad"))
     book.set_web("vlad", True)
-    assert not ts.rules_active(book.get("vlad"))           # kept, not applied
-    book.set_web("vlad", False)
+    assert ts.rules_active(book.get("vlad"))               # the live terminal too (17.11)
     book.set_rules("vlad", dict(SITE, on=False))
+    assert not ts.rules_active(book.get("vlad"))
+    book.set_rules("vlad", SITE)
+    book.set_enabled("vlad", False)
     assert not ts.rules_active(book.get("vlad"))
 
 
@@ -158,10 +161,12 @@ def test_no_rules_no_change(gate, upstream, book):
     assert upstream.requests[-1]["body"] == body             # byte for byte
 
 
-def test_web_on_no_change(gate, upstream, book):
+def test_web_on_rules_still_added(gate, upstream, book):
     secret = vlad(book, web=True)
     post(gate, "/v1/messages", {"model": "m", "system": "S", "messages": []}, secret)
-    assert sent_system(upstream) == "S"
+    got = sent_system(upstream)
+    assert got[0]["text"] == "S"
+    assert "<server_owner_rules>" in got[-1]["text"]
 
 
 def test_a_body_that_isnt_json_is_refused_not_passed_without_rules(gate, upstream, book):

@@ -757,6 +757,9 @@ def shell_ensure():
     """Start cmd-shell unless it runs; either way print its name. tmux refuses a
     second session with the same name, so two presses at once still make one."""
     name = library.SHELL_TMUX
+    if library.shell_locked():         # a guest's rules: Claude-only (guests/rules_gate.py)
+        _say("the command line is off: the server's owner has limited this sandbox to its work")
+        return EXIT_FAIL
     ensure_tmux_conf()
     if not _has(name):
         cwd = WORKDIR if os.path.isdir(WORKDIR) else os.path.expanduser("~")

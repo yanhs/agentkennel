@@ -5,6 +5,7 @@ All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 ## Unreleased
 
 ### Guests
+- **The rules hold in the live terminal too** (prototype, branch `feat/guests-live-filter`). Rules on now apply with web access on as well: the turnstile adds them to every request either way, and the sandbox becomes Claude-only. `guestctl` pipes `guests/rules_gate.py` into it as root: `!` commands in Claude are refused (they run through `CLAUDE_CODE_SHELL_PREFIX`, which now runs only hooks and the commands the model asked for), tmux's Ctrl+B is taken away, `$EDITOR` refuses, no plugin marketplace may be added, and the dashboard has no plain command line (refused by the server, the **cmd** button hidden). Rules off gives it all back. Design and what remains: docs/superpowers/specs/2026-11-17-guest-rules-live-terminal.md.
 - **What a guest sends in Telegram is always usable, and never run as it is.** It lands in `/work/tg-uploads`, which the rules now always open to the agent (unpack, resize, convert, copy pictures, fonts and documents into the work) instead of a checkbox among "Folders it may change". Code meant for the work goes into the work's own files only after the agent has read it, and runs only through the work's normal build; nothing is run or installed straight from the inbox. The Rules form shows the inbox as a fixed line.
 
 ## v2.6.1 — guests: the setup command without sudo; what a guest needs, written down
