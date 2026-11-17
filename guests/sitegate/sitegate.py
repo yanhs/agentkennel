@@ -49,6 +49,13 @@ import caddyconf  # noqa: E402
 import publicfiles  # noqa: E402
 
 MAX_SITES = 3
+# a guest's changes reload the web server (and on Caddy cut open websockets after their
+# stream_close_delay): one change per guest a minute, CHANGES_PER_HOUR in all
+CHANGE_EVERY = 60
+CHANGES_PER_HOUR = 20
+# sb-<guest>.<domain> is a dashboard, sbx.<domain> the shared files: a site named like
+# them (site `sb` of guest x = sb-x, site `sb-anna` of guest k = sb-anna-k) would take one
+RESERVED_SITES = ("sb", "sbx")
 FILES_PORT = 8795   # publicfiles.py on 127.0.0.1: sbx.<domain>/f/ behind Caddy
 SITE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,18}[a-z0-9])?$")
 IPV4_RE = re.compile(r"^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$")
@@ -62,6 +69,8 @@ class GateError(Exception):
 def validate_site(name) -> str:
     if not isinstance(name, str) or not SITE_RE.match(name):
         raise ValueError(_t("site_bad_name"))
+    if name in RESERVED_SITES or name.startswith(tuple(f"{r}-" for r in RESERVED_SITES)):
+        raise ValueError(_t("site_reserved"))
     return name
 
 
@@ -282,14 +291,44 @@ def conf_for(ops) -> type:
 class Gate:
     def __init__(self, book: "ts.GuestBook", ops, registry: Path,
                  ip_of: Callable[[str], Optional[str]], cleanup_delay: float = 90,
-                 sandboxes: Callable[[], Dict] = dict) -> None:
+                 sandboxes: Callable[[], Dict] = dict, clock=time.monotonic,
+                 timer=None, limit: bool = False) -> None:
         self.sandboxes = sandboxes   # guestctl's registry: each guest's own address name
         self.book = book
         self.ops = ops
         self.path = Path(registry)
         self.ip_of = ip_of
         self.cleanup_delay = cleanup_delay
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()   # the delayed clean-up takes it too
+        self.clock = clock
+        self.timer = timer or (lambda delay, fn: threading.Timer(delay, fn).start())
+        self.limit = limit               # main() turns the rate limit on
+        self._last_change: Dict[str, float] = {}
+        self._changes: list = []
+        self._leaving: set = set()       # taken down, its 404 stub still up (cleanup_delay)
+
+    def _ops(self):
+        """The ops for ONE operation: AutoOps (the running gate) may pick another backend
+        between operations, never in the middle of one."""
+        if getattr(type(self.ops), "current", None):
+            return self.ops.current()
+        return self.ops
+
+    def _may_change(self, guest: str) -> None:
+        if not self.limit:
+            return
+        now = self.clock()
+        last = self._last_change.get(guest)
+        if last is not None and now - last < CHANGE_EVERY:
+            raise GateError(_t("site_too_often", wait=int(CHANGE_EVERY - (now - last)) + 1))
+        self._changes = [t for t in self._changes if now - t < 3600]
+        if len(self._changes) >= CHANGES_PER_HOUR:
+            raise GateError(_t("site_too_busy"))
+
+    def _changed(self, guest: str) -> None:
+        now = self.clock()
+        self._last_change[guest] = now
+        self._changes.append(now)
 
     def _load(self) -> Dict:
         return json.loads(self.path.read_text()) if self.path.exists() else {}
@@ -311,11 +350,12 @@ class Gate:
         ip = self.ip_of(guest)
         if not ip:
             raise GateError(_t("site_no_ip"))
-        problem = getattr(self.ops, "problem", None)
+        ops = self._ops()
+        problem = getattr(ops, "problem", None)
         problem = problem() if callable(problem) else ""
         if problem:                      # e.g. a Caddy without a public 443
             raise GateError(_t("site_failed", err=problem))
-        conf = conf_for(self.ops)
+        conf = conf_for(ops)
         host = host_for(site, guest, self.sandboxes())
         with self._lock:
             reg = self._load()
@@ -324,23 +364,32 @@ class Gate:
             if host in reg:
                 if reg[host]["guest"] != guest:
                     raise GateError(_t("site_taken"))
-                self.ops.write_vhost(host, conf.site(host, ip, port, tls=True))
-                self.ops.reload()
+                if reg[host]["port"] == port:      # nothing changes: no reload either
+                    return {"url": f"https://{host}", "host": host, "port": port}
+                self._may_change(guest)
+                ops.write_vhost(host, conf.site(host, ip, port, tls=True))
+                ops.reload()
                 reg[host]["port"] = port
                 self._save(reg)
+                self._changed(guest)
                 return {"url": f"https://{host}", "host": host, "port": port}
             if sum(1 for v in reg.values() if v["guest"] == guest) >= MAX_SITES:
                 raise GateError(_t("site_too_many", max=MAX_SITES))
+            exists = getattr(ops, "vhost_exists", None)
+            if callable(exists) and exists(host) and host not in self._leaving:
+                # served, but not one of the gate's sites: a dashboard, sbx., the owner's
+                raise GateError(_t("site_taken"))
+            self._may_change(guest)
             try:
-                self.ops.dns_create(host)
-                self.ops.write_vhost(host, conf.site(host, ip, port, tls=False))
-                self.ops.reload()
-                self.ops.cert_issue(host)
-                self.ops.write_vhost(host, conf.site(host, ip, port, tls=True))
-                self.ops.reload()
+                ops.dns_create(host)
+                ops.write_vhost(host, conf.site(host, ip, port, tls=False))
+                ops.reload()
+                ops.cert_issue(host)
+                ops.write_vhost(host, conf.site(host, ip, port, tls=True))
+                ops.reload()
             except Exception as exc:
-                for undo in (lambda: self.ops.remove_vhost(host), self.ops.reload,
-                             lambda: self.ops.dns_delete(host)):
+                for undo in (lambda: ops.remove_vhost(host), ops.reload,
+                             lambda: ops.dns_delete(host)):
                     try:
                         undo()
                     except Exception:
@@ -349,7 +398,8 @@ class Gate:
             reg[host] = {"guest": guest, "site": site, "port": port,
                          "created": time.strftime("%Y-%m-%d %H:%M:%S")}
             self._save(reg)
-        self.ops.notify(_t("site_published", guest=guest, host=host, port=port))
+            self._changed(guest)
+        ops.notify(_t("site_published", guest=guest, host=host, port=port))
         return {"url": f"https://{host}", "host": host, "port": port}
 
     def unpublish(self, guest: str, site) -> Dict:
@@ -359,33 +409,46 @@ class Gate:
             reg = self._load()
             if host not in reg or reg[host]["guest"] != guest:
                 raise GateError(_t("site_not_yours"))
-            self._remove(host)
+            self._may_change(guest)
+            ops = self._ops()
+            self._remove(host, ops)
             del reg[host]
             self._save(reg)
-        self.ops.notify(_t("site_removed", guest=guest, host=host))
+            self._changed(guest)
+        ops.notify(_t("site_removed", guest=guest, host=host))
         return {"removed": f"https://{host}"}
 
-    def _remove(self, host: str) -> None:
+    def _remove(self, host: str, ops=None) -> None:
         """Take a site down without ever falling through to another site.
 
         Cloudflare keeps routing the name for a short while after the DNS record is
         deleted; with no vhost, nginx would answer with its FIRST server block (another
         dashboard's login page). So: 404 stub first, then DNS, and only after
-        cleanup_delay the stub and the certificate go.
+        cleanup_delay the stub and the certificate go — with the same ops (the backend that
+        wrote them), and not if the site was published again meanwhile.
         """
-        self.ops.write_vhost(host, conf_for(self.ops).gone(host))
-        self.ops.reload()
-        self.ops.dns_delete(host)
+        ops = ops or self._ops()
+        ops.write_vhost(host, conf_for(ops).gone(host))
+        ops.reload()
+        ops.dns_delete(host)
 
         def finish() -> None:
-            self.ops.remove_vhost(host)
-            self.ops.reload()
-            self.ops.cert_delete(host)
+            ops.remove_vhost(host)
+            ops.reload()
+            ops.cert_delete(host)
+
+        def later() -> None:
+            with self._lock:
+                self._leaving.discard(host)
+                if host in self._load():       # published again within the delay
+                    return
+                finish()
 
         if self.cleanup_delay <= 0:
             finish()
         else:
-            threading.Timer(self.cleanup_delay, finish).start()
+            self._leaving.add(host)
+            self.timer(self.cleanup_delay, later)
 
 
 # --------------------------------------------------------------------------- #
@@ -669,9 +732,11 @@ class AutoOps:
         now = self._clock()
         if self._ops is None or now - self._at >= self._ttl:
             choice = self._probe()
-            if self._ops is None or self._ops.KIND != choice.backend:
-                self._ops = make_ops(choice)
-            self._ops.choice = choice
+            if self._ops is None or (self._ops.KIND != choice.backend and choice.works):
+                self._ops = make_ops(choice)       # a backend that works, or the first
+            elif self._ops.KIND == choice.backend:
+                self._ops.choice = choice          # same backend: its state now
+            # else: the probe failed or nothing reports active — keep what we had
             self._at = now
         return self._ops
 
@@ -750,7 +815,7 @@ def main(argv=None) -> int:
     def ip_of(name: str) -> Optional[str]:
         return (registry().get(name) or {}).get("ip")
 
-    gate = Gate(book, AutoOps(), data / "sites.json", ip_of, sandboxes=registry)
+    gate = Gate(book, AutoOps(), data / "sites.json", ip_of, sandboxes=registry, limit=True)
     args = list(sys.argv[1:] if argv is None else argv)
     if args[:1] == ["remove"] and len(args) == 2:  # owner: take any site down
         host = args[1]

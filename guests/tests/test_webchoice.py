@@ -108,7 +108,7 @@ def test_caddy_that_does_not_import_the_sites_folder():
 def test_as_dict_is_json():
     c = wc.decide("", nginx_active=True, caddy_active=False, caddy_site="")
     assert json.loads(json.dumps(c.as_dict())) == {"backend": "nginx", "works": True,
-                                                   "why": c.why, "fix": ""}
+                                                   "why": c.why, "fix": "", "warning": ""}
 
 
 # ── reading the server (every outside call swapped) ───────────────────────────────

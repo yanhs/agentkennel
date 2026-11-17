@@ -105,13 +105,34 @@ def dashboard_host(name: str) -> str:
 ADDRESS_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 
 
+def _site_hosts() -> dict:
+    """The site gate's published sites (turnstile/data/sites.json): host -> its entry."""
+    try:
+        sites = json.loads((DATA / "sites.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    return sites if isinstance(sites, dict) else {}
+
+
+def _not_a_site(host: str) -> None:
+    """A dashboard can't take a published site's address (the site gate checks the other
+    way: no site named sb, sbx, sb-…, and nothing it didn't publish itself)."""
+    site = _site_hosts().get(host)
+    if site is not None:
+        raise SystemExit(f"{host} is a site {(site or {}).get('guest', '?')} published; "
+                         "pick another name or address")
+
+
 def check_address(name: str, address: str, reg: dict) -> str:
-    """A guest's own address name: DNS-safe and nobody else's name or address."""
+    """A guest's own address name: DNS-safe, nobody else's name or address, and no
+    published site's address."""
     if not ADDRESS_RE.match(address or ""):
         raise SystemExit(f"address {address!r}: latin letters, digits and '-', up to 40")
     for other, info in reg.items():
         if other != name and address in (other, (info or {}).get("address")):
             raise SystemExit(f"address {address!r} is {other}'s")
+    if guestenv.domain():
+        _not_a_site(f"sb-{address}.{guestenv.domain()}")
     return address
 
 
@@ -567,6 +588,7 @@ def cmd_add(a) -> int:
     reg = _registry()
     if a.name in reg or book.get(a.name):
         raise SystemExit(f"guest {a.name} already exists")
+    _not_a_site(f"sb-{a.name}.{domain()}")
     used = {v["port"] for v in reg.values()}
     port = next(p for p in range(PORT_BASE + 1, PORT_BASE + 900) if p not in used)
     d = guest_defaults.load(DATA)
@@ -1290,10 +1312,38 @@ def detect_server_ip() -> str:
     return sitegate.server_ip()
 
 
+def web_leftovers(backend: str) -> list:
+    """Addresses written for the OTHER web server (moving a guest set from nginx to Caddy,
+    or back, is not automatic): this one doesn't serve them."""
+    sys.path.insert(0, str(HERE / "sitegate"))
+    import sitegate  # noqa: E402
+
+    other = sitegate.RealOps if backend == "caddy" else sitegate.CaddyOps
+    try:
+        return sorted(p.name[:-len(other.SUFFIX)] for p in Path(other.VHOSTS).iterdir()
+                      if p.name.endswith(other.SUFFIX))
+    except OSError:
+        return []
+
+
 def check_web(choice) -> dict:
-    """Which web server carries the guests' addresses, why, and the fix when it can't."""
-    return _check("web", "Web addresses", choice.works, f"{choice.backend}: {choice.why}",
-                  choice.fix)
+    """Which web server carries the guests' addresses, why, and the fix when it can't
+    (or a warning when it works with a catch); addresses left for the other one."""
+    detail = f"{choice.backend}: {choice.why}"
+    if getattr(choice, "warning", ""):
+        detail += f"; warning: {choice.warning}"
+    ok, fix = choice.works, choice.fix
+    left = web_leftovers(choice.backend)
+    if left:
+        other = "nginx" if choice.backend == "caddy" else "Caddy"
+        detail += (f"; {len(left)} address(es) were made for {other} and are not served "
+                   f"by {choice.backend}: {', '.join(left)}")
+        ok = False
+        fix = ((fix + "; ") if fix else "") + (
+            f"open each again on {choice.backend}: python3 guests/guestctl.py web <name> for "
+            "a guest (sb-…), python3 guests/guestctl.py files-web for sbx.…; a guest's site "
+            f"is published again from its sandbox; then remove the old files")
+    return _check("web", "Web addresses", ok, detail, fix)
 
 
 def web_choice():

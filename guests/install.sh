@@ -149,6 +149,7 @@ check_web() {
   [ -n "$out" ] || return 0
   if [ "$rc" = 0 ]; then
     ok "web addresses: ${out%%$'\n'*}"
+    case "$out" in *$'\n'warning:*) warn "web addresses: ${out#*$'\n'warning: }" ;; esac
     case "$out" in
       nginx:*) command -v certbot >/dev/null 2>&1 \
         || warn "certbot is needed next to nginx for the guests' web addresses (sb-<name>.<domain>)" ;;

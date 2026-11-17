@@ -55,3 +55,12 @@ def test_nginx_without_certbot_is_named(box):
     r = box.run("--check", FAKE_WEB="nginx: nginx is running\n")
     assert "web addresses: nginx: nginx is running" in r.stdout
     assert "certbot" in r.stderr
+
+
+def test_a_warning_is_passed_on(box):
+    box.fill_env()
+    r = box.run("--check", FAKE_WEB="caddy: agentkennel-caddy.service serves port 443 (x)\n"
+                                     "warning: AgentKennel's Caddy uses its own certificate authority\n")
+    assert r.returncode == 0
+    assert "web addresses: caddy: agentkennel-caddy.service" in r.stdout
+    assert "warning: web addresses: AgentKennel's Caddy uses its own certificate authority" in r.stderr

@@ -76,8 +76,8 @@ def test_publish_on_caddy_writes_caddy_blocks(gate):
     res = g.publish("anna", "blog", 3000)
     assert res["url"] == "https://blog-anna.example.test"
     names = [e[0] for e in ops.log]
-    assert names == ["problem", "dns_create", "write_vhost", "reload", "cert_issue",
-                     "write_vhost", "reload", "notify"]
+    assert names == ["problem", "vhost_exists", "dns_create", "write_vhost", "reload",
+                     "cert_issue", "write_vhost", "reload", "notify"]
     pending, final = [e[2] for e in ops.log if e[0] == "write_vhost"]
     assert "respond 404" in pending and "reverse_proxy" not in pending
     assert "reverse_proxy 172.31.250.11:3000 {" in final and "listen 443" not in final

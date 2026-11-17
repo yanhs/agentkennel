@@ -47,6 +47,7 @@ class Choice:
     works: bool           # guests' addresses can be served this way right now
     why: str              # how the choice was made, in plain words
     fix: str = ""         # what to do when it can't work
+    warning: str = ""     # works, but something a person should know
 
     def as_dict(self) -> Dict:
         return asdict(self)
@@ -74,8 +75,14 @@ _MODE_WORDS = {"http": "plain http on :8765 (--http)",
                "unknown": "no known address"}
 
 
+INTERNAL_CA_WARNING = (
+    "AgentKennel's Caddy uses its own certificate authority (AGENTKENNEL_TLS_INTERNAL=1, "
+    "local_certs): browsers won't trust the guests' addresses — for real certificates run "
+    "./install.sh --https without AGENTKENNEL_TLS_INTERNAL")
+
+
 def decide(setting: str, nginx_active: bool, caddy_active: bool, caddy_site: str,
-           caddy_imports: bool = True) -> Choice:
+           caddy_imports: bool = True, caddy_global: str = "") -> Choice:
     """The choice, from what the server shows (pure: every input is passed in)."""
     s = (setting or "").strip().lower()
     kind = site_kind(caddy_site) if caddy_active else "unknown"
@@ -93,7 +100,8 @@ def decide(setting: str, nginx_active: bool, caddy_active: bool, caddy_site: str
                                         "could use Caddy), so it would not see their sites",
                           "run ./install.sh again (as you, in the AgentKennel folder): it "
                           "adds the guests' sites folder to Caddy")
-        return Choice(CADDY, True, why)
+        own_ca = any(line.strip() == "local_certs" for line in (caddy_global or "").splitlines())
+        return Choice(CADDY, True, why, warning=INTERNAL_CA_WARNING if own_ca else "")
 
     if s == NGINX:
         return Choice(NGINX, True, "GUESTS_WEB=nginx in guests/.env")
@@ -139,13 +147,29 @@ def parse_unit_env(line: str) -> Dict[str, str]:
     return out
 
 
-def unit_env(unit: str, run=subprocess.run) -> Dict[str, str]:
+def _show(unit: str, prop: str, run) -> str:
     try:
-        r = run(["systemctl", "show", "-p", "Environment", "--value", unit],
+        r = run(["systemctl", "show", "-p", prop, "--value", unit],
                 capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
-        return {}
-    return parse_unit_env(r.stdout) if r.returncode == 0 else {}
+        return ""
+    return r.stdout if r.returncode == 0 else ""
+
+
+def unit_env(unit: str, run=subprocess.run) -> Dict[str, str]:
+    """The unit's environment as its processes get it: Environment=, then every
+    EnvironmentFile= on top (systemd lets the files win; install.sh's units read the
+    install's .env that way)."""
+    env = parse_unit_env(_show(unit, "Environment", run))
+    for line in _show(unit, "EnvironmentFiles", run).splitlines():
+        path = line.split(" (", 1)[0].strip()
+        if not path:
+            continue
+        try:
+            env.update(guestenv.parse(Path(path).read_text(encoding="utf-8")))
+        except OSError:
+            pass
+    return env
 
 
 def probe(is_active: Callable[[str], bool] = unit_active,
@@ -154,8 +178,13 @@ def probe(is_active: Callable[[str], bool] = unit_active,
     caddy_active = is_active(CADDY_UNIT)
     env = unit_env(CADDY_UNIT) if caddy_active else {}
     site = env.get("AGENTKENNEL_SITE") or env.get("AGENTDECK_SITE") or ""
+    try:
+        global_opts = Path(env["AGENTKENNEL_CADDY_GLOBAL"]).read_text(encoding="utf-8")
+    except (KeyError, OSError):
+        global_opts = ""
     return decide(guestenv.get("GUESTS_WEB") or "", is_active(NGINX_UNIT), caddy_active,
-                  site, caddy_imports=bool(env.get("AGENTKENNEL_CADDY_SITES")))
+                  site, caddy_imports=bool(env.get("AGENTKENNEL_CADDY_SITES")),
+                  caddy_global=global_opts)
 
 
 def main(argv=None) -> int:
@@ -165,6 +194,8 @@ def main(argv=None) -> int:
         print(json.dumps(c.as_dict(), ensure_ascii=False))
         return 0
     print(f"{c.backend}: {c.why}")
+    if c.warning:
+        print(f"warning: {c.warning}")
     if not c.works:
         print(f"guests' web addresses can't work: {c.fix}")
     return 0 if c.works else 1

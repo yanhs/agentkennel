@@ -186,6 +186,9 @@ EN = {
     "site_rules_no_publish": "The server owner's rules don't allow publishing new sites for you.",
     "site_no_ip": "the sandbox has no fixed address — needs guestctl recreate",
     "site_taken": "this address is taken",
+    "site_reserved": "site names sb, sbx, sb-… and sbx-… are kept for the dashboards — pick another",
+    "site_too_often": "one change a minute — try again in {wait} s",
+    "site_too_busy": "too many site changes on this server in the last hour — try again later",
     "site_too_many": "at most {max} sites per guest — take an old one down first",
     "site_failed": "couldn't publish: {err}",
     "site_published": "🌐 Guest {guest} published a site https://{host} "
@@ -413,6 +416,9 @@ RU = {
     "site_rules_no_publish": "Правила владельца сервера не разрешают вам публиковать новые сайты.",
     "site_no_ip": "у песочницы нет постоянного адреса — нужен guestctl recreate",
     "site_taken": "этот адрес занят",
+    "site_reserved": "имена сайтов sb, sbx, sb-… и sbx-… заняты под панели — выберите другое",
+    "site_too_often": "не чаще раза в минуту — попробуйте через {wait} с",
+    "site_too_busy": "за последний час на сервере слишком много изменений сайтов — попробуйте позже",
     "site_too_many": "не больше {max} сайтов на гостя — сначала снимите старый",
     "site_failed": "не получилось опубликовать: {err}",
     "site_published": "🌐 Гость {guest} опубликовал сайт https://{host} "
