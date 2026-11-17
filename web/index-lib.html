@@ -1965,6 +1965,10 @@
     }
 
     function pickShell() {
+      if (shellState && shellState.locked) {
+        _toast('The command line is off here: ask Claude in a terminal.', 5000);
+        return;
+      }
       sel = SHELL;
       _shellSeenUp = !!(shellState && shellState.active);
       document.getElementById('topbar').classList.remove('no-term');
@@ -3184,8 +3188,10 @@
         const sh = d && d.shell;
         if (seq === mutSeq) shellState = sh && typeof sh === 'object'
           ? {active: sh.active === true, attached: sh.attached === true,
-             status: sh.status === 'working' ? 'working' : 'idle'}
+             status: sh.status === 'working' ? 'working' : 'idle', locked: sh.locked === true}
           : null;
+        // a guest's rules: the sandbox is Claude-only, no command line (the server refuses it)
+        document.getElementById('cmdBtn').hidden = !!(shellState && shellState.locked);
         // the open shell ended (`exit` typed in it): drop its frame. Only once it
         // had been seen running — right after cmd it is still starting.
         if (seq === mutSeq && sel === SHELL) {

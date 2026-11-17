@@ -71,6 +71,47 @@ Facts the design rests on (all seen, not read):
   guest can't touch them; a hook inside the sandbox would only repeat them and could be
   removed by the agent. "Refuse the line" is what the gate does to `!`.
 
+## Review round (17.11.2026, after 8f788b1)
+
+Measured, benign (throwaway container from `agentkennel-guest:livefilter-8f788b1`, stub API):
+
+* **Lock turned on while the guest's claude runs** (claude 2.1.282 and 2.1.326): the agent's
+  own Bash keeps working (`ls`, a command with quotes) *if `/etc/claude-code` existed when that
+  claude started*. If the folder did not exist, that claude never reads the managed settings:
+  no prefix, no tickets, `!` still runs, until it is restarted. Fixes: the guest image creates
+  the folder (`guests/image/Dockerfile`), `install off` keeps it, and `install on` counts the
+  claudes started before the folder existed; `guestctl` tells the owner to restart them
+  (restarting a guest's terminal mid-work is the owner's call, not ours).
+* **Self-update:** sbx-yan runs claude **2.1.326**; its image ships 2.1.282 — the npm package
+  was replaced inside the container about 20 minutes after it started. The lock now sets
+  `DISABLE_AUTOUPDATER=1`. Real wrappers of both versions are the unit tests' fixtures
+  (`guests/tests/fixtures/claude-prefix-*.json`); the agent's commands pass on both.
+
+Fixed: off removes `tmux.conf` and the flag (and `tmux.conf` reads the lock only while `on`
+exists), restores tmux's default prefix and then the guest's own `~/.tmux.conf`; `no-editor`
+hands over to a real editor when the rules are off; a missing gate refuses with a clear
+message (exit 126, never 2 — a hook exiting 2 would block every tool); a crashing gate says
+"the rules gate failed … tell the owner"; a deleted working folder is handled; project hooks
+count from `$CLAUDE_PROJECT_DIR` and every folder above the cwd; `refused.log` is capped at
+64 KB; failed locks on `add`, `recreate` and `start` reach the owner (and `recreate` saves the
+new container first); turning rules off never fails on the lock; the lock's exec (20 s) fits in
+the server's wait for `rules` (45 s).
+
+**Telling the owner** (all English):
+
+* At once, through the turnstile's `/flag` and its limit of 5 an hour per guest: a `!` command
+  the gate refused (`kind=bypass`, the command taken out of claude's wrapper, secrets scrubbed,
+  200 characters), the command line opened by URL (`report shell`), an editor opened from
+  Claude (`report editor`), and — by the agent, told so in the rules — attempts to get the rules
+  lifted or ignored (`kind=lift`).
+* Daily: ordinary off-topic refusals are recorded quietly by the agent (`kind=offtopic`, their
+  own cap of 30 an hour, stored in the turnstile's ledger). A thread in the turnstile sends one
+  digest a day from 09:00 the owner's time — per guest a count and the three commonest topics —
+  and nothing at all when there were none.
+* All of it only while the guest's "tell me" box is on (the existing flag setting).
+* Not reportable: tmux keys. With no prefix key, tmux receives nothing to act on, so there is
+  no event to report.
+
 ## What remains (honestly)
 
 1. **The agent itself.** Everything in the sandbox runs as root, the agent too. It *can*
@@ -81,7 +122,8 @@ Facts the design rests on (all seen, not read):
 2. **Hooks the agent writes.** The gate passes hook commands from user/project settings (the
    sandbox's guard hooks live there); exec-form hooks skip the prefix (docs). Both need a file
    written — by the agent, see 1. Plugins, the other source, are blocked.
-3. **Old images.** The `tmux.conf` lock line is in this branch's image only. On an older image
+3. **Old images.** The `tmux.conf` lock line and the `/etc/claude-code` folder are in this
+   branch's image only (the folder: claudes open before the first lock need a restart). On an older image
    the lock is applied to the tmux servers running at lock time; a server started later (all
    terminals closed, then a new one) has Ctrl+B again until the sandbox is recreated on the new
    image. The `cmd` button and `/sess/?arg=shell` also need the new image (older: the gate

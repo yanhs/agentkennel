@@ -74,10 +74,44 @@ def test_api_shell_unchanged_without_the_lock(api, tmp_path, monkeypatch):  # no
 def test_tmux_conf_reads_the_lock_last():
     lines = [l.strip() for l in open(os.path.join(REPO, "tmux.conf")) if l.strip()
              and not l.lstrip().startswith("#")]
-    assert lines[-1] == ('if-shell "test -f /etc/agentkennel/rules/tmux.conf" '
+    assert lines[-1] == ('if-shell "test -f /etc/agentkennel/rules/on -a -f '
+                         '/etc/agentkennel/rules/tmux.conf" '
                          '"source-file /etc/agentkennel/rules/tmux.conf"')
 
 
-def test_the_page_hides_cmd_while_locked():
-    html = open(os.path.join(REPO, "web", "index.html")).read()
-    assert "shell.locked" in html or "shell && d.shell.locked" in html or ".locked" in html
+def test_open_session_tells_the_owner_through_the_gate(deck, tmp_path):  # noqa: F811
+    """The refusal is reported (rules_gate.py report shell -> the turnstile's /flag)."""
+    gate = tmp_path / "gate.py"
+    said = tmp_path / "said"
+    gate.write_text(f"import sys\nopen({str(said)!r}, 'w').write(' '.join(sys.argv[1:]))\n")
+    r = run(deck, "shell", AGENTKENNEL_RULES_FLAG=flag_up(tmp_path),
+            AGENTKENNEL_RULES_GATE=str(gate))
+    assert r.returncode == 2 and said.read_text() == "report shell"
+
+
+def test_open_session_without_a_gate_still_refuses(deck, tmp_path):  # noqa: F811
+    r = run(deck, "shell", AGENTKENNEL_RULES_FLAG=flag_up(tmp_path),
+            AGENTKENNEL_RULES_GATE=str(tmp_path / "missing.py"))
+    assert r.returncode == 2 and "owner" in r.stdout
+
+
+# ── the page, in a browser (tests/test_index_lib.py's fake API) ──────────────────────
+from tests.test_index_lib import FakeAPI, _open  # noqa: E402
+from tests.test_index_lib import browser, site  # noqa: E402,F401  (fixtures)
+
+
+def test_the_page_hides_cmd_while_locked_and_shows_it_otherwise(browser, site):  # noqa: F811
+    for locked in (True, False):
+        api = FakeAPI()
+        api.shell = {"active": False, "attached": False, "status": "off",
+                     **({"locked": True} if locked else {})}
+        ctx, pg = _open(browser, site, api)
+        try:
+            pg.wait_for_timeout(600)              # one poll of /api/library
+            assert pg.is_hidden("#cmdBtn") is locked, locked
+            if locked:                            # pickShell refuses even if called
+                pg.evaluate("document.getElementById('cmdBtn').click()")
+                src = pg.evaluate("(document.querySelector('#wrap iframe') || {}).src || ''")
+                assert "arg=shell" not in src
+        finally:
+            ctx.close()

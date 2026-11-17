@@ -1,0 +1,15 @@
+{
+ "_what": "What claude 2.1.326 (the version sbx-yan self-updated to) handed CLAUDE_CODE_SHELL_PREFIX ($1), captured the same way as claude-prefix-2.1.282.json on 17.11.2026.",
+ "claude": "2.1.326",
+ "calls": [
+  {
+   "command": "ls > /tmp/LS_OK",
+   "prefix_arg": "source /root/.claude/shell-snapshots/snapshot-bash-1794951652272-59d30r.sh 2>/dev/null || true && { \\builtin shopt -u extglob || \\builtin setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL NO_BRACE_CCL NO_MAGIC_EQUAL_SUBST; } >/dev/null 2>&1 || true && { \\builtin unalias -- 'which'; \\builtin unset -f -- 'which'; } >/dev/null 2>&1 || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'ls > /tmp/LS_OK' < /dev/null && pwd -P >| /tmp/claude-f712-cwd"
+  },
+  {
+   "command": "echo 'it'\"'\"'s a \"test\"' $HOME > /tmp/Q_OK",
+   "prefix_arg": "source /root/.claude/shell-snapshots/snapshot-bash-1794951652272-59d30r.sh 2>/dev/null || true && { \\builtin shopt -u extglob || \\builtin setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL NO_BRACE_CCL NO_MAGIC_EQUAL_SUBST; } >/dev/null 2>&1 || true && { \\builtin unalias -- 'which'; \\builtin unset -f -- 'which'; } >/dev/null 2>&1 || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'echo '\"'\"'it'\"'\"'\"'\"'\"'\"'\"'\"'s a \"test\"'\"'\"' $HOME > /tmp/Q_OK' < /dev/null && pwd -P >| /tmp/claude-c03d-cwd"
+  }
+ ],
+ "hook": "python3 /etc/agentkennel/rules/gate.py ticket"
+}

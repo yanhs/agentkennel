@@ -1354,6 +1354,7 @@ def svc_post(route):
 # GUESTS_LIST_TTL. Its .env holds the bot token: the page only learns whether one is set.
 GUESTS_ROUTE = "/api/guests"
 GUESTS_LIST_TTL = 10
+GUESTS_RULES_TIMEOUT = 45   # `guestctl rules` saves, then locks the sandbox (its exec: 20 s)
 GUEST_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
 GUESTS_ACTIONS = ("stop", "start", "remove", "limit", "web", "web-off")   # jobs
 # Open (decision 29.10.2026): the owner signs in to a guest's dashboard without the guest's
@@ -1624,7 +1625,7 @@ class GuestsPanel:
         rules = body.get("rules")
         if not isinstance(rules, dict):
             raise LibError(400, "rules: an object")
-        code, out, err = self.run("rules", name, json.dumps(rules, ensure_ascii=False), timeout=30)
+        code, out, err = self.run("rules", name, json.dumps(rules, ensure_ascii=False), timeout=GUESTS_RULES_TIMEOUT)
         if code != 0:
             raise LibError(400, (err or out).strip()[-300:] or "rules not saved")
         self._spawn(self._list)

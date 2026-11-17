@@ -580,7 +580,7 @@ def cmd_add(a) -> int:
         err = getattr(exc, "stderr", "") or str(exc)
         raise SystemExit(f"failed, rolled back: {err.strip()[:400]}")
     if d["rules"].get("on"):     # Claude-only terminals from the start (rules_lock)
-        failed = rules_lock(a.name, True)
+        failed = apply_rules_lock(a.name, True, "new sandbox")   # the owner is told
         if failed:
             print(f"warning: {a.name}'s terminals are not locked to Claude: {failed}")
     reg[a.name] = {"port": port, "telegram_id": a.tg, "image": a.image,
@@ -651,10 +651,13 @@ def cmd_recreate(a) -> int:
                    capture_output=True)
     _docker("restart", f"sbx-{a.name}")
     _wait_running(a.name)
-    sync_rules_lock(a.name, only_when_on=True)   # a new container: its lock is gone with the old
     info.update(public_key=public_key, image=image, ip=ip)
-    _save_registry(reg)
+    _save_registry(reg)               # first: the new container is what runs now
     refresh_web(a.name, info["port"])
+    try:                              # a new container: the old one's lock went with it
+        sync_rules_lock(a.name, only_when_on=True, when="recreate")
+    except SystemExit as exc:
+        raise SystemExit(f"recreated sbx-{a.name} (image {image}), but {exc}")
     print(f"recreated sbx-{a.name}: files -> {public_base_url()}/{public_key}/")
     return 0
 
@@ -721,37 +724,75 @@ def cmd_list(a) -> int:
     return 0
 
 
-def rules_lock(name: str, on: bool, run=subprocess.run) -> str:
+LOCK_TIMEOUT = 20      # seconds for the lock's docker exec (status_server waits longer)
+# what the owner is told (English only, owner 17.11.2026)
+LOCK_FAILED = ("⚠️ {name}: the rules are on, but the sandbox's terminals are not locked to Claude "
+               "({when}): {error}. Save the rules again on the Server page "
+               "(or: guestctl rules {name} '<json>').")
+LOCK_STALE = ("⚠️ {name}: {n} Claude terminal(s) were already open before the sandbox could take "
+              "the rules lock. In those, `!` commands still run until the terminal is restarted: "
+              "restart them from {name}'s dashboard, or guestctl recreate {name}.")
+
+
+def rules_lock(name: str, on: bool, run=subprocess.run) -> dict:
     """The sandbox Claude-only while the guest's rules are on (owner, 17.11.2026), web on or
     off: guests/rules_gate.py runs in it as root, piped in (any image has python3), and
     closes the ways around the agent — `!` commands, the command line, tmux keys, an editor,
-    plugins. "" when done, else what failed."""
+    plugins. {"error": "" or what failed, "stale_claudes": claudes that need a restart}."""
     import rules_gate
     argv = ["docker", "exec", "-i", "-u", "0", f"sbx-{name}", "python3", "-c",
             rules_gate.LOADER, "install", "on" if on else "off"]
     try:
         r = run(argv, input=(HERE / "rules_gate.py").read_text(), capture_output=True,
-                text=True, timeout=60)
+                text=True, timeout=LOCK_TIMEOUT)
     except (OSError, subprocess.SubprocessError) as exc:
-        return str(exc)[:300]
+        return {"error": str(exc)[:300], "stale_claudes": 0}
     if r is not None and r.returncode != 0:
-        return ((r.stderr or "") + (r.stdout or "")).strip()[:300] or f"exit {r.returncode}"
+        return {"error": ((r.stderr or "") + (r.stdout or "")).strip()[:300]
+                or f"exit {r.returncode}", "stale_claudes": 0}
+    m = re.search(r"^stale-claudes: (\d+)$", getattr(r, "stdout", "") or "", re.M)
+    return {"error": "", "stale_claudes": int(m.group(1)) if m else 0}
+
+
+def tell_owner(text: str) -> None:
+    """The owner's Telegram (guestenv.notify_owner); a failure to tell is printed, never fatal."""
+    try:
+        guestenv.notify_owner(text)
+    except Exception as exc:
+        print(f"warning: could not tell the owner ({exc}): {text}", file=sys.stderr)
+
+
+def apply_rules_lock(name: str, on: bool, when: str) -> str:
+    """rules_lock + telling the owner. "" when done, else what failed (already told)."""
+    res = rules_lock(name, on)
+    if res["error"]:
+        if on:
+            tell_owner(LOCK_FAILED.format(name=name, when=when, error=res["error"]))
+        else:
+            print(f"warning: {name}: the lock was not lifted ({when}): {res['error']}",
+                  file=sys.stderr)
+        return res["error"]
+    if on and res["stale_claudes"]:
+        tell_owner(LOCK_STALE.format(name=name, n=res["stale_claudes"]))
     return ""
 
 
-def sync_rules_lock(name: str, only_when_on: bool = False) -> str:
+def sync_rules_lock(name: str, only_when_on: bool = False, when: str = "rules saved") -> str:
     """Bring a running sandbox's lock in line with the book: "on", "off", "at start" (not
-    running: `start` applies it), or "" when only_when_on and the rules are off."""
+    running: `start` applies it), "unlock failed" (rules off: never fatal), or "" when
+    only_when_on and the rules are off. A lock that fails while on: SystemExit."""
     g = ts.GuestBook(DATA / "guests.json").get(name)
     on = bool(g and (g.rules or {}).get("on"))
     if only_when_on and not on:
         return ""
     if container_state(name) != "running":
         return "at start"
-    failed = rules_lock(name, on)
-    if failed:
+    failed = apply_rules_lock(name, on, when)
+    if failed and on:
         raise SystemExit(f"{name}: the rules are saved, but the sandbox's terminals could not "
-                         f"be {'locked' if on else 'unlocked'}: {failed}")
+                         f"be locked: {failed}")
+    if failed:
+        return "unlock failed"
     return "on" if on else "off"
 
 
@@ -955,7 +996,7 @@ def cmd_simple(a) -> int:
         book.set_enabled(a.name, True)
         _docker("start", f"sbx-{a.name}")
         if (book.get(a.name).rules or {}):   # ever set: they may have changed while stopped
-            sync_rules_lock(a.name)
+            sync_rules_lock(a.name, when="start")   # rules off: never fails the start
     elif a.cmd == "web-off":             # the bot and the agent stay, the sandbox runs on
         if web_exists(a.name):
             take_down_web(a.name)

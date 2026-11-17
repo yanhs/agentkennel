@@ -7,3 +7,7 @@
 #   docker build -t agentkennel-guest:<version> --build-arg BASE=agentkennel:<version> guests/image
 ARG BASE=agentkennel:latest
 FROM ${BASE}
+# Claude Code reads a managed-settings.json created mid-session only if its folder existed
+# when the session started (measured 17.11.2026): a guest's rules lock (rules_gate.py) must
+# reach terminals that are already open
+RUN mkdir -p /etc/claude-code

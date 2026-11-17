@@ -1306,12 +1306,13 @@ def test_rules_lock_pipes_the_gate_into_the_sandbox_as_root():
     seen = {}
 
     class R:
-        returncode, stdout, stderr = 0, "rules lock: on\n", ""
+        returncode, stdout, stderr = 0, "rules lock: on\nstale-claudes: 2\n", ""
 
     def run(argv, **kw):
         seen.update(argv=argv, **kw)
         return R()
-    assert gc.rules_lock("anna", True, run=run) == ""
+    assert gc.rules_lock("anna", True, run=run) == {"error": "", "stale_claudes": 2}
+    assert seen["timeout"] == gc.LOCK_TIMEOUT
     argv = seen["argv"]
     assert argv[:6] == ["docker", "exec", "-i", "-u", "0", "sbx-anna"]
     assert argv[6:9] == ["python3", "-c", rules_gate.LOADER] and argv[9:] == ["install", "on"]
@@ -1324,14 +1325,22 @@ def test_rules_lock_pipes_the_gate_into_the_sandbox_as_root():
 def test_rules_lock_says_what_failed():
     class R:
         returncode, stdout, stderr = 1, "", "Error: No such container: sbx-anna\n"
-    assert "No such container" in gc.rules_lock("anna", True, run=lambda *a, **k: R())
+    assert "No such container" in gc.rules_lock("anna", True, run=lambda *a, **k: R())["error"]
 
 
-def lock_calls(monkeypatch, state="running"):
+def lock_calls(monkeypatch, state="running", error="", stale=0):
     calls = []
     monkeypatch.setattr(gc, "container_state", lambda name: state)
-    monkeypatch.setattr(gc, "rules_lock", lambda name, on, **k: calls.append((name, on)) or "")
+    monkeypatch.setattr(gc, "rules_lock", lambda name, on, **k: calls.append((name, on))
+                        or {"error": error, "stale_claudes": stale})
     return calls
+
+
+@pytest.fixture
+def told(monkeypatch):
+    out = []
+    monkeypatch.setattr(gc.guestenv, "notify_owner", lambda text, **k: out.append(text))
+    return out
 
 
 def test_setting_rules_locks_a_running_sandbox_web_or_not(monkeypatch, tmp_path, capsys):
@@ -1359,14 +1368,113 @@ def test_rules_on_a_stopped_sandbox_wait_for_its_start(monkeypatch, tmp_path, ca
     assert calls == [("anna", True)]
 
 
-def test_a_lock_that_fails_is_an_error(monkeypatch, tmp_path):
+def test_a_lock_that_fails_is_an_error_and_the_owner_hears(monkeypatch, tmp_path, told):
     import json as _json
     _book_with_anna(monkeypatch, tmp_path)
-    monkeypatch.setattr(gc, "container_state", lambda name: "running")
-    monkeypatch.setattr(gc, "rules_lock", lambda name, on, **k: "exec failed")
+    lock_calls(monkeypatch, error="exec failed")
     with pytest.raises(SystemExit) as e:
         gc.cmd_rules(ns(name="anna", rules=_json.dumps(SITE_RULES)))
     assert "exec failed" in str(e.value)
+    assert len(told) == 1 and "anna" in told[0] and "exec failed" in told[0]
+
+
+def test_claudes_that_cannot_take_the_lock_live_are_told(monkeypatch, tmp_path, told, capsys):
+    import json as _json
+    _book_with_anna(monkeypatch, tmp_path)
+    lock_calls(monkeypatch, stale=2)
+    gc.cmd_rules(ns(name="anna", rules=_json.dumps(SITE_RULES)))
+    assert _json.loads(capsys.readouterr().out)["lock"] == "on"
+    assert len(told) == 1 and "anna" in told[0] and "2" in told[0] and "restart" in told[0]
+
+
+def test_a_failed_unlock_does_not_fail_turning_the_rules_off(monkeypatch, tmp_path, told, capsys):
+    import json as _json
+    _book_with_anna(monkeypatch, tmp_path)
+    lock_calls(monkeypatch, error="exec failed")
+    gc.cmd_rules(ns(name="anna", rules=_json.dumps({**SITE_RULES, "on": False})))
+    assert _json.loads(capsys.readouterr().out)["lock"] == "unlock failed"
+
+
+def test_start_with_the_rules_off_never_fails_on_the_lock(monkeypatch, tmp_path, told):
+    book = _book_with_anna(monkeypatch, tmp_path)
+    book.set_rules("anna", {**SITE_RULES, "on": False})
+    monkeypatch.setattr(gc, "_docker", lambda *a, **k: None)
+    calls = lock_calls(monkeypatch, error="exec failed")
+    assert gc.cmd_simple(ns(cmd="start", name="anna")) == 0
+    assert calls == [("anna", False)]
+
+
+def test_start_with_the_rules_on_and_a_failed_lock_says_so(monkeypatch, tmp_path, told):
+    book = _book_with_anna(monkeypatch, tmp_path)
+    book.set_rules("anna", SITE_RULES)
+    monkeypatch.setattr(gc, "_docker", lambda *a, **k: None)
+    lock_calls(monkeypatch, error="exec failed")
+    with pytest.raises(SystemExit):
+        gc.cmd_simple(ns(cmd="start", name="anna"))
+    assert told and "anna" in told[0]
+
+
+def test_a_failed_lock_on_add_reaches_the_owner(data, monkeypatch, capsys, told):
+    """invites.py treats exit 0 as done and never reads stdout: a warning there is lost."""
+    fake_add_env(data, monkeypatch)
+    lock_calls(monkeypatch, error="exec failed")
+    gdefaults.save(data, {**gdefaults.load(data), "rules": SITE_RULES})
+    assert gc.cmd_add(add_args()) == 0                 # the guest exists and works
+    assert len(told) == 1 and "newbie" in told[0] and "exec failed" in told[0]
+    assert "newbie" in gc._registry()
+
+
+def recreate_env(monkeypatch, tmp_path, saved, refreshed):
+    import json as _json
+    book = _book_with_anna(monkeypatch, tmp_path)
+    book.set_rules("anna", SITE_RULES)
+    reg = {"anna": {"port": 18101, "telegram_id": 2, "public_key": "anna-k3y",
+                    "image": "agentkennel-guest:old", "ip": "172.31.250.11"}}
+    monkeypatch.setattr(gc, "_registry", lambda: reg)
+    monkeypatch.setattr(gc, "_save_registry", lambda r: saved.append(_json.loads(_json.dumps(r))))
+    monkeypatch.setattr(gc, "refresh_web", lambda name, port: refreshed.append(name))
+    monkeypatch.setattr(gc, "live_terminals", lambda name: [])
+    monkeypatch.setattr(gc, "_public_folder", lambda key: None)
+    monkeypatch.setattr(gc, "_wait_running", lambda name: None)
+    monkeypatch.setattr(gc, "disk_ready", lambda name, info: False)
+    monkeypatch.setattr(gc, "public_base_url", lambda: "https://sbx.example.test/f")
+    monkeypatch.setattr(gc, "host_public_ips", lambda: "")
+    monkeypatch.setattr(gc.time, "sleep", lambda s: None)
+    monkeypatch.setattr(gc.subprocess, "run", lambda *a, **k: None)
+
+    class R:
+        stdout = _json.dumps(["ANTHROPIC_AUTH_TOKEN=sbx-PASS", "AGENTKENNEL_PASSWORD=pw-1"])
+        returncode = 0
+    monkeypatch.setattr(gc, "_docker", lambda *a, **k: R())
+
+
+def test_recreate_saves_the_new_container_before_a_failed_lock(monkeypatch, tmp_path, told):
+    saved, refreshed = [], []
+    recreate_env(monkeypatch, tmp_path, saved, refreshed)
+    lock_calls(monkeypatch, error="exec failed")
+    with pytest.raises(SystemExit) as e:
+        gc.cmd_recreate(ns(name="anna", image="agentkennel-guest:new", force=False))
+    assert saved and saved[-1]["anna"]["image"] == "agentkennel-guest:new"
+    assert refreshed == ["anna"]
+    assert "recreated" in str(e.value) and "exec failed" in str(e.value)
+    assert told and "anna" in told[0]
+
+
+def test_recreate_locks_a_sandbox_with_rules(monkeypatch, tmp_path, told):
+    saved, refreshed = [], []
+    recreate_env(monkeypatch, tmp_path, saved, refreshed)
+    calls = lock_calls(monkeypatch)
+    assert gc.cmd_recreate(ns(name="anna", image=None, force=False)) == 0
+    assert calls == [("anna", True)] and told == []
+
+
+def test_the_lock_fits_in_the_servers_wait_for_rules():
+    """status_server waits GUESTS_RULES_TIMEOUT for `guestctl rules`; the lock must fit."""
+    import re as _re
+    src = (gc.HERE.parent / "status_server.py").read_text()
+    server = int(_re.search(r"GUESTS_RULES_TIMEOUT = (\d+)", src).group(1))
+    assert '"rules", name, json.dumps(rules, ensure_ascii=False), timeout=GUESTS_RULES_TIMEOUT' in src
+    assert gc.LOCK_TIMEOUT + 10 <= server
 
 
 def test_add_locks_a_new_sandbox_with_rules_from_the_defaults(data, monkeypatch, capsys):

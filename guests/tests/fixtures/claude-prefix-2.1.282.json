@@ -1,0 +1,15 @@
+{
+ "_what": "What claude 2.1.282 handed CLAUDE_CODE_SHELL_PREFIX ($1), captured in a throwaway container from agentkennel-guest:livefilter-8f788b1 on 17.11.2026 (model Bash calls through a stub API; the hook is the gate's own PreToolUse ticket hook). A `!` command arrives in the same form.",
+ "claude": "2.1.282",
+ "calls": [
+  {
+   "command": "ls > /tmp/LS_OK",
+   "prefix_arg": "source /root/.claude/shell-snapshots/snapshot-bash-1794951589218-mrxro9.sh 2>/dev/null || true && { shopt -u extglob || setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL; } >/dev/null 2>&1 || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'ls > /tmp/LS_OK' < /dev/null && pwd -P >| /tmp/claude-71d9-cwd"
+  },
+  {
+   "command": "echo 'it'\"'\"'s a \"test\"' $HOME > /tmp/Q_OK",
+   "prefix_arg": "source /root/.claude/shell-snapshots/snapshot-bash-1794951589218-mrxro9.sh 2>/dev/null || true && { shopt -u extglob || setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL; } >/dev/null 2>&1 || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'echo '\"'\"'it'\"'\"'\"'\"'\"'\"'\"'\"'s a \"test\"'\"'\"' $HOME > /tmp/Q_OK' < /dev/null && pwd -P >| /tmp/claude-f058-cwd"
+  }
+ ],
+ "hook": "python3 /etc/agentkennel/rules/gate.py ticket"
+}

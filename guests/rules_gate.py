@@ -23,6 +23,7 @@ What this closes is the guest's way around the agent, not the agent.
     rules_gate.py install on|off   (as root in the sandbox; guestctl pipes this file in)
     rules_gate.py prefix '<command line>'      CLAUDE_CODE_SHELL_PREFIX, via shell-gate
     rules_gate.py ticket                       PreToolUse hook (any tool), JSON on stdin
+    rules_gate.py report shell|editor          tell the owner what the core refused
 
 Standard library only: it runs on any sandbox image.
 """
@@ -30,10 +31,13 @@ import glob
 import hashlib
 import json
 import os
+import re
 import secrets
+import shlex
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 RULES_DIR = "etc/agentkennel/rules"           # under the sandbox's / (root-owned)
@@ -43,9 +47,16 @@ SHELL_GATE = "/etc/agentkennel/rules/shell-gate"
 NO_EDITOR = "/etc/agentkennel/rules/no-editor"
 TICKET_HOOK = "python3 /etc/agentkennel/rules/gate.py ticket"
 TICKET_TTL = 600            # seconds a model's command may wait between PreToolUse and its run
-REFUSED = 126
+REFUSED = 126              # never 2: a PreToolUse hook exiting 2 (through the prefix) blocks
 REFUSAL = ("The server's owner has limited this sandbox to its work: commands are run only by "
            "Claude. Write to Claude what you need instead (no `!`).")
+BROKEN = ("AgentKennel: the rules gate failed ({error}), so this command was not run. "
+          "Tell the server's owner: the guest's rules lock needs fixing.")
+REFUSED_LOG_MAX = 64 * 1024  # /run/agentkennel-rules/refused.log: the newest half is kept
+REPORT_MAX = 200             # characters of what was tried that go to the owner
+# what the core refuses, reported by `rules_gate.py report <what>` (open-session.sh, no-editor)
+REPORTS = {"shell": "opened the plain command line (refused)",
+           "editor": "opened an editor from Claude (refused)"}
 
 # Ctrl+B is tmux's way to a shell (c: new window, ": run-shell"); with no prefix key the
 # prefix table can't be reached. The right-click menus are already unbound by tmux.conf.
@@ -53,10 +64,30 @@ TMUX_LOCK = ("# a guest's rules are on (guests/rules_gate.py): no tmux commands 
              "set -g prefix None\n"
              "set -g prefix2 None\n")
 
-SHELL_GATE_SH = ("#!/bin/sh\n# CLAUDE_CODE_SHELL_PREFIX (guests/rules_gate.py)\n"
-                 'exec python3 /etc/agentkennel/rules/gate.py prefix "$1"\n')
-NO_EDITOR_SH = ("#!/bin/sh\n# EDITOR/VISUAL while a guest's rules are on (guests/rules_gate.py)\n"
-                "echo 'No editor here: ask Claude to change the file.' >&2\nexit 1\n")
+# AGENTKENNEL_RULES_ROOT: tests only (unset in a sandbox: the paths are /etc/...)
+SHELL_GATE_SH = """#!/bin/sh
+# CLAUDE_CODE_SHELL_PREFIX (guests/rules_gate.py). Never exit 2: hooks run through here too.
+G="${AGENTKENNEL_RULES_ROOT:-}/etc/agentkennel/rules/gate.py"
+if [ ! -r "$G" ]; then
+  echo "AgentKennel: the rules gate ($G) is missing, so no command can run. Tell the server's owner." >&2
+  exit 126
+fi
+exec python3 "$G" prefix "$1"
+"""
+NO_EDITOR_SH = """#!/bin/sh
+# EDITOR/VISUAL (guests/rules_gate.py): refused while a guest's rules are on, a real editor otherwise
+R="${AGENTKENNEL_RULES_ROOT:-}/etc/agentkennel/rules"
+if [ ! -e "$R/on" ]; then
+  for e in editor nano vim vi; do
+    command -v "$e" >/dev/null 2>&1 && exec "$e" "$@"
+  done
+  echo "No editor is installed." >&2
+  exit 1
+fi
+[ -r "$R/gate.py" ] && python3 "$R/gate.py" report editor >/dev/null 2>&1
+echo 'No editor here: ask Claude to change the file.' >&2
+exit 1
+"""
 
 
 def root_dir() -> Path:
@@ -73,7 +104,10 @@ def is_on(root: Path) -> bool:
 
 def managed_settings() -> dict:
     return {
-        "env": {"CLAUDE_CODE_SHELL_PREFIX": SHELL_GATE, "EDITOR": NO_EDITOR, "VISUAL": NO_EDITOR},
+        # DISABLE_AUTOUPDATER: claude runs as root with internet; a newer claude must not
+        # arrive by itself under a lock measured on a known version
+        "env": {"CLAUDE_CODE_SHELL_PREFIX": SHELL_GATE, "EDITOR": NO_EDITOR, "VISUAL": NO_EDITOR,
+                "DISABLE_AUTOUPDATER": "1"},
         "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [
             {"type": "command", "command": TICKET_HOOK}]}]},
         "strictKnownMarketplaces": [],
@@ -92,7 +126,8 @@ def sh_quote(s: str) -> str:
 def _forms(cmd: str) -> list:
     """The command as claude puts it into its wrapper: `eval '<cmd>' ` — the whole command,
     quoted, so a longer command typed with `!` never matches a shorter pending one."""
-    return ["eval " + q + " " for q in (sh_quote(cmd), "'" + cmd.replace("'", "'\\''") + "'")]
+    quoted = {sh_quote(cmd), "'" + cmd.replace("'", "'\\''") + "'", shlex.quote(cmd)}
+    return ["eval " + q + " " for q in quoted]     # shlex.quote: a plain word stays bare
 
 
 def hook_commands(paths) -> set:
@@ -121,10 +156,80 @@ def hook_commands(paths) -> set:
 
 
 def settings_files(root: Path, cwd: str) -> list:
+    """Where hook commands may come from: managed, the user's, and the project's — the
+    session's project ($CLAUDE_PROJECT_DIR) and every folder from cwd up (after a `cd`)."""
     home = Path(os.environ.get("HOME") or "/root")
-    proj = Path(cwd)
-    return [root / MANAGED, home / ".claude" / "settings.json",
-            proj / ".claude" / "settings.json", proj / ".claude" / "settings.local.json"]
+    out = [root / MANAGED, home / ".claude" / "settings.json"]
+    dirs = [Path(cwd), *Path(cwd).parents]
+    if os.environ.get("CLAUDE_PROJECT_DIR"):
+        dirs.insert(0, Path(os.environ["CLAUDE_PROJECT_DIR"]))
+    for d in dirs:
+        out += [d / ".claude" / "settings.json", d / ".claude" / "settings.local.json"]
+    return out
+
+
+def _cwd() -> str:
+    try:
+        return os.getcwd()
+    except OSError:                    # the folder was deleted under the session
+        return os.environ.get("PWD") or "/"
+
+
+def what_was_tried(cmdline: str) -> str:
+    """The command itself out of claude's wrapper (`… && eval '<cmd>' < /dev/null && …`)."""
+    at = cmdline.find("&& eval ")     # the first one is claude's: the rest is inside quotes
+    if at >= 0:
+        try:
+            lex = shlex.shlex(cmdline[at + 8:], posix=True)
+            lex.whitespace_split = True
+            return next(iter(lex))
+        except (ValueError, StopIteration):
+            pass
+    return cmdline
+
+
+_SECRETS = [re.compile(r"sk-ant-[A-Za-z0-9_-]+"),
+            re.compile(r"(?i)\b(bearer|token|password|passwd|secret|api[_-]?key)(\s*[:=]\s*|\s+)\S+"),
+            re.compile(r"[A-Za-z0-9+/_-]{32,}={0,2}")]
+
+
+def sanitized(text: str, cap: int = REPORT_MAX) -> str:
+    """One short line for the owner: no keys, tokens or passwords in it."""
+    text = " ".join(str(text or "").split())
+    for rx in _SECRETS:
+        text = rx.sub(lambda m: (m.group(1) + " …") if m.re.groups else "…", text)
+    return text[:cap]
+
+
+def tell_owner(kind: str, text: str) -> None:
+    """POST /flag to the turnstile with this sandbox's own pass; the turnstile names the
+    guest, applies its hourly limit and tells the owner. Never raises, never waits long."""
+    base = (os.environ.get("ANTHROPIC_BASE_URL") or "").rstrip("/")
+    token = os.environ.get("ANTHROPIC_AUTH_TOKEN") or ""
+    if not base:
+        return
+    req = urllib.request.Request(
+        base + "/flag", data=json.dumps({"kind": kind, "text": sanitized(text)}).encode(),
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=3).close()
+    except Exception:
+        pass
+
+
+def log_refusal(path: Path, cmdline: str) -> None:
+    """One line per refusal; past REFUSED_LOG_MAX the newest half is kept."""
+    try:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if path.exists() and path.stat().st_size > REFUSED_LOG_MAX - 1024:
+            keep = path.read_bytes()[-(REFUSED_LOG_MAX // 2):]
+            path.write_bytes(keep[keep.find(b"\n") + 1:])
+        digest = hashlib.sha256(cmdline.encode()).hexdigest()[:12]
+        with open(path, "a") as f:
+            f.write(f"{int(time.time())} {digest} {sanitized(what_was_tried(cmdline), 300)!r}\n")
+    except OSError:
+        pass
 
 
 def write_ticket(folder: Path, hook_input, now=None) -> None:
@@ -198,22 +303,49 @@ def _tmux_sockets(root: Path) -> list:
     return sorted(glob.glob(str(root / "tmp" / "tmux-*" / "*")))
 
 
-def install(root: Path, on: bool, source: str, run=subprocess.run) -> None:
+def tmux_unlock_argv(sock: str, home: Path) -> list:
+    """Back to tmux's own default, then the user's ~/.tmux.conf on top (their prefix wins)."""
+    argv = [["tmux", "-S", sock, "set", "-g", "prefix", "C-b"],
+            ["tmux", "-S", sock, "set", "-g", "prefix2", "None"]]
+    if (Path(home) / ".tmux.conf").is_file():
+        argv.append(["tmux", "-S", sock, "source-file", str(Path(home) / ".tmux.conf")])
+    return argv
+
+
+def _claude_pids(root: Path) -> list:
+    pids = []
+    for cmdline in glob.glob(str(root / "proc" / "[0-9]*" / "cmdline")):
+        try:
+            argv0 = Path(cmdline).read_bytes().split(b"\0", 1)[0]
+        except OSError:
+            continue
+        if os.path.basename(argv0.decode("utf-8", "replace")) in ("claude", "claude.exe"):
+            pids.append(int(Path(cmdline).parent.name))
+    return sorted(pids)
+
+
+def install(root: Path, on: bool, source: str, run=subprocess.run) -> dict:
+    """{"stale_claudes": n}: claudes that were running when the settings folder did not exist
+    yet — measured: they never pick up managed settings until restarted."""
     rules = root / RULES_DIR
     managed = root / MANAGED
+    info = {"stale_claudes": 0}
     if not on and not rules.exists():      # never locked: nothing to lift, nothing written
-        return
+        return info
+    if on and not managed.parent.exists():
+        info["stale_claudes"] = len(_claude_pids(root))
     if on and managed.exists() and not _ours(managed):
         raise SystemExit(f"{managed} is someone else's: not overwritten")
     # the gate stays in place when off: a claude started while on still calls it
     _write(rules / "gate.py", source, 0o755)
     _write(rules / "shell-gate", SHELL_GATE_SH, 0o755)
     _write(rules / "no-editor", NO_EDITOR_SH, 0o755)
-    _write(rules / "tmux.conf", TMUX_LOCK, 0o644)
-    for d in (root / "etc/agentkennel", rules):
+    managed.parent.mkdir(parents=True, exist_ok=True)   # kept: the next lock applies live
+    for d in (root / "etc/agentkennel", rules, managed.parent):
         os.chmod(d, 0o755)
     kw = dict(capture_output=True, text=True, timeout=10)
     if on:
+        _write(rules / "tmux.conf", TMUX_LOCK, 0o644)
         _write(managed, json.dumps(managed_settings(), indent=2) + "\n", 0o644)
         _write(rules / "on", "on\n", 0o644)
         for sock in _tmux_sockets(root):
@@ -221,10 +353,14 @@ def install(root: Path, on: bool, source: str, run=subprocess.run) -> None:
             run(["tmux", "-S", sock, "kill-session", "-t", "=cmd-shell"], **kw)
     else:
         _remove(rules / "on")
+        _remove(rules / "tmux.conf")
         if _ours(managed):
             _remove(managed)
+        home = Path(os.environ.get("HOME") or "/root")
         for sock in _tmux_sockets(root):
-            run(["tmux", "-S", sock, "set", "-g", "prefix", "C-b"], **kw)
+            for argv in tmux_unlock_argv(sock, home):
+                run(argv, **kw)
+    return info
 
 
 # guestctl runs this file in the sandbox from stdin (any image has python3, none needs a copy):
@@ -238,18 +374,24 @@ def main(argv=None, source=None) -> int:
     root = root_dir()
     if argv[:1] == ["prefix"] and len(argv) == 2:
         cmdline = argv[1]
-        if is_on(root) and not decide(cmdline, hook_commands(settings_files(root, os.getcwd())),
-                                      tickets_dir(root)):
-            digest = hashlib.sha256(cmdline.encode()).hexdigest()[:12]
+        try:
+            allowed = not is_on(root) or decide(
+                cmdline, hook_commands(settings_files(root, _cwd())), tickets_dir(root))
+        except Exception as exc:     # fail closed, but say so: the agent relays it
+            print(BROKEN.format(error=f"{type(exc).__name__}: {exc}"[:200]), file=sys.stderr)
+            return REFUSED
+        if not allowed:
             print(REFUSAL, file=sys.stderr)
-            try:
-                tickets_dir(root).mkdir(mode=0o700, parents=True, exist_ok=True)
-                with open(root / TICKETS / "refused.log", "a") as f:
-                    f.write(f"{int(time.time())} {digest} {cmdline[-300:]!r}\n")
-            except OSError:
-                pass
+            log_refusal(tickets_dir(root) / "refused.log", cmdline)
+            tell_owner("bypass", "typed a command past Claude (refused): " + what_was_tried(cmdline))
             return REFUSED
         os.execvp("bash", ["bash", "-c", cmdline])
+    if argv[:1] == ["report"] and len(argv) == 2:
+        if argv[1] not in REPORTS:
+            return 2
+        if is_on(root):
+            tell_owner("bypass", REPORTS[argv[1]])
+        return 0
     if argv == ["ticket"]:
         try:
             write_ticket(tickets_dir(root), json.loads(sys.stdin.read() or "{}"))
@@ -257,9 +399,11 @@ def main(argv=None, source=None) -> int:
             pass
         return 0
     if argv[:1] == ["install"] and argv[1:] in (["on"], ["off"]):
-        install(root, argv[1] == "on",
-                source=source if source is not None else Path(__file__).read_text())
+        info = install(root, argv[1] == "on",
+                       source=source if source is not None else Path(__file__).read_text())
         print(f"rules lock: {argv[1]}")
+        if info.get("stale_claudes"):
+            print(f"stale-claudes: {info['stale_claudes']}")
         return 0
     print(__doc__, file=sys.stderr)
     return 2

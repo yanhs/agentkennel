@@ -35,3 +35,10 @@ def test_the_guests_module_stays_out_of_the_image():
     """COPY . /app would otherwise bake guests/.env (the bot token), the guest book and
     the guests' public files into every sandbox."""
     assert "guests" in code(REPO / ".dockerignore")
+
+
+def test_the_guest_image_has_the_managed_settings_folder_from_the_start():
+    """Measured 17.11.2026 (claude 2.1.282 and 2.1.326): a managed-settings.json created
+    mid-session is read only if its folder existed when claude started; otherwise a guest's
+    rules lock reaches no terminal that is already open."""
+    assert "RUN mkdir -p /etc/claude-code" in code(GUESTS / "image" / "Dockerfile")

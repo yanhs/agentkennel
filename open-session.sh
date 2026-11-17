@@ -46,6 +46,9 @@ if [ "$ID" = "shell" ]; then
   # a guest's rules are on (guests/rules_gate.py): this sandbox is Claude-only
   if [ -e "${AGENTKENNEL_RULES_FLAG:-/etc/agentkennel/rules/on}" ]; then
     echo "The command line is off: the server's owner has limited this sandbox to its work. Ask Claude in a terminal instead."
+    # the owner hears of it (turnstile /flag, hourly limit); the gate exists only when locked
+    G="${AGENTKENNEL_RULES_GATE:-/etc/agentkennel/rules/gate.py}"
+    [ -r "$G" ] && python3 "$G" report shell >/dev/null 2>&1
     done_with 2
   fi
   if [ "${DRY_RUN:-}" = "1" ]; then
