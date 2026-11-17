@@ -148,9 +148,6 @@ def set_address(name: str, address: str, ops) -> None:
 
 
 def cmd_address(a) -> int:
-    sys.path.insert(0, str(HERE / "sitegate"))
-    import sitegate  # noqa: E402
-
     ops = _site_ops()
     _require_web(ops)
     set_address(a.name, a.address, ops)
@@ -1133,9 +1130,6 @@ def move_domain(old: str, ops, guests: dict, fix_rules) -> None:
 
 
 def cmd_move_domain(a) -> int:
-    sys.path.insert(0, str(HERE / "sitegate"))
-    import sitegate  # noqa: E402
-
     ops = _site_ops()
     _require_web(ops)
     move_domain(a.old, ops, _registry(), fix_rules_in_sandbox)
