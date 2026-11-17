@@ -545,6 +545,22 @@ def test_the_telegram_inbox_is_a_fixed_line_not_a_checkbox(page, fake):
     assert inbox and "/work/tg-uploads" in inbox.inner_text() and "Never run" in inbox.inner_text()
 
 
+# owner, 17.11.2026: the Rules button shows at a glance whether a guest is restricted
+def test_the_rules_button_shows_whether_the_guest_is_restricted(page, fake):
+    fake.guests[0]["rules"] = {"on": True, "work": "Site", "folders": ["/work/site"],
+                               "actions": {"edit": True, "restart": False, "packages": False,
+                                           "publish": False, "services": False}, "flag": True}
+    fake.guests[0]["rules_active"] = True
+    guest_rows(page)
+    rb = page.wait_for_selector('#guests .guest[data-name="masha"] button[data-act="rules"].restricted')
+    title = rb.get_attribute("title")
+    assert "Restricted" in title and "Site" in title and "/work/site" in title
+    assert "Not allowed" in title and "Install packages" in title
+    others = page.eval_on_selector_all('#guests .guest:not([data-name="masha"]) button[data-act="rules"]',
+                                       "els => els.map(e => [e.classList.contains('restricted'), e.title])")
+    assert others and all(not r and "No rules" in t for r, t in others)
+
+
 def test_only_this_work_needs_the_work_said(page, fake):
     guest_rows(page)
     box = open_rules(page, fake)

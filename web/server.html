@@ -274,6 +274,12 @@
     .svc-btns button[data-act="web"][aria-pressed="true"]::before, .gform button.gsw[aria-pressed="true"]::before {
       background: radial-gradient(circle at 14.5px 5.5px, var(--bg) 3.5px, transparent 4px), var(--green);
     }
+    /* Rules at a glance (owner, 17.11.2026): amber with a dot while the guest is restricted */
+    .svc-btns button[data-act="rules"].restricted { color: var(--amber); border-color: var(--amber); }
+    .svc-btns button[data-act="rules"].restricted::before {
+      content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 5px; vertical-align: 1px;
+      border-radius: 50%; background: var(--amber);
+    }
     /* the forms that open in the block: the agent's rules (web on or off), whose
        Claude a guest runs on, and Settings → For new guests (one look for all three) */
     .gform { margin: 0 0 10px 22px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px;
@@ -1134,6 +1140,16 @@
     if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
     return d;
   }
+  // one line per part, for the Rules button's tooltip
+  function gRulesSummary(g) {
+    const R = g.rules || {}, acts = R.actions || {};
+    const yes = G_RULE_ACTIONS.filter(([k]) => acts[k]).map(([, t]) => t);
+    const no = G_RULE_ACTIONS.filter(([k]) => !acts[k]).map(([, t]) => t);
+    return [`Restricted: ${g.name}'s agent works only on: ${R.work || '—'}`,
+      `May change: ${(R.folders || []).join(', ') || 'no folders named'} (and ${G_INBOX})`,
+      `Allowed: ${yes.join('; ') || 'nothing beyond reading'}`,
+      `Not allowed: ${no.join('; ') || '—'}`].join('\n');
+  }
   function gButtons(g) {
     return [...(g.url && g.state === 'running' ? [['open', 'Open']] : []),
       ['web', 'Web'], ['rules', 'Rules'], g.claude ? ['claude', 'Claude'] : ['limit', 'Limit'], g.enabled && g.state === 'running' ? ['stop', 'Stop'] : ['start', 'Start'], ['remove', 'Remove']];
@@ -1220,8 +1236,11 @@
       : `Web access to ${g.name}'s terminals is on. Click to turn it off: the address goes, the bot and the agent stay`;
     rb.disabled = busy;
     // with web on too (owner, 17.11.2026): rules on make their terminals Claude-only
-    rb.title = `What ${g.name}'s agent may do` + (g.rules_active ? ' (rules on)' : '')
-      + (noWeb ? '' : `. With rules on, ${g.name}'s terminals in the browser are Claude-only: no command line, no ! commands`);
+    // the button shows the state at a glance (owner, 17.11.2026): amber = restricted
+    rb.classList.toggle('restricted', !!g.rules_active);
+    rb.title = g.rules_active ? gRulesSummary(g) + '. Click to change'
+      : `No rules: ${g.name}'s agent may do anything in its sandbox. Click to set rules`
+        + (noWeb ? '' : `; with rules on, ${g.name}'s terminals in the browser are Claude-only (no command line, no ! commands)`);
     rb.classList.toggle('on', gRulesOpen.has(g.name));
     const cb = box.querySelector('button[data-act="claude"]');
     if (cb) {
