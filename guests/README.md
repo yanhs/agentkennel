@@ -103,8 +103,9 @@ pick another default under "For new guests".
 You need AgentKennel installed from a checkout (this folder lives inside it), Docker that
 your user may use, systemd, sudo without a password for your user (the services make each
 guest's disk and web address in the background), and — for web addresses — nginx and
-certbot on ports 80/443. The script install puts Caddy on those ports; there, set Web off
-for new guests (Telegram only) until you move the server to nginx.
+certbot on ports 80/443 (the guest's dashboard address, **Open**, the guests' own sites and
+the shared files address all go through it). The script install puts Caddy on those ports;
+there, set Web off for new guests (Telegram only) until you move the server to nginx.
 
 1. **Settings.** `cp guests/.env.example guests/.env` (the installer does it on the first
    run) and fill in:

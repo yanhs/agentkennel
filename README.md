@@ -311,8 +311,8 @@ Before the first guest:
   guest services make each guest's disk and web address in the background;
 - **web addresses** (`https://sb-<name>.<domain>`) need nginx and certbot on ports 80/443.
   The script install puts Caddy there, so on such a server turn **Web** off for new guests
-  (Settings → "For new guests"): they work through Telegram, and you can still **Open**
-  their dashboard.
+  (Settings → "For new guests"): they work through Telegram. **Open**, the guests' own
+  sites and the shared files address need the same nginx, so they wait for it too.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yanhs/agentkennel/master/install.sh | bash -s -- --guests
