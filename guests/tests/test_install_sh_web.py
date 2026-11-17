@@ -2,13 +2,19 @@
 (guests/webchoice.py), and no longer asks for nginx + certbot on a Caddy server."""
 from __future__ import annotations
 
-import sys
+import importlib.util
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_install_sh import Box, SHIM, BASH  # noqa: E402  (the sandboxed guests/install.sh)
+# by path: tests/ and guests/tests/ both have a test_install_sh.py (the sandboxed guests/install.sh)
+_spec = importlib.util.spec_from_file_location(
+    "_guests_install_sh", Path(__file__).resolve().parent / "test_install_sh.py")
+_lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_lib)
+Box = _lib.Box
+SHIM = _lib.SHIM
+BASH = _lib.BASH
 
 PY = ('case "$*" in *webchoice.py*) printf "%b" "$FAKE_WEB"; exit "${FAKE_WEB_RC:-0}";; '
       '*image-tag*) echo agentkennel-guest:v9.9.9;; esac; exit 0')

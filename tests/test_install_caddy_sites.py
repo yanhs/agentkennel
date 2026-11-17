@@ -8,13 +8,19 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
+import importlib.util
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_install_sh import Box, render, ROOT  # noqa: E402  (the sandboxed install.sh)
+# by path: tests/ and guests/tests/ both have a test_install_sh.py (the sandboxed install.sh)
+_spec = importlib.util.spec_from_file_location(
+    "_root_install_sh", Path(__file__).resolve().parent / "test_install_sh.py")
+_lib = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_lib)
+Box = _lib.Box
+render = _lib.render
+ROOT = _lib.ROOT
 
 IMPORT = 'import "{$AGENTKENNEL_CADDY_SITES:/dev/null}"'
 
