@@ -557,6 +557,19 @@
   document.body.classList.toggle('embedded', embedded);
 
   let data = null, lastOk = 0;
+  // what the page last saw, kept for this browser session (owner, 18.11.2026: each click on
+  // the Server tab reloads the page; showing the last view at once beats 2-3 s of nothing).
+  // Shown with the guests' and services' buttons off until fresh data replaces it.
+  const SRV_CACHE = 'ak-server-view-v1', SRV_CACHE_MAX_AGE = 15 * 60 * 1000;
+  function srvCacheGet() {
+    try { const c = JSON.parse(sessionStorage.getItem(SRV_CACHE) || 'null');
+          return c && Date.now() - (c.at || 0) < SRV_CACHE_MAX_AGE ? c : null; } catch (e) { return null; }
+  }
+  function srvCachePut(kind, value) {
+    try { const c = srvCacheGet() || {}; c[kind] = value; c.at = Date.now();
+          sessionStorage.setItem(SRV_CACHE, JSON.stringify(c)); } catch (e) { /* storage off: no instant view */ }
+  }
+  let svcFresh = false, gFresh = false;
   const rows = new Map();                 // member id -> row element
   const sections = new Map();             // group id -> section element
   const open = new Set();                 // expanded member ids
@@ -1029,7 +1042,7 @@
         box.dataset.acts = want.map(a => a[0]).join();
       }
       box.querySelectorAll('button').forEach(b => {
-        b.disabled = svcBusy === name && b.dataset.act !== 'log';
+        b.disabled = (svcBusy === name || !svcFresh) && b.dataset.act !== 'log';
         b.classList.toggle('on', b.dataset.act === 'log' && svcLogs.has(name));
       });
       if (list.children[i] !== r) list.insertBefore(r, list.children[i] || null);
@@ -1042,6 +1055,8 @@
       const r = await fetch(SVC_API, { cache: 'no-store', credentials: 'same-origin' });
       if (!r.ok || !(r.headers.get('content-type') || '').includes('json')) throw new Error('HTTP ' + r.status);
       svcLast = await r.json();
+      svcFresh = true;
+      srvCachePut('services', svcLast);
       renderServices(svcLast);
       for (const name of svcLogs) loadLog(name);
     } catch (e) { /* the page's own stale banner covers an unreachable server */ }
@@ -1230,7 +1245,7 @@
       }));
       box.dataset.acts = want.map(a => a[0]).join();
     }
-    const busy = job && !job.done;
+    const busy = (job && !job.done) || !gFresh;           // !gFresh: the session's last view, not yet refreshed
     box.querySelectorAll('button').forEach(b => { b.disabled = busy; });
     const wb = box.querySelector('button[data-act="web"]'), rb = box.querySelector('button[data-act="rules"]');
     wb.setAttribute('aria-pressed', noWeb ? 'false' : 'true');
@@ -1801,6 +1816,8 @@
       const r = await fetch(G_API, { cache: 'no-store', credentials: 'same-origin' });
       if (!r.ok || !(r.headers.get('content-type') || '').includes('json')) throw new Error('HTTP ' + r.status);
       gLast = await r.json();
+      gFresh = true;
+      srvCachePut('guests', gLast);
       gRender();
     } catch (e) { /* the page's own stale banner covers an unreachable server */ }
   }
@@ -1931,6 +1948,7 @@
       const d = await r.json();
       if (!d || !d.host || !Array.isArray(d.groups)) throw new Error('bad data');
       data = d;
+      srvCachePut('server', d);
       lastOk = Date.now();
       $('#stale').hidden = true;
       render();
@@ -1952,6 +1970,15 @@
     if (!document.hidden && timer === null) poll();
   });
   setInterval(tickUpdated, 1000);
+  (function showLastView() {
+    const c = srvCacheGet();
+    if (!c) return;
+    try {
+      if (c.server && c.server.host && Array.isArray(c.server.groups)) { data = c.server; lastOk = c.at; render(); tickUpdated(); }
+      if (c.services) { svcLast = c.services; renderServices(svcLast); }
+      if (c.guests) { gLast = c.guests; gRender(); }
+    } catch (e) { /* a view from an older page version: the poll below draws it fresh */ }
+  })();
   let rz = null;
   window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => data && renderChart(), 120); });
   poll();

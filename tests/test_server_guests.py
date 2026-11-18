@@ -151,6 +151,34 @@ def test_the_guests_list_does_not_wait_for_the_server_chart(browser, site, fake)
     ctx.close()
 
 
+# owner, 18.11.2026: opening the Server tab again took 2-3 s (each click reloads the page).
+# The page shows what it last saw in this browser session at once — buttons off until fresh.
+def test_a_reopened_page_shows_the_last_guests_at_once_with_buttons_off(browser, site, fake):  # noqa: F811
+    held = []
+    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    ctx.set_default_timeout(10000)
+    ctx.route(re.compile(r"/api/services(/|\?|$)"), services_none)
+    ctx.route(re.compile(r"/api/guests(/|\?|$)"), fake.handle)
+    pg = ctx.new_page()
+    pg.route(re.compile(r"^https://fonts\.(googleapis|gstatic)\.com/"), lambda r: r.abort())
+    pg.route(re.compile(r"/api/server(\?|$)"), FakeServerAPI().handle)
+    pg.goto(site + "?poll=300")
+    pg.wait_for_selector('#guests .guest[data-name="masha"] button[data-act="stop"]:not([disabled])')
+    # second visit in the same session: the guests API hangs, yet the rows are there at once
+    ctx.unroute(re.compile(r"/api/guests(/|\?|$)"))
+    ctx.route(re.compile(r"/api/guests(/|\?|$)"), lambda route: held.append(route))
+    pg.reload()
+    pg.wait_for_selector('#guests .guest[data-name="masha"]', timeout=3000)
+    assert pg.is_disabled('#guests .guest[data-name="masha"] button[data-act="stop"]')
+    # fresh data arrives: the buttons come back
+    ctx.unroute(re.compile(r"/api/guests(/|\?|$)"))
+    ctx.route(re.compile(r"/api/guests(/|\?|$)"), fake.handle)
+    for r in held:
+        fake.handle(r)
+    pg.wait_for_selector('#guests .guest[data-name="masha"] button[data-act="stop"]:not([disabled])')
+    ctx.close()
+
+
 @pytest.fixture
 def fake():
     return FakeGuests()
