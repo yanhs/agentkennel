@@ -2,6 +2,10 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## v2.7.2 — the Server tab opens at once
+
+- **The Server tab opens at once when you come back to it.** The dashboard reloads the page on every click; it now shows what it last saw in this browser session straight away (the guests' and services' buttons wait for fresh data, a fraction of a second), then refreshes. Measured with 150 ms of network latency: the guests list in 0.3 s instead of 1–3 s.
+
 ## v2.7.1 — the docs catch up with v2.7.0
 
 - **Upgrading with rules on:** recreate each guest with rules on (`python3 guests/guestctl.py recreate <name>`) so their command line and Ctrl+B are locked too; an old image keeps them open.
