@@ -392,7 +392,7 @@ def main() -> int:
         ms.check_english(pg, "beat4")
 
         # beat 7 — on the same page: other people, each in a sandbox; one guest's rules
-        caption(pg, "Other people too, each in a sandbox", "· web or Telegram only")
+        caption(pg, "Other people too, each in a sandbox", "· web and Telegram")
         scroll_to("#guests", 20)
         film.shot(pg, 1.6)
         rules = '#guests .guest[data-name="alex"] button[data-act="rules"]'
@@ -401,7 +401,7 @@ def main() -> int:
         sfr.locator(rules).click()
         sfr.locator('#guests .grules input[data-folder="/work/old-drafts"]').wait_for()
         hide_cursor(pg)
-        caption(pg, "You choose what their agent may do")
+        caption(pg, "You choose what their agent may do", "· in their web terminal too")
         pg.wait_for_timeout(200)
         film.shot(pg, 1.0)
         scroll_to('#guests .guest[data-name="alex"]', 60, n=6)   # the form in view, alex's row on top

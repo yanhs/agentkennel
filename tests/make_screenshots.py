@@ -395,7 +395,7 @@ SERVICE_LOG = [
 ]
 
 
-# alex: web off, the agent kept to one site (the Rules form, guests-rules.png)
+# alex: web ON and rules on — since v2.7 the rules hold in the live web terminal too (owner 18.11.2026)
 ALEX_RULES = {"on": True,
               "work": "The bakery's website, bakery.example.com: its pages, menu, photos and prices.",
               "folders": ["/work/bakery-site"],
@@ -417,7 +417,7 @@ def guests_payload(configured=True, checks=None) -> dict:
         {"name": "alex", "telegram_id": 7731, "port": 18102, "state": "running", "enabled": True,
          "five_hour": {"used": 17_200_000, "limit": 20_000_000, "resets_at": 1793430000},
          "seven_day": {"used": 88_000_000, "limit": 140_000_000, "resets_at": 1793689200},
-         "url": None, "web": False, "rules": ALEX_RULES, "rules_active": True,
+         "url": "https://sb-alex.example.com", "web": True, "rules": ALEX_RULES, "rules_active": True,
          "created": "2026-10-22 16:30:00",
          "claude": {"mode": "own", "owner_mode": "owner_key", "has_key": True, "last4": "x4Fk", "usd": None,
                     "usd_week": 20}},
