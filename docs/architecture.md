@@ -96,6 +96,7 @@ whisper_transcribe.py    voice-note transcription helper
 Caddyfile, docker/       the proxy for install.sh / start.sh, and the Docker image's files
 nginx/                   a reverse-proxy + login template for the manual setup
 tasks-dashboard/         shared live task board
+guests/                  optional: other people in sandboxes of their own (guests/README.md)
 tests/                   pytest suite
 AGENTS.md                an example set of operating rules for agents
 ```

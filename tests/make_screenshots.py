@@ -55,17 +55,37 @@ SESSIONS = [
 ]
 
 
-def library_payload(with_archived: bool) -> dict:
+# alex's own dashboard (a guest's sandbox, web on, rules on): guest-terminal-locked.png
+GUEST_SESSIONS = [
+    ("4c2a9e10", "Bakery site: holiday hours", True, "idle", 60, False),
+    ("9d13b7f2", "Menu photos", True, "idle", 1800, False),
+    ("b6e0f4a1", "Price list update", False, "off", 2 * 86400, False),
+]
+
+
+def library_payload(with_archived: bool, sessions=None, locked=False) -> dict:
     out = []
-    for i, (sid, name, active, status, ago, arch) in enumerate(SESSIONS):
+    for i, (sid, name, active, status, ago, arch) in enumerate(sessions or SESSIONS):
         if arch and not with_archived:
             continue
         out.append({"id": sid, "name": name, "cwd": "/srv/work", "created": NOW - 90 * 86400 + i,
                     "last_used": NOW - ago, "archived": arch, "active": active,
                     "attached": False, "status": status})
-    return {"max_active": 12, "sessions": out,
-            "shell": {"active": True, "attached": False, "status": "idle"},
+    # a guest's rules on: the server reports the command line as locked (status_server.py)
+    shell = ({"active": False, "attached": False, "status": "idle", "locked": True} if locked
+             else {"active": True, "attached": False, "status": "idle"})
+    return {"max_active": 12, "sessions": out, "shell": shell,
             "_system": {"cpu_pct": 66, "ram_pct": 46, "ram_used_mb": 7420, "ram_total_mb": 16000}}
+
+
+# GET /api/quota: the owner's subscription chip ("5h 7%" / "wk 9%"), or a guest's Claude label
+OWNER_QUOTA = {"available": True, "source": "subscription",
+               "five_hour": {"utilization": 0.07, "resets_at": NOW + 3 * 3600},
+               "seven_day": {"utilization": 0.09, "resets_at": NOW + 4 * 86400}}
+GUEST_QUOTA = {"available": True, "source": "guest",
+               "five_hour": {"utilization": 0.0, "resets_at": 0},
+               "seven_day": {"utilization": 0.0, "resets_at": 0},
+               "claude": {"mode": "own", "owner_mode": "owner_key", "last4": "x4Fk", "usd": None}}
 
 
 def iso(dt: datetime) -> str:
@@ -278,17 +298,20 @@ body{font:13.5px/1.4 'JetBrains Mono','DejaVu Sans Mono',ui-monospace,monospace;
 .add{color:#86efac;background:#12301f}.del{color:#fca5a5;background:#3a1717}.warn{color:#f0b35a}
 .or{color:#d97757}.box{border:1px solid #4a4e58;border-radius:6px;padding:4px 10px;margin-top:10px;color:#e6e8ec}
 .hint{color:#7d828d;font-size:12.5px;margin-top:4px}.cur{background:#d4d7dd;color:#1b1d23}
+.err{color:#f87171}.pink{color:#f472b6;font-weight:600}
 """
 
 
 def term_html(sid: str) -> str:
-    name = next((s[1] for s in SESSIONS if s[0] == sid), "Terminal")
+    name = next((s[1] for s in SESSIONS + GUEST_SESSIONS if s[0] == sid), "Terminal")
     L = []
 
     def line(s: str = "", cls: str = "l"):
         L.append(f'<div class="{cls}">{s or "&nbsp;"}</div>')
 
-    if sid != "3f9a1c07":        # an idle terminal: a finished docs session
+    if sid in {g[0] for g in GUEST_SESSIONS}:
+        _guest_locked_session(line)
+    elif sid != "3f9a1c07":        # an idle terminal: a finished docs session
         line('<span class="or">&#x273B;</span> <span class="b">Claude Code</span> <span class="dim">&middot; Opus &middot; /srv/work/docs</span>')
         line()
         line('<span class="dim">&gt;</span> <span class="u">Generate an API reference page for every public endpoint, with a curl</span>')
@@ -323,6 +346,35 @@ def term_html(sid: str) -> str:
             f"<style>{TERM_CSS}</style></head><body><div>{body}</div>"
             f"<div class='box'><span class='dim'>&gt;</span> <span class='cur'>&nbsp;</span></div>"
             f"<div class='hint'>&#x23F5;&#x23F5; bypass permissions on</div></body></html>")
+
+
+def _guest_locked_session(line):
+    """alex in their own web terminal, rules on: a `!` command is refused by the rules gate
+    (its real REFUSAL text), an off-topic request is declined by the agent."""
+    sys.path.insert(0, str(ROOT / "guests"))
+    import rules_gate
+    line('<span class="or">&#x273B;</span> <span class="b">Claude Code</span> <span class="dim">&middot; Opus &middot; /work/bakery-site</span>')
+    line()
+    line('<span class="dim">&gt;</span> <span class="u">Add a holiday hours banner to the home page: closed Dec 25 and Jan 1</span>')
+    line()
+    line('<span class="dot">&#9679;</span> <span class="tool">Read</span><span class="arg">(src/pages/index.astro)</span>')
+    line('  <span class="dim">&#9151;  Read 64 lines</span>')
+    line('<span class="dot">&#9679;</span> <span class="tool">Update</span><span class="arg">(src/pages/index.astro)</span>')
+    line('  <span class="dim">&#9151;  Updated src/pages/index.astro with 9 additions</span>')
+    line('<span class="dot">&#9679;</span> <span class="tool">Bash</span><span class="arg">(npm run build)</span>')
+    line('  <span class="dim">&#9151;  </span><span class="ok">Built 14 pages</span><span class="dim"> in 2.1s</span>')
+    line()
+    line('<span class="dot">&#9679;</span> Done: the banner is on the home page and the site is rebuilt.')
+    line()
+    line('<span class="pink">!</span> <span class="u">pip install yt-dlp</span>')
+    first, rest = rules_gate.REFUSAL.split(". ", 1)
+    line('  <span class="dim">&#9151;  </span><span class="err">' + html.escape(first + ".") + '</span>')
+    line('     <span class="err">' + html.escape(rest) + '</span>')
+    line()
+    line('<span class="dim">&gt;</span> <span class="u">Then download a YouTube video for me, it\'s for a friend</span>')
+    line()
+    line('<span class="dot">&#9679;</span> I can\'t help with that: I only work on the bakery\'s website, bakery.example.com,')
+    line('  its pages, menu, photos and prices. I can put a video you send me on a page.')
 
 
 def _auth_session(line):
@@ -545,15 +597,34 @@ def check_english(pg, name: str) -> None:
         PROBLEMS.append(f"{name}: Cyrillic {''.join(hits)}")
 
 
+MAX_KB = 290     # tests/test_readme_screenshots.py: under 300 KB a picture
+
+
+def shrink(path: Path) -> None:
+    """A screenshot over MAX_KB: 256 colours first (text stays sharp), then 3/4 of the size."""
+    from PIL import Image
+    if path.stat().st_size <= MAX_KB * 1024:
+        return
+    im = Image.open(path).convert("RGB")
+    while True:
+        im.quantize(256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE).save(path, optimize=True)
+        if path.stat().st_size <= MAX_KB * 1024 or im.width < 1000:
+            return
+        im = im.resize((im.width * 3 // 4, im.height * 3 // 4), Image.LANCZOS)
+
+
 def save(pg, name: str, **kw) -> None:
     path = OUT / name
     pg.screenshot(path=str(path), **kw)
     check_english(pg, name)
+    shrink(path)
     print(f"  wrote {path} ({path.stat().st_size // 1024} KB)")
 
 
 def open_dashboard(browser, base, *, width, height, mobile=False, tasks_open=True,
-                   show_archived=False, color_scheme="dark", theme="dark"):
+                   show_archived=False, color_scheme="dark", theme="dark",
+                   sessions=None, locked=False, quota=None):
+    quota = OWNER_QUOTA if quota is None else quota
     ctx = browser.new_context(viewport={"width": width, "height": height}, device_scale_factor=SCALE,
                               is_mobile=mobile, has_touch=mobile, color_scheme=color_scheme)
     ctx.set_default_timeout(15000)
@@ -573,7 +644,7 @@ def open_dashboard(browser, base, *, width, height, mobile=False, tasks_open=Tru
         if route.request.method != "GET":
             return route.fulfill(status=200, content_type="application/json", body='{"ok":true}')
         route.fulfill(status=200, content_type="application/json",
-                      body=json.dumps(library_payload("archived=1" in q)))
+                      body=json.dumps(library_payload("archived=1" in q, sessions, locked)))
 
     def sess(route):
         arg = (parse_qs(urlparse(route.request.url).query).get("arg") or [""])[0]
@@ -584,12 +655,24 @@ def open_dashboard(browser, base, *, width, height, mobile=False, tasks_open=Tru
              lambda r: r.fulfill(status=200, content_type="application/json",
                                  body=json.dumps({"_system": library_payload(False)["_system"]})))
     pg.route(re.compile(r"/api/page-version"), lambda r: r.abort())
+    # the Server tab's Services block (its page is in the frame: same origin, same context)
+    pg.route(re.compile(r"/api/services(\?|$)"),
+             lambda r: r.fulfill(status=200, content_type="application/json",
+                                 body=json.dumps(services_payload())))
+    pg.route(re.compile(r"/api/quota/terminals"),
+             lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(
+                 {"terminals": [{"name": "Auth: refresh tokens", "tokens_today": 4_100_000},
+                                {"name": "Data pipeline backfill", "tokens_today": 2_300_000}]})))
+    pg.route(re.compile(r"/api/quota(\?|$)"),
+             lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(quota)))
     pg.route(re.compile(r"/sess/"), sess)
     server_json = json.dumps(server_payload())
     pg.route(re.compile(r"/api/server(\?|$)"),
              lambda r: r.fulfill(status=200, content_type="application/json", body=server_json))
     pg.goto(base + "/index.html")
     pg.wait_for_selector(".card[data-sid]")
+    if not mobile:            # the usage chip, or a guest's Claude label (neither on phones)
+        pg.wait_for_selector("#quotaChip:not([hidden]), #claudeBtn:not([hidden])")
     pg.wait_for_timeout(400)
     return ctx, pg, errors
 
@@ -726,9 +809,16 @@ def tg_rules_msgs():
 
 
 def tg_rules_htmls():
+    """The README's sheet: also the alert for alex's `!` command in their web terminal
+    (guest-terminal-locked.png), the rules gate's report in the turnstile's real text."""
     guest, owner = tg_rules_msgs()
+    sys.path.insert(0, str(ROOT / "guests" / "turnstile"))
+    import turnstile
+    _, inc = tg_bubbles()
+    owner = owner + [inc(turnstile.FLAG_BYPASS.format(
+        name="alex", text="typed a command past Claude (refused): pip install yt-dlp"), "11:31")]
     return (tg_frame(guest, "11:24", title="Deck guests", sub="Alex's chat with the guest bot"),
-            tg_frame(owner, "11:24", title="AgentKennel", sub="your own bot"))
+            tg_frame(owner, "11:31", title="AgentKennel", sub="your own bot"))
 
 
 def tg_frame(msgs, clock, title="AgentKennel", sub="bot") -> str:
@@ -991,6 +1081,18 @@ def main() -> int:
             save(pg, name, full_page=True)
             done(ctx, errs, name)
 
+        # guest-terminal-locked.png — alex's own dashboard (web on, rules on): no cmd button,
+        # a `!` command refused by the rules gate, an off-topic request declined
+        if want("guest-terminal-locked.png"):
+            print("guest-terminal-locked.png")
+            ctx, pg, errs = open_dashboard(b, base, width=1280, height=560, tasks_open=False,
+                                           sessions=GUEST_SESSIONS, locked=True, quota=GUEST_QUOTA)
+            pg.wait_for_selector("#cmdBtn[hidden]", state="attached")
+            open_terminal(pg, "4c2a9e10")
+            settle(pg)
+            save(pg, "guest-terminal-locked.png")
+            done(ctx, errs, "guest-terminal-locked.png")
+
         # services-guests.png — the Server page: Services (one log open) and Guests
         if want("services-guests.png"):
             print("services-guests.png")
@@ -1074,7 +1176,8 @@ def main() -> int:
                 sheet.paste(im, (x, 0))
                 x += im.width + gap
             sheet.save(OUT / sheet_name, optimize=True)
-            print(f"  wrote {OUT / sheet_name}")
+            shrink(OUT / sheet_name)
+            print(f"  wrote {OUT / sheet_name} ({(OUT / sheet_name).stat().st_size // 1024} KB)")
 
         # installer-guests.png / agents-environment.png — terminal text from the real code
         for name, lines, title in (

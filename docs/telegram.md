@@ -26,7 +26,8 @@ If the bridge already runs as a systemd service (below), the Telegram page shows
 running and never starts a second copy.
 
 **A second bot for notifications (optional).** Warnings (a guest's spending, a guest
-asking for something strange or illegal, a site a guest published) can go to a bot of
+asking for something strange or illegal or trying to get around their Rules, the daily
+summary of declined off-topic requests, a site a guest published) can go to a bot of
 their own, so they don't get lost among your agents. Make one more bot in @BotFather, open
 it and press **Start**, then paste its token under **Notifications bot** on the same page
 and press **Save notifications bot**: it writes to you once to check, and only then is

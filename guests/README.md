@@ -59,7 +59,9 @@ a limit, through one shared Telegram bot. Off until you set it up.
   no `!` commands, no plain command line, no tmux keys (guests/rules_gate.py, put into the
   sandbox by `guestctl rules`; docs/superpowers/specs/2026-11-17-guest-rules-live-terminal.md).
 
-![The Guests block on the Server page: a Web switch per guest, one guest Telegram only with the Rules form open](../docs/screenshots/guests-rules.png)
+![The Guests block on the Server page: a Web switch per guest; alex has web on and the Rules form open, keeping the agent to the bakery's website](../docs/screenshots/guests-rules.png)
+
+![Alex's own dashboard with rules on: no cmd button; a ! command typed into Claude is refused, and the agent declines a request outside its work](../docs/screenshots/guest-terminal-locked.png)
 
 **Upgrading to v2.7.0 with rules on.** After `guests/install.sh` (it builds the new guest
 image), run `python3 guests/guestctl.py recreate <name>` for each guest with rules on, onto

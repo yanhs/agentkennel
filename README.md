@@ -11,9 +11,10 @@ browser tab or Telegram, close the tab, and they keep working.
   the task is closed.
 - **Full control of the server, or a Docker sandbox** — your choice at install time.
 - **Other people too, each in their own sandbox** — friends or clients get an agent of
-  their own, with a dollar limit a week on your Anthropic API key (or their own key). For each person you
-  choose: terminals in the browser or Telegram only, and what their agent may do (one site,
-  which folders, which actions). Needs the script install. [Guests](#-guests-other-people-on-your-server)
+  their own, on your Anthropic API key with a dollar limit a week (or on their own key). For
+  each person you choose: terminals in the browser or Telegram only, and Rules for what
+  their agent may do (one job, which folders, which actions). Needs the script install.
+  [Guests](#-guests-other-people-on-your-server)
 
 <p>
   <a href="https://github.com/yanhs/agentkennel/actions/workflows/install.yml"><img alt="install.sh on fresh servers" src="https://github.com/yanhs/agentkennel/actions/workflows/install.yml/badge.svg"></a>
@@ -31,8 +32,9 @@ curl -fsSL https://raw.githubusercontent.com/yanhs/agentkennel/master/install.sh
 #   open it and set your password there
 ```
 
-Run as a normal user with sudo — on a root-only VPS: `adduser deck && usermod -aG sudo deck`,
-then log in as deck. Want to read it first?
+Run it as a normal user with sudo; it refuses to run as root. On a root-only VPS:
+`adduser deck && usermod -aG sudo deck`, then log in as deck (or set
+`AGENTKENNEL_ALLOW_ROOT=1`, and the agents run as root). Want to read it first?
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yanhs/agentkennel/master/install.sh -o install.sh && less install.sh
@@ -55,9 +57,9 @@ docker compose up -d --wait && docker compose logs agentkennel | grep setup
 > touch the host. [Safety](#-safety-what-agents-never-do-without-you) lists what they never
 > do without you.
 
-**Latest: v2.7.2** (the Server tab opens at once) · **v2.7.0** — guests' rules hold in the live web terminal too (Claude-only, you hear
-of attempts around them), and guests' web addresses work on the script install (Caddy);
-v2.6.0: guests' Claude on your API key or their own → [CHANGELOG](CHANGELOG.md)
+**Latest: v2.7.2** — the Server tab opens at once. **v2.7.0** — a guest's Rules hold in
+their live web terminal too (Claude-only, and you hear of attempts to get around them);
+guests' web addresses work on the script install (Caddy). → [CHANGELOG](CHANGELOG.md)
 
 ## Why AgentKennel
 
@@ -65,25 +67,18 @@ v2.6.0: guests' Claude on your API key or their own → [CHANGELOG](CHANGELOG.md
   your server, shown through `ttyd`. Open it later from anywhere: it's the same terminal.
 - **Sessions survive restarts.** Close the browser, restart the service or reboot: every
   terminal reopens the same conversation where it left off (`claude --resume`).
-- **Copy and paste like a desktop terminal.** Ctrl+V pastes text and images (dictation apps
-  like Wispr Flow work), Ctrl+C copies a selection; drop screenshots straight in.
 - **Agents that finish.** Each agent puts its task on the shared board before editing, and
   is nudged to keep going until the task is closed, or to set a timer.
 - **Telegram controls the same terminals.** Pick one, type or send a voice note, get the
   screen back; Claude's multiple-choice questions arrive as buttons.
 - **Many agents on one small server.** At most 12 stay loaded; idle ones are unloaded and
   resume on click. The **Server** tab shows which agent or build uses the CPU and memory.
-- **Services that outlive a terminal.** A tunnel, a site's server or a bot goes into
-  `.services/<name>.sh`; the keeper starts it, restarts it after a crash and keeps its log.
 - **Room for other people.** Give someone their own agent in a Docker sandbox on your
-  server, on your API key with a dollar limit (or their own key); keep it to one job if you like. See [Guests](#-guests-other-people-on-your-server).
+  server, on your API key with a dollar limit (or their own key), and keep it to one job if
+  you like. See [Guests](#-guests-other-people-on-your-server).
 - **Your subscription, your box.** The official Claude Code CLI with your Claude
   subscription (or an API key). AgentKennel itself sends no telemetry (Claude Code talks
   to Anthropic, as always).
-
-| Services on the Server page | /services in Telegram |
-|---|---|
-| ![The Server page: four services with their state and one log open](docs/screenshots/services.png) | ![The /services command in Telegram: each service's state with restart, stop and start buttons](docs/screenshots/telegram-services.png) |
 
 ## How it compares
 
@@ -115,8 +110,10 @@ web runs in Anthropic's cloud.)
   terminal unloads after 2 hours, but never one with an open tab or a pending timer.
 - **Give an agent any file.** **📎 File** (or drop files on the terminal) uploads up to
   100 MB each to a private folder on the server and types the path into the terminal.
-- **Browser terminals, no SSH.** Select with the mouse to copy, Ctrl+Shift+V or ⌘V to paste;
-  long scrollback. A `cmd` line gives you a plain `bash` shell next to the agents.
+- **Browser terminals, no SSH.** Select with the mouse to copy; Ctrl+V (⌘V on a Mac) pastes
+  text and images, so dictation apps like Wispr Flow work; long scrollback. A `cmd` line
+  gives you a plain `bash` shell next to the agents. **Open in tab** gives one terminal a
+  browser tab of its own.
 - **Claude usage at a glance.** Next to `cmd`, `5h 7%` / `wk 9%`: the 5-hour and weekly
   windows of your Claude subscription, as in `/usage` (amber from 70 %, red from 90 %); hover
   for reset times and today's busiest terminals. Read from `CLAUDE_CODE_OAUTH_TOKEN` in
@@ -128,7 +125,11 @@ web runs in Anthropic's cloud.)
 - **Shared task board.** Live, with search, filters and the terminal behind each task;
   click a terminal's code to see only its tasks.
 - **Server page.** CPU and memory over 15 minutes, split into agents, sites and apps,
-  background jobs and the system; each row expands into its processes.
+  background jobs and the system; each row expands into its processes. It opens at once
+  with what it last showed, then refreshes.
+- **Services that outlive a terminal.** A tunnel, a site's server or a bot goes into
+  `.services/<name>.sh`; the keeper starts it, restarts it after a crash and keeps its log.
+  Restart, stop and start them on the Server page or with `/services` in Telegram.
 - **Guests.** Other people in sandboxes of their own: whose Claude, a **Web** switch and
   **Rules** for each, on the Server page ([more](#-guests-other-people-on-your-server)).
 - **Agents know where they run.** Their `~/.claude/CLAUDE.md` says the dashboard and
@@ -259,93 +260,127 @@ example with [@userinfobot](https://t.me/userinfobot)), then in the dashboard op
 `/use` picks a terminal, `/list` shows them all, `/new <name>` starts one, `/archive` brings
 one back, `/services` lists your services. Plain text is typed into the terminal; voice
 notes are transcribed locally (not in the Docker image). Optional: a second bot just for
-notifications (guests' spending, strange requests, published sites), on the same page.
+notifications (guests' spending, strange requests and attempts to get around their
+Rules, published sites), on the same page.
 Full setup and every command: [docs/telegram.md](docs/telegram.md).
 
 ## 👥 Guests: other people on your server
 
 An optional multi-user mode, off until you set it up. Each guest gets their own
 AgentKennel in a Docker sandbox (their own terminals, files and sites) and talks to their
-agent through one shared Telegram bot. Guests can't see each other or your server. By
-default a guest's Claude runs on your Anthropic API key with a dollar limit a week ($20
-unless you change it).
+agent through one shared Telegram bot, or in the browser. Guests can't see each other or
+your server. Everything is set per guest in the **Guests** block of the Server page.
+[Pictures](#guests-in-pictures)
 
 - **You decide who gets in.** Someone writes `/start` to the guest bot; your own bot asks
   "Let them in?"; on yes the sandbox is made and they get their address and password.
-- **Whose Claude.** Your API key (the default; checked with Anthropic, kept on your server,
-  never in a sandbox), the guest's own API key or `claude setup-token` login (sent with
-  `/claude` in the guest bot or from their web panel), or your subscription, as an option
-  with an explicit "I understand": Anthropic's terms don't allow sharing one Claude
-  subscription between several people. If your key is missing or out of credit, the guest
-  is told Claude isn't available and you are told; it never falls back to your subscription.
-  Guests added before this keep running exactly as before until you change them.
-  Details: [guests/README.md](guests/README.md#whose-claude).
-- **Web on or off.** The **Web** switch on the Server page: on, their terminals open in
-  the browser at `https://sb-<name>.<your-domain>`; off, Telegram only, and the bot and the
-  agent keep working.
-- **What their agent may do.** **Rules** keeps the agent to one job (with web on, their
-  terminals are then Claude-only: no command line, no `!` commands): the
-  work in your words, the folders it may change, and the actions it may take (edit the
-  files, rebuild and restart, install packages, publish new sites, set up other services).
-  The rules are added on your server to every Claude request of that guest, so nothing
-  inside the sandbox can leave them out. The agent politely declines anything else, and you
-  can be told in Telegram when someone asks for something strange or illegal. Files they
-  send in Telegram are always open to the agent to use in the work, and are never run or
-  installed straight from where they land.
-- **You can look in.** **Open** next to a guest opens their dashboard, signed in as you.
-
-| The Server page: Web switches, one guest's rules | The rules at work: the agent declines, you are told |
-|---|---|
-| ![The Guests block on the Server page: a Web switch per guest; alex is Telegram only, and their Rules form keeps the agent to the bakery's website](docs/screenshots/guests-rules.png) | ![Telegram: alex asks their agent for a stranger's home address, the agent declines; your own bot gets a message about it](docs/screenshots/telegram-rules.png) |
-
-<p align="center">
-  <img src="docs/screenshots/telegram-invite.png" width="560" alt="Telegram: Maria writes /start to the guest bot; your own bot asks Let them in?; on yes they get their address and password">
-</p>
+- **Whose Claude.** By default your Anthropic API key, with a dollar limit a week ($20
+  unless you change it); the key is checked with Anthropic, kept on your server and never
+  put in a sandbox. Or the guest's own API key or Claude login (`claude setup-token`), sent
+  with `/claude` in the guest bot or from their web panel: no limit, they pay. If your key
+  is missing or out of credit, the guest is told Claude isn't available and you are told;
+  it never falls back to your subscription. Running a guest on your Claude subscription is
+  possible only behind an explicit "I understand", because Anthropic's terms don't allow
+  sharing one subscription between people.
+  [Details](guests/README.md#whose-claude)
+- **Web on or off.** The **Web** switch: on, their terminals open in the browser at
+  `https://sb-<name>.<your-domain>`; off, Telegram only, and the bot and the agent keep
+  working. **Open** next to a guest opens their dashboard, signed in as you.
+- **Rules: one job for their agent.** **Rules** sets the work in your words, the folders it
+  may change, and what it may do: edit the work's files, rebuild and restart, install
+  packages, publish new sites, set up other services. Your server adds the rules to every
+  Claude request of that guest, so nothing inside the sandbox can leave them out. The agent
+  politely declines anything else; a new site is refused outright when publishing isn't
+  allowed. The button is amber with a dot while a guest has rules.
+- **Rules hold in their web terminal too.** With Web on, a guest with rules gets
+  Claude-only terminals: no command line, no `!` commands, no tmux keys (Ctrl+B). A guest
+  made before v2.7.0 needs `python3 guests/guestctl.py recreate <name>` once for this.
+- **Files they send are safe to use.** What a guest sends in Telegram lands in
+  `/work/tg-uploads`. The agent may always use it in the work (pictures, fonts, documents;
+  code only after reading it), and nothing is run or installed straight from there.
+- **You hear about it.** With "Tell me in Telegram when they ask for something strange or
+  illegal" on (the default), you get a message at once for a strange or illegal request and
+  for every attempt to get around the rules (a `!` command, the command line, talking the
+  agent out of its rules; at most 5 an hour per guest), and one summary a day of the
+  ordinary off-topic requests the agents declined.
+- **Their files and sites.** A guest's agent hands out files as links and can publish up to
+  3 sites at `https://<site>-<name>.<your-domain>`; you are told about each.
 
 **Set up with the script install, not the Docker image:** add `--guests` (it also installs
 Docker), then **Server → Guests → Set up guests** (a Telegram bot for guests, a domain); it
 ends with one command, `~/agentkennel/guests/install.sh` (run it as yourself, not with sudo:
 it asks for your password itself).
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/yanhs/agentkennel/master/install.sh | bash -s -- --guests
+```
+
 Before the first guest:
 - **your own Telegram bot** is connected (**⋯ → Telegram**): "Let them in?" comes there;
 - **your Anthropic API key** is added (Server → Guests → Settings), since new guests run on it;
 - **DNS:** a wildcard `*.<domain>` A record pointing at the server, or a Cloudflare token in
   `~/.cf_token`;
-- **sudo without a password** for your user (a cloud server's default user has it): the
-  guest services make each guest's disk (and, behind nginx, its web address) in the
-  background;
-- **web addresses** (`https://sb-<name>.<domain>`, **Open**, the guests' own sites and the
-  shared files address) go through the script install's Caddy when it serves port 443 (the
-  default HTTPS install): Caddy gets each name's certificate itself, nothing more to install.
-  An install with `--http`, or one that fell back to a self-signed certificate on :8765, has
-  no public 443: run `~/agentkennel/install.sh --https` (ports 80 and 443 free) first, or
-  turn **Web** off for new guests
-  (Settings → "For new guests") and they work through Telegram. A server where nginx with
-  certbot already holds 80/443 keeps using it. `python3 ~/agentkennel/guests/guestctl.py
-  doctor` says which one carries the addresses and why.
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/yanhs/agentkennel/master/install.sh | bash -s -- --guests
-```
+- **sudo without a password** for your user (a cloud server's default user has it);
+- **port 443 for the web addresses.** The guests' addresses, **Open**, their sites and file
+  links go through the script install's Caddy when it serves 443 (the default HTTPS
+  install), or through nginx with certbot if that already holds 80/443. On an install with
+  `--http` or a self-signed certificate on :8765, run `~/agentkennel/install.sh --https`
+  (ports 80 and 443 free) first, or turn **Web** off for new guests (Settings → "For new
+  guests"). `python3 ~/agentkennel/guests/guestctl.py doctor` checks it all.
 
 Every setting and command: [guests/README.md](guests/README.md).
 
 ## 📸 Screenshots
 
-![The dashboard: named terminals on the left, a live Claude Code session on the right](docs/screenshots/dashboard.png)
+All made from demo data.
 
-| Tasks tab in the dashboard | A terminal's tasks | Server status |
-|---|---|---|
-| ![The task board open as a tab inside the dashboard](docs/screenshots/tasks-tab.png) | ![Tasks filtered to one terminal after clicking its code](docs/screenshots/tasks-filtered.png) | ![The Server tab: CPU and memory of agents, sites & apps, jobs and system over 15 minutes](docs/screenshots/server.png) |
+### The dashboard
 
-| Telegram bridge | Light theme | Archived terminals |
-|---|---|---|
-| ![Telegram](docs/screenshots/telegram.png) | ![The dashboard in the light theme; the terminal stays dark](docs/screenshots/light-theme.png) | ![Show archived: click an archived terminal to restore and open it](docs/screenshots/archive.png) |
+![The dashboard: named terminals on the left with their state, the 5-hour and weekly Claude usage next to cmd, a live Claude Code session on the right](docs/screenshots/dashboard.png)
+
+| The task board, a tab in the dashboard | The Server tab |
+|---|---|
+| ![The task board inside the dashboard: search, filters by state and agent, one task open with its steps](docs/screenshots/tasks-tab.png) | ![The Server tab: CPU and memory over 15 minutes split into agents, sites and apps, jobs and the system; your services with Log, Restart and Stop buttons](docs/screenshots/server.png) |
+
+| Archived terminals | Light theme |
+|---|---|
+| ![Show archived: archived terminals listed under the others; click one to restore and open it](docs/screenshots/archive.png) | ![The dashboard in the light theme; the terminal stays dark](docs/screenshots/light-theme.png) |
+
+### Guests in pictures
+
+**The Guests block on the Server page**, with alex's Rules open (the button is amber while
+rules are on).
+
+![The Guests block on the Server page: three guests with whose Claude each runs on and a Web switch; alex has web on and the Rules form open, keeping the agent to the bakery's website](docs/screenshots/guests-rules.png)
+
+**Alex's own web terminal with rules on:** no `cmd` button, a `!` command is refused, a
+request outside the work is declined.
+
+![Alex's own dashboard with rules on: no cmd button; a ! command typed into Claude is refused, and the agent declines a request outside its work](docs/screenshots/guest-terminal-locked.png)
+
+**The rules at work:** the agent declines, and your own bot tells you about that request
+and about the `!` command above.
 
 <p align="center">
-  <img src="docs/screenshots/mobile.png" width="270" alt="The AgentKennel dashboard on a phone">
+  <img src="docs/screenshots/telegram-rules.png" width="720" alt="Telegram: alex asks their agent for a stranger's home address and the agent declines; your own bot reports that request and the refused ! command from the web terminal">
 </p>
+
+**Letting someone in:** a stranger writes `/start`, your own bot asks, and on yes they get
+their address and password.
+
+<p align="center">
+  <img src="docs/screenshots/telegram-invite.png" width="560" alt="Telegram: Maria writes /start to the guest bot; your own bot asks Let them in?; on yes she gets her address and password">
+</p>
+
+### Telegram and the phone
+
+| The Telegram bridge | /services in Telegram |
+|---|---|
+| <img src="docs/screenshots/telegram.png" width="300" alt="The Telegram bridge: /list of terminals, /archive restoring one, the agent's reply, a voice note typed in, and Claude's question as buttons"> | <img src="docs/screenshots/telegram-services.png" width="300" alt="The /services command in Telegram: each service's state with restart, stop and start buttons"> |
+
+| The dashboard on a phone | The Server tab on a phone |
+|---|---|
+| <img src="docs/screenshots/mobile.png" width="300" alt="The dashboard on a phone: the terminal list on top, an open terminal below it, and a key bar with Tab, the arrows and Enter"> | <img src="docs/screenshots/server-mobile.png" width="300" alt="The Server tab on a phone: the CPU and memory chart and the groups below it"> |
 
 ## 📚 More
 
