@@ -1,4 +1,4 @@
-"""The dashboard's own icon (the paw from agentkennel.com) in the tab, bookmarks and the
+"""The dashboard's own icon (the doghouse mark from agentkennel.com, was the paw until 19.11.2026) in the tab, bookmarks and the
 phone home screen, instead of the browser's grey globe. The icon files are reachable
 without a session: the login page and a logged-out bookmark show it too."""
 import re
@@ -18,11 +18,11 @@ def png_size(data: bytes):
     return struct.unpack(">II", data[16:24])
 
 
-def test_svg_icon_is_the_paw():
+def test_svg_icon_is_the_doghouse():
     svg = (WEB / "favicon.svg").read_text()
     assert svg.startswith("<svg") and 'viewBox="0 0 64 64"' in svg
-    assert svg.count("<ellipse") == 4          # four toes
-    assert "<path" in svg                      # and the pad
+    assert 'data-mark="kennel"' in svg         # the doghouse with a prompt in its door (owner 19.11.2026)
+    assert "<ellipse" not in svg               # the paw's toes are gone
 
 
 def test_ico_has_16_and_32():
