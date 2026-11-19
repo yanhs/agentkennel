@@ -316,7 +316,10 @@ def test_no_display_message_anywhere():
     # is missing (reproduced 2026-09-24; it took down every live terminal at 10:38).
     # A session can vanish between two calls, so this command must not be used.
     root = os.path.join(os.path.dirname(__file__), "..")
-    for name in ("idle_reaper.py", "status_server.py", "library_cli.py", "tg_bridge.py"):
+    backend = sorted(os.path.join("backend", f) for f in os.listdir(os.path.join(root, "backend"))
+                     if f.endswith(".py"))      # status_server's code (split 19.11.2026)
+    assert backend
+    for name in ("idle_reaper.py", "status_server.py", "library_cli.py", "tg_bridge.py", *backend):
         src = open(os.path.join(root, name)).read()
         code = "\n".join(l for l in src.splitlines() if not l.lstrip().startswith("#"))
         assert '"display-message"' not in code and "'display-message'" not in code, name

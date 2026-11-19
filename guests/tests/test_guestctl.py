@@ -1471,7 +1471,7 @@ def test_recreate_locks_a_sandbox_with_rules(monkeypatch, tmp_path, told):
 def test_the_lock_fits_in_the_servers_wait_for_rules():
     """status_server waits GUESTS_RULES_TIMEOUT for `guestctl rules`; the lock must fit."""
     import re as _re
-    src = (gc.HERE.parent / "status_server.py").read_text()
+    src = (gc.HERE.parent / "backend" / "guests.py").read_text()   # status_server's Guests block
     server = int(_re.search(r"GUESTS_RULES_TIMEOUT = (\d+)", src).group(1))
     assert '"rules", name, json.dumps(rules, ensure_ascii=False), timeout=GUESTS_RULES_TIMEOUT' in src
     assert gc.LOCK_TIMEOUT + 10 <= server
