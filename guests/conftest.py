@@ -8,6 +8,8 @@ import shutil
 import sys
 import tempfile
 
+import pytest
+
 _KEYS = ("GUESTS_DOMAIN", "GUEST_BOT_TOKEN", "OWNER_TG_ID", "SERVER_IP", "CF_TOKEN_FILE",
          "CF_ZONE", "GUESTS_NOTIFY_CMD", "GUEST_IMAGE", "GUESTS_LANG", "GUESTS_LOCALE_DIR",
          "SITEGATE_SERVER_IP", "GUESTS_WEB", "GUESTS_FILES_PORT", "GUESTS_CADDY_ADMIN",
@@ -37,3 +39,14 @@ if "tests.conftest" not in sys.modules:
     os.environ["TMUX_TMPDIR"] = _TMUX_DIR
     atexit.register(shutil.rmtree, _TMUX_DIR, ignore_errors=True)
 os.environ.pop("TMUX", None)          # not "inside" the live server either
+
+
+@pytest.fixture(autouse=True)
+def _fresh_broken_block_throttle(monkeypatch):
+    """claudekeys tells the owner about a guest's broken claude block once an hour, in a
+    module-level dict: one test's notice must not use up a later test's (in any order or
+    worker — random order found test_broken_block_guest_cannot_switch_own_or_back silent
+    after test_broken_block_back_from_a_stored_key_changes_nothing)."""
+    ck = sys.modules.get("claudekeys")
+    if ck is not None and hasattr(ck, "_broken_told"):
+        monkeypatch.setattr(ck, "_broken_told", {})
