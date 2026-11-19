@@ -128,6 +128,11 @@
 
     [hidden] { display: none !important; }
 
+    /* The version and two links at the bottom of the sidebar (owner 19.11.2026: no version shown anywhere). */
+    .side-foot { flex: none; padding: 8px 10px 10px; font-size: 11px; line-height: 1.4; color: rgba(var(--fg-rgb),0.45); border-top: 1px solid rgba(var(--fg-rgb),0.06); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .side-foot a { color: inherit; text-decoration: none; }
+    .side-foot a:hover { color: rgba(var(--fg-rgb),0.8); text-decoration: underline; }
+    @media (max-width: 700px) { .side-foot { display: none; } } /* phones: the list is the whole screen; no room for it */
     .agent-list { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; overscroll-behavior: contain; }
 
     /* ── Library tools: new topic + search ── */
@@ -946,6 +951,7 @@
     </div>
     <div class="lib-empty" id="libEmpty" hidden></div>
     <div class="agent-list" id="list"><div class="list-foot" id="listFoot"><button type="button" class="arch-toggle" id="showArchived" title="Show archived terminals (greyed) so you can restore them">Show archived</button><button type="button" class="arch-toggle" id="showTrash" title="Show the trash: terminals you moved there, to restore them or erase them for good">Show trash</button></div><div class="trash-view" id="trashView" hidden><div class="trash-head"><span class="trash-title" id="trashTitle">Trash</span><button type="button" class="empty-trash" id="emptyTrash" hidden title="Erase every conversation shown here for good">Empty trash</button></div><div id="trashList"></div><div class="trash-empty" id="trashEmpty" hidden>The trash is empty</div></div></div>
+    <div class="side-foot" id="sideFoot">AgentKennel <span id="akVer"></span> · <a href="https://agentkennel.com" target="_blank" rel="noopener">Site</a> · <a href="https://github.com/yanhs/agentkennel" target="_blank" rel="noopener">GitHub</a></div>
   </div>
   <div class="main">
     <div class="topbar no-term" id="topbar">
@@ -3250,5 +3256,6 @@
     const _renewLogin = () => fetch('/login?renew=1', {cache: 'no-store', credentials: 'same-origin'}).catch(() => {});
     _renewLogin(); setInterval(_renewLogin, window.__ad_renew_ms || 6 * 3600 * 1000);
   </script>
+<script>fetch('/version.json',{cache:'no-cache'}).then(r=>r.ok?r.json():null).then(j=>{if(j&&j.version)document.getElementById('akVer').textContent='v'+j.version;}).catch(()=>{});</script>
 </body>
 </html>
