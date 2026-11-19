@@ -12,11 +12,11 @@ def visible(pg, sel):
     return pg.eval_on_selector(sel, "e => !!(e.offsetWidth || e.offsetHeight) && getComputedStyle(e).visibility !== 'hidden'")
 
 
-def test_desktop_sidebar_is_headed_by_the_paw_and_the_name(browser, site, api):  # noqa: F811
+def test_desktop_sidebar_is_headed_by_the_mark_and_the_name(browser, site, api):  # noqa: F811
     ctx, pg = _open(browser, site, api)
     try:
         assert visible(pg, "#brand")
-        assert pg.get_attribute("#brand img", "src") == "/favicon.svg"
+        assert pg.get_attribute("#brand img", "src") == "/favicon.svg?v=kennel2"   # the doghouse; versioned so caches refresh
         assert pg.inner_text("#brand").strip() == NAME
         top = pg.eval_on_selector("#brand", "e => e.getBoundingClientRect().top")
         head = pg.eval_on_selector(".sidebar-header", "e => e.getBoundingClientRect().top")

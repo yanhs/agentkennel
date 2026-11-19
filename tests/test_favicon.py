@@ -23,6 +23,7 @@ def test_svg_icon_is_the_doghouse():
     assert svg.startswith("<svg") and 'viewBox="0 0 64 64"' in svg
     assert 'data-mark="kennel"' in svg         # the doghouse with a prompt in its door (owner 19.11.2026)
     assert "<ellipse" not in svg               # the paw's toes are gone
+    assert 'fill="#55650a"' in svg             # olive tile, like agentkennel.com's tab icon
 
 
 def test_ico_has_16_and_32():
@@ -40,9 +41,10 @@ def test_apple_touch_icon_180():
 @pytest.mark.parametrize("page", ["index.html", "index-lib.html"])
 def test_dashboard_pages_link_the_icons(page):
     head = (WEB / page).read_text().split("</head>", 1)[0]
-    assert '<link rel="icon" href="/favicon.svg" type="image/svg+xml">' in head
-    assert '<link rel="icon" href="/favicon.ico" sizes="32x32">' in head
-    assert '<link rel="apple-touch-icon" href="/apple-touch-icon.png">' in head
+    # ?v=kennel2: browsers keep icons for days; the version makes them fetch the doghouse (owner 19.11.2026)
+    assert '<link rel="icon" href="/favicon.svg?v=kennel2" type="image/svg+xml">' in head
+    assert '<link rel="icon" href="/favicon.ico?v=kennel2" sizes="32x32">' in head
+    assert '<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=kennel2">' in head
 
 
 def test_login_and_setup_pages_link_the_icon():
