@@ -1,0 +1,36 @@
+#!/bin/bash
+# bin/pytest-worker PYTHON [ARGS...] — one pytest-xdist worker in a sandbox of its own.
+# The root conftest.py starts every `pytest -n N` worker through this (tests/test_parallel_sandbox.py).
+#
+# - Its own PID namespace and /proc: the worker sees and can signal only the processes it
+#   started. Not the other workers (their fake `claude --resume <uuid>` on the same made-up
+#   uuids would look "already running" to library_cli, and a restart would kill them), and
+#   not the live terminals.
+# - The live tmux directories — /tmp/tmux-<uid> and an installed checkout's .sessions/tmux —
+#   covered by an empty tmpfs: no tmux in a test reaches the live server, whatever
+#   TMUX_TMPDIR, -L or -S it uses.
+# - pid 1 is a small bash that reaps orphans; when the worker ends (or is killed),
+#   everything it left running ends with it (--kill-child, then the namespace goes).
+# Same uid/gid, same files, same network otherwise. Needs unprivileged user namespaces.
+set -eu
+[ $# -ge 1 ] || { echo "usage: $0 PYTHON [ARGS...]" >&2; exit 2; }
+repo=$(cd "$(dirname "$0")/.." && pwd)
+uid=$(id -u) gid=$(id -g)
+# outer namespace: root inside (only to mount), new PID + mount namespaces, /proc of its own;
+# pid 1 = bash: mounts, then runs the worker back as uid/gid (an inner user namespace,
+# where the mounts above are locked) and reaps orphans meanwhile
+exec unshare --map-root-user --pid --fork --kill-child --mount --mount-proc --propagation private \
+    /bin/bash -c '
+set -u
+repo=$1 uid=$2 gid=$3; shift 3
+hide() {                      # an empty, private tmpfs over a live tmux directory
+  [ -d "$1" ] || mkdir -m 700 "$1" 2>/dev/null || true
+  [ -d "$1" ] || return 0
+  mount -t tmpfs -o mode=700,size=16m pytest-worker "$1" \
+    || { echo "pytest-worker: cannot cover $1" >&2; exit 97; }
+}
+hide "/tmp/tmux-$uid"
+[ -d "$repo/.sessions/tmux" ] && hide "$repo/.sessions/tmux"
+unshare --user --map-user="$uid" --map-group="$gid" "$@"
+exit $?
+' pytest-worker "$repo" "$uid" "$gid" "$@"

@@ -1,0 +1,8 @@
+# Test tools (the app itself needs only Python 3's standard library).
+#   python3 -m pip install --user -r requirements-dev.txt
+# playwright also needs its browser once: python3 -m playwright install chromium
+pytest==9.0.2
+pytest-xdist==3.8.0        # bin/test: -n 4 workers, each in bin/pytest-worker's sandbox
+execnet==2.1.2
+pytest-random-order==1.2.0 # opt-in: --random-order (off unless asked)
+playwright==1.58.0
