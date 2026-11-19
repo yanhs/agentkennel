@@ -9,9 +9,7 @@ pathological state.json and assert the document never overflows sideways.
 import http.server
 import json
 import re
-import socket
 import threading
-from contextlib import closing
 from functools import partial
 from pathlib import Path
 
@@ -48,17 +46,11 @@ STATE = {
 }
 
 
-def _free_port():
-    with closing(socket.socket()) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 @pytest.fixture(scope="module")
 def site():
-    port = _free_port()
     handler = partial(http.server.SimpleHTTPRequestHandler, directory=str(STATIC))
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    port = srv.server_address[1]
     srv.RequestHandlerClass.log_message = lambda *a, **k: None
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{port}/index.html"

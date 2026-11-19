@@ -12,12 +12,10 @@ import http.client
 import io
 import json
 import os
-import socket
 import stat
 import sys
 import threading
 import time
-from contextlib import closing
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote
@@ -80,17 +78,11 @@ def test_upload_defaults_are_private_inside_the_repo():
 
 
 # ── over HTTP ───────────────────────────────────────────────────────────────
-def _free_port():
-    with closing(socket.socket()) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 @pytest.fixture
 def server(tmp_path, monkeypatch):
     monkeypatch.setattr(ss, "UPLOAD_DIR", str(tmp_path / "up"))
-    port = _free_port()
-    srv = ThreadingHTTPServer(("127.0.0.1", port), ss.PasteHandler)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), ss.PasteHandler)
+    port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
 
     def post(path, body, cookie=True, length=None):
@@ -175,8 +167,8 @@ def test_real_browser_to_real_server(tmp_path, monkeypatch):
             self.end_headers()
             self.wfile.write(body)
 
-    port = _free_port()
-    srv = ThreadingHTTPServer(("127.0.0.1", port), H)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     data = os.urandom(2 * 1024 * 1024 + 3)
     src = tmp_path / "photo été.jpg"

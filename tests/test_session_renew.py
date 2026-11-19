@@ -8,23 +8,15 @@ every setup (nginx `location = /login`, Caddy `handle /login*`), so no proxy cha
 """
 import http.client
 import importlib
-import socket
 import sys
 import threading
 import time
-from contextlib import closing
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-
-def _free_port():
-    with closing(socket.socket()) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 @pytest.fixture
@@ -35,8 +27,8 @@ def srv(tmp_path, monkeypatch):
     m = importlib.import_module("status_server")
     monkeypatch.setattr(m, "HTPASSWD_FILE", str(tmp_path / "none"))
     m._pw_store("pw-123456")
-    port = _free_port()
-    s = ThreadingHTTPServer(("127.0.0.1", port), m.AuthHandler)
+    s = ThreadingHTTPServer(("127.0.0.1", 0), m.AuthHandler)
+    port = s.server_address[1]
     threading.Thread(target=s.serve_forever, daemon=True).start()
 
     def get(path, cookie=None, headers=None):

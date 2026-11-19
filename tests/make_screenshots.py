@@ -18,11 +18,9 @@ import importlib
 import json
 import os
 import re
-import socket
 import sys
 import tempfile
 import threading
-from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
@@ -549,12 +547,6 @@ def clip_of(pg, *selectors, pad=10):
 
 
 # ───────────────────────────────────────────────────────────── servers ──
-def _free_port() -> int:
-    with closing(socket.socket()) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def start_server(state_path: Path) -> str:
     """One origin: web/ static files + the REAL tasks-dashboard handler under /tasks/."""
     os.environ["TRACKER_STATE"] = str(state_path)
@@ -572,8 +564,8 @@ def start_server(state_path: Path) -> str:
         def log_message(self, *a):
             pass
 
-    port = _free_port()
-    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", port), partial(Handler, directory=str(WEB_DIR)))
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), partial(Handler, directory=str(WEB_DIR)))
+    port = httpd.server_address[1]
     httpd.daemon_threads = True
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return f"http://127.0.0.1:{port}"

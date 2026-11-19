@@ -1,7 +1,8 @@
 """`pytest -n N` (pytest-xdist): every worker starts through bin/pytest-worker, in a
-sandbox of its own — its own PID namespace and /proc, the live tmux directory covered.
-Workers then never see each other's fake claudes, nor the live terminals
-(tests/test_parallel_sandbox.py). Without -n nothing here applies.
+sandbox of its own — its own PID namespace and /proc, the live tmux directory covered,
+its own network (loopback only). Workers then never see each other's fake claudes, nor
+the live terminals, nor any live port (tests/test_parallel_sandbox.py). Without -n
+nothing here applies.
 
 If the sandbox cannot start (no unprivileged user namespaces), a parallel run stops at
 once and says so; it never falls back to unsandboxed workers."""

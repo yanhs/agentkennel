@@ -9,9 +9,7 @@ import copy
 import http.server
 import json
 import re
-import socket
 import threading
-from contextlib import closing
 from functools import partial
 from pathlib import Path
 
@@ -20,12 +18,6 @@ import pytest
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 PAGE = WEB_DIR / "server.html"
 ARTIFACTS = Path(__file__).resolve().parent / "artifacts"
-
-
-def _free_port():
-    with closing(socket.socket()) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 def m(mid, name, kind, status, cpu, rss, what="", children=(), **kw):
@@ -105,9 +97,9 @@ class FakeServerAPI:
 
 @pytest.fixture(scope="module")
 def site():
-    port = _free_port()
     handler = partial(http.server.SimpleHTTPRequestHandler, directory=str(WEB_DIR))
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    port = srv.server_address[1]
     srv.RequestHandlerClass.log_message = lambda *a, **k: None
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{port}/server.html"

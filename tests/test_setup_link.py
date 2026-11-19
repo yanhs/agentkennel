@@ -11,13 +11,11 @@ deleted once the password is set.
 import http.client
 import importlib
 import os
-import socket
 import stat
 import subprocess
 import sys
 import threading
 import urllib.parse
-from contextlib import closing
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -27,12 +25,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
-def _free_port():
-    with closing(socket.socket()) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 @pytest.fixture
 def srv(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENTKENNEL_PASSFILE", str(tmp_path / ".dashpass"))
@@ -40,8 +32,8 @@ def srv(tmp_path, monkeypatch):
     sys.modules.pop("status_server", None)
     m = importlib.import_module("status_server")
     monkeypatch.setattr(m, "HTPASSWD_FILE", str(tmp_path / "none"))
-    port = _free_port()
-    s = ThreadingHTTPServer(("127.0.0.1", port), m.AuthHandler)
+    s = ThreadingHTTPServer(("127.0.0.1", 0), m.AuthHandler)
+    port = s.server_address[1]
     threading.Thread(target=s.serve_forever, daemon=True).start()
 
     def req(method, path, form=None):

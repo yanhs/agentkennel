@@ -1,0 +1,22 @@
+#!/bin/bash
+# bin/test [PYTEST ARGS...] — both test suites (tests/, then guests/) on 4 parallel workers.
+#
+#   bin/test                         # the whole thing, ~4x faster than plain `pytest`
+#   bin/test --random-order          # same, tests shuffled (pytest-random-order)
+#   bin/test -x -k library           # any pytest option
+#   TEST_JOBS=1 bin/test             # serially (same as `python3 -m pytest tests; ... guests`)
+#
+# Each worker runs in bin/pytest-worker's sandbox (own PID/mount/network namespaces): it
+# sees only its own processes, no live tmux, no live ports. Plain `python3 -m pytest`
+# without -n stays serial and works as before. Needs requirements-dev.txt installed.
+set -u
+cd "$(dirname "$0")/.."
+jobs=${TEST_JOBS:-4}
+par=()
+[ "$jobs" -gt 1 ] && par=(-n "$jobs")
+rc=0
+for suite in tests guests; do
+  echo "== $suite"
+  python3 -m pytest -q "${par[@]}" "$@" "$suite" || rc=1
+done
+exit $rc

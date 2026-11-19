@@ -9,12 +9,10 @@ import http.client
 import importlib
 import os
 import re
-import socket
 import subprocess
 import sys
 import threading
 import urllib.parse
-from contextlib import closing
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -23,12 +21,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 LINK = re.compile(r"/login\?setup=[A-Za-z0-9_-]{20,}")
-
-
-def _free_port():
-    with closing(socket.socket()) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 def cli(tmp_path, *args, **env):
@@ -47,8 +39,8 @@ def srv(tmp_path, monkeypatch):
     sys.modules.pop("status_server", None)
     m = importlib.import_module("status_server")
     monkeypatch.setattr(m, "HTPASSWD_FILE", str(tmp_path / "none"))
-    port = _free_port()
-    s = ThreadingHTTPServer(("127.0.0.1", port), m.AuthHandler)
+    s = ThreadingHTTPServer(("127.0.0.1", 0), m.AuthHandler)
+    port = s.server_address[1]
     threading.Thread(target=s.serve_forever, daemon=True).start()
 
     def req(method, path, form=None, cookie=None):

@@ -3,6 +3,23 @@
 Issues and pull requests are welcome. The code is plain Python and Bash with no build step:
 clone, run `pytest`, change, run `pytest` again. Every change comes with a test.
 
+## Running the tests
+
+```bash
+python3 -m pip install --user -r requirements-dev.txt   # once
+bin/test                    # tests/ and guests/ on 4 parallel workers (pytest -n 4)
+bin/test --random-order     # shuffled: shows tests that lean on each other
+bin/test -x -k library      # any pytest option
+python3 -m pytest -q        # serial, one process
+```
+
+Each parallel worker runs in `bin/pytest-worker`'s sandbox (own PID, mount and network
+namespaces): a test there cannot see or signal another worker's processes or the live
+terminals, reach the live tmux server, or connect to a port outside its worker. Still
+write tests as if they ran side by side: files in `tmp_path`, a server in the test's own
+process binds port 0 and reads the port back (a guard test checks this), tmux only
+with `-L <unique name>`.
+
 ## How contributions are licensed
 
 AgentKennel is released under the GNU Affero General Public License v3.0 only

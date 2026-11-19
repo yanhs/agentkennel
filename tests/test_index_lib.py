@@ -37,6 +37,8 @@ ID_RE = re.compile(r"^[0-9a-f]{8}$")
 
 
 def _free_port():
+    """For a server in another process (ttyd in test_touch_select_e2e.py); a server in
+    this process binds port 0 itself (nothing can take the port in between)."""
     with closing(socket.socket()) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
@@ -264,9 +266,9 @@ class FakeAPI:
 
 @pytest.fixture(scope="module")
 def site():
-    port = _free_port()
     handler = partial(http.server.SimpleHTTPRequestHandler, directory=str(WEB_DIR))
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    port = srv.server_address[1]
     srv.RequestHandlerClass.log_message = lambda *a, **k: None
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{port}/index-lib.html"

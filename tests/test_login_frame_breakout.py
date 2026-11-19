@@ -6,10 +6,8 @@ put a whole second dashboard inside the pane (two sidebars, one nested in the ot
 The login/setup pages now move the whole tab to /login when they find themselves framed.
 """
 import importlib
-import socket
 import sys
 import threading
-from contextlib import closing
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -36,12 +34,6 @@ def test_login_and_setup_pages_break_out_of_frames(ss):
     assert "window.top!==window.self" in ss._setup_form()
 
 
-def _free_port():
-    with closing(socket.socket()) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def test_framed_login_takes_over_the_whole_tab(ss):
     """Real browser: a dashboard-like page frames /login → the TAB ends up on /login."""
     pw = pytest.importorskip("playwright.sync_api")
@@ -53,8 +45,8 @@ def test_framed_login_takes_over_the_whole_tab(ss):
                 return self._html('<h1 id="dash">dashboard</h1><iframe src="/login"></iframe>')
             return super().do_GET()
 
-    port = _free_port()
-    srv = ThreadingHTTPServer(("127.0.0.1", port), H)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
         with pw.sync_playwright() as p:

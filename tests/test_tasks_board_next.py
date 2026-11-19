@@ -18,11 +18,9 @@ import importlib
 import json
 import os
 import shutil
-import socket
 import sys
 import threading
 import time
-from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -94,12 +92,6 @@ def make_state(now: datetime) -> dict:
 
 
 # ---------------------------------------------------------------- server harness
-def _free_port() -> int:
-    with closing(socket.socket()) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 class Board:
     def __init__(self, state_path: Path):
         self.state_path = state_path
@@ -120,8 +112,8 @@ class Board:
                     self.path = self.path[len("/tasks"):] or "/"
                 return super().do_GET()
 
-        self.port = _free_port()
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", self.port), Prefixed)
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Prefixed)
+        self.port = self.httpd.server_address[1]
         self.httpd.daemon_threads = True
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
         self.url = f"http://127.0.0.1:{self.port}/tasks/"

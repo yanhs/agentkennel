@@ -8,10 +8,12 @@ workers side by side would see, refuse ("already running elsewhere") or even kil
 other's fakes. In its own PID namespace a worker sees and can signal only what it started
 itself: not the other workers, and not the live terminals either. The live tmux
 directory (/tmp/tmux-<uid>, and <checkout>/.sessions/tmux of an installed copy) is
-covered by an empty tmpfs inside, so no tmux in a test can reach the live server.
+covered by an empty tmpfs inside, so no tmux in a test can reach the live server; and in
+a network namespace of its own (loopback only) no live port answers.
 When the worker ends, everything it left running ends with it."""
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -78,6 +80,31 @@ def test_a_worker_cannot_see_an_installed_checkouts_tmux_dir(tmp_path):
     assert (live / "default").exists()                # outside: untouched
 
 
+def test_a_worker_cannot_reach_ports_outside_but_has_its_own_loopback():
+    """Its own network namespace: the live panel (:3046), the terminals' ttyd (:3031), the
+    services keeper (:9876), Caddy's admin API (:2019) — nothing listening outside answers."""
+    import socket
+    outside = socket.socket()
+    outside.bind(("127.0.0.1", 0))
+    outside.listen()
+    try:
+        r = run_in_worker(f"""
+import socket
+def reach(port):
+    try:
+        socket.create_connection(("127.0.0.1", port), timeout=3).close()
+        return "reached"
+    except OSError:
+        return "refused"
+own = socket.socket(); own.bind(("127.0.0.1", 0)); own.listen()
+print(reach({outside.getsockname()[1]}), reach(own.getsockname()[1]))
+""")
+    finally:
+        outside.close()
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split() == ["refused", "reached"], r.stdout
+
+
 def test_orphans_are_reaped_and_leftovers_end_with_the_worker():
     mark = f"pytest-worker-leftover-{uuid.uuid4().hex[:12]}"
     code = f"""
@@ -137,3 +164,15 @@ def test_pytest_n_runs_every_worker_in_the_sandbox():
                        cwd=REPO, env=env, capture_output=True, text=True, timeout=300)
     assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-2000:]
     assert "4 passed" in r.stdout, r.stdout[-2000:]
+
+
+def test_in_process_test_servers_bind_port_0():
+    """Workers share the network: a server in the test's own process binds port 0 and
+    reads the port back. Picking a free port and binding it later leaves a gap in which
+    another worker can take it (that pattern is only for servers in other processes)."""
+    late = re.compile(r"HTTPServer\(\s*\(\s*[\"']127\.0\.0\.1[\"']\s*,\s*(?:self\.)?port\b")
+    files = subprocess.run(["git", "ls-files", "tests/*.py", "guests/*.py"], cwd=REPO,
+                           capture_output=True, text=True, check=True).stdout.split()
+    assert "tests/conftest.py" in files
+    bad = [f for f in files if late.search((REPO / f).read_text())]
+    assert bad == [], bad

@@ -396,10 +396,18 @@ their address and password.
 ## 🧪 Tests
 
 ```bash
-python3 -m pytest -q
+python3 -m pip install --user -r requirements-dev.txt   # once: pytest, xdist, playwright
+bin/test                    # both suites on 4 parallel workers
+bin/test --random-order     # the same, shuffled
+python3 -m pytest -q        # or serially, one process (no extra tools needed but pytest)
 ```
 
 Tests that need `tmux` use a private tmux server and never touch your running terminals.
+In a parallel run (`bin/test`, or any `pytest -n N`) each worker also runs in a sandbox of
+its own, `bin/pytest-worker`: its own process, mount and network namespaces, so it sees
+only the processes it started, no live tmux and no live port. That needs unprivileged
+user namespaces (`unshare --user`); where they are off, `-n` stops with a message and the
+serial run still works.
 The installer has its own end-to-end test, `tests/install/run.sh ubuntu-24.04` (also
 `ubuntu-22.04`, `debian-12`, `fedora-40` for the refusal): it boots a fresh systemd
 container, installs the `curl | bash` way, logs in, opens a terminal, reboots, re-runs and

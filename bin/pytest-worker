@@ -9,17 +9,22 @@
 # - The live tmux directories — /tmp/tmux-<uid> and an installed checkout's .sessions/tmux —
 #   covered by an empty tmpfs: no tmux in a test reaches the live server, whatever
 #   TMUX_TMPDIR, -L or -S it uses.
+# - Its own network namespace, loopback only: the live panel (:3046), the terminals' ttyd
+#   (:3031), the services keeper (:9876), Caddy's admin API (:2019) — no live port answers;
+#   a test's own servers on 127.0.0.1 work as usual. No internet either (tests are offline;
+#   the panel's web fonts just fall back).
 # - pid 1 is a small bash that reaps orphans; when the worker ends (or is killed),
 #   everything it left running ends with it (--kill-child, then the namespace goes).
-# Same uid/gid, same files, same network otherwise. Needs unprivileged user namespaces.
+# Same uid/gid and files otherwise. Needs unprivileged user namespaces.
 set -eu
 [ $# -ge 1 ] || { echo "usage: $0 PYTHON [ARGS...]" >&2; exit 2; }
 repo=$(cd "$(dirname "$0")/.." && pwd)
 uid=$(id -u) gid=$(id -g)
-# outer namespace: root inside (only to mount), new PID + mount namespaces, /proc of its own;
+# outer namespace: root inside (only to mount and bring up lo), new PID + mount + network
+# namespaces, /proc of its own;
 # pid 1 = bash: mounts, then runs the worker back as uid/gid (an inner user namespace,
 # where the mounts above are locked) and reaps orphans meanwhile
-exec unshare --map-root-user --pid --fork --kill-child --mount --mount-proc --propagation private \
+exec unshare --map-root-user --pid --fork --kill-child --mount --mount-proc --propagation private --net \
     /bin/bash -c '
 set -u
 repo=$1 uid=$2 gid=$3; shift 3
@@ -29,6 +34,7 @@ hide() {                      # an empty, private tmpfs over a live tmux directo
   mount -t tmpfs -o mode=700,size=16m pytest-worker "$1" \
     || { echo "pytest-worker: cannot cover $1" >&2; exit 97; }
 }
+ip link set lo up || { echo "pytest-worker: no loopback" >&2; exit 97; }
 hide "/tmp/tmux-$uid"
 [ -d "$repo/.sessions/tmux" ] && hide "$repo/.sessions/tmux"
 unshare --user --map-user="$uid" --map-group="$gid" "$@"

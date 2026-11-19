@@ -136,9 +136,9 @@ def _free_port():
 @pytest.mark.parametrize("name", ["index.html", "index-lib.html"])
 def test_page_loads_every_asset_and_runs_without_errors(name):
     pw = pytest.importorskip("playwright.sync_api")
-    port = _free_port()
     srv = http.server.ThreadingHTTPServer(
-        ("127.0.0.1", port), partial(http.server.SimpleHTTPRequestHandler, directory=str(WEB)))
+        ("127.0.0.1", 0), partial(http.server.SimpleHTTPRequestHandler, directory=str(WEB)))
+    port = srv.server_address[1]
     srv.RequestHandlerClass.log_message = lambda *a, **k: None
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     errors, assets = [], {}

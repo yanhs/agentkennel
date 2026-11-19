@@ -7,22 +7,14 @@ say AgentKennel and never the old name. Since v2.1.0 the technical identifiers f
 the old ones are still accepted (tests/test_envcompat.py, tests/test_install_sh.py)."""
 import http.client
 import importlib
-import socket
 import sys
 import threading
 import urllib.parse
-from contextlib import closing
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-
-
-def _free_port():
-    with closing(socket.socket()) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 def test_fresh_install_pages_say_agentkennel(tmp_path, monkeypatch):
@@ -31,8 +23,8 @@ def test_fresh_install_pages_say_agentkennel(tmp_path, monkeypatch):
     sys.modules.pop("status_server", None)
     m = importlib.import_module("status_server")
     monkeypatch.setattr(m, "HTPASSWD_FILE", str(tmp_path / "none"))
-    port = _free_port()
-    s = ThreadingHTTPServer(("127.0.0.1", port), m.AuthHandler)
+    s = ThreadingHTTPServer(("127.0.0.1", 0), m.AuthHandler)
+    port = s.server_address[1]
     threading.Thread(target=s.serve_forever, daemon=True).start()
 
     def req(method, path, form=None):
