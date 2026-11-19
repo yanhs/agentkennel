@@ -27,6 +27,8 @@ from urllib.parse import urlparse
 
 import pytest
 
+from tests.panel_page import panel_source   # the page + its css/ and js/ files
+
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 PAGE = WEB_DIR / "index-lib.html"
 ARTIFACTS = Path(__file__).resolve().parent / "artifacts"
@@ -348,7 +350,7 @@ def test_page_exists_and_old_page_untouched():
 
 
 def test_slot_machinery_is_gone_from_the_source():
-    src = PAGE.read_text(encoding="utf-8")
+    src = panel_source(PAGE.name)
     for needle in ("CLAUDE_IDS", "OO_IDS", "OO_CONFIG", "agent-order",
                    "+ Claude", "Add a Claude agent", "'#' + id", "launch-claude"):
         assert needle not in src, f"slot leftover in index-lib.html: {needle!r}"
@@ -358,7 +360,7 @@ def test_slot_machinery_is_gone_from_the_source():
 
 
 def test_existing_features_are_kept_in_the_source():
-    src = PAGE.read_text(encoding="utf-8")
+    src = panel_source(PAGE.name)
     for fn in ("function enableIframeTouchScroll", "function enableClipboardCopy",
                "function enablePasteImage", "function suppressContextMenu",
                "function _pasteImageFromClipboard", "function _uploadAndInsertImage",
@@ -982,7 +984,7 @@ def test_empty_library_text_is_english(browser, site):
 
 
 def test_no_cyrillic_in_page_strings_outside_comments():
-    src = PAGE.read_text(encoding="utf-8")
+    src = panel_source(PAGE.name)
     src = re.sub(r"<!--.*?-->", "", src, flags=re.S)
     src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
     src = re.sub(r"(?m)(^|[\s;{}(),])//.*$", r"\1", src)
@@ -1009,7 +1011,7 @@ def test_ui_says_terminal_not_topic_desktop(browser, site):
 
 
 def test_no_topic_word_in_page_strings_outside_comments():
-    src = PAGE.read_text(encoding="utf-8")
+    src = panel_source(PAGE.name)
     src = re.sub(r"<!--.*?-->", "", src, flags=re.S)
     src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
     src = re.sub(r"(?m)(^|[\s;{}(),])//.*$", r"\1", src)
@@ -1823,7 +1825,7 @@ def test_theme_switch_by_keyboard(browser, site):
 
 def test_theme_is_applied_before_first_paint(browser, site):
     """The <head> script sets data-theme before <body> exists — no dark flash."""
-    src = PAGE.read_text(encoding="utf-8")
+    src = panel_source(PAGE.name)
     head = src[:src.index("</head>")]
     assert THEME_KEY in head and "dataset.theme" in head
     api = FakeAPI()
@@ -3224,7 +3226,7 @@ def _js_function(src, name):
 
 
 def test_phone_path_does_not_read_the_tmux_buffer():
-    src = PAGE.read_text(encoding="utf-8")
+    src = panel_source(PAGE.name)
     phone = _js_function(src, "enableIframeTouchScroll") + _js_function(src, "attachTouchSelect")
     assert "attachTouchSelect(" in _js_function(src, "enableIframeTouchScroll")
     assert "/api/tmux-buffer" not in phone and "tmux-buffer" not in phone

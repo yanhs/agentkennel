@@ -1,0 +1,902 @@
+/* AgentKennel panel (web/index.html). */
+/* Palette. Dark is the default (and the look the page always had);
+   <html data-theme="light"> swaps in the light one. The terminal iframe
+   itself stays dark in both — only the frame around it follows. */
+:root {
+  --bg: #09090b; --panel: #0c0c0f; --menu-bg: #111114; --input-bg: #18181b;
+  --text: #e4e4e7; --text-hi: #fafafa; --text-2: #d4d4d8;
+  --dim: #a1a1aa; --faint: #71717a; --ghost: #52525b; --ghost-2: #3f3f46; --ph: #27272a;
+  --dot-off: #3f3f46; --scroll: #222;
+  --fg-rgb: 255,255,255;          /* hairlines and hover tints: white on dark */
+  --accent: #818cf8; --accent-fg: #c7d2fe; --accent-fg-hi: #e0e7ff; --accent-on: #a5b4fc;
+  --accent-fg-dim: rgba(165,180,252,0.55);
+  --amber: #fbbf24; --green: #4ade80; --red: #f87171;
+  --red-fg: #fca5a5; --red-fg-hi: #fecaca; --red-fg-dim: rgba(252,165,165,0.55);
+  --green-fg: #86efac; --green-fg-hi: #bbf7d0; --green-fg-dim: rgba(134,239,172,0.55);
+  --card-btn-fg: rgba(161,161,170,0.55);
+  --menu-shadow: 0 8px 24px rgba(0,0,0,0.55);
+}
+:root[data-theme="light"] {
+  /* slightly muted, not stark white (owner): sidebar a touch deeper than the main area */
+  --bg: #f1f1f3; --panel: #e9e9ec; --menu-bg: #f7f7f8; --input-bg: #f7f7f8;
+  --text: #18181b; --text-hi: #09090b; --text-2: #27272a;
+  --dim: #52525b; --faint: #63636b; --ghost: #63636b; --ghost-2: #a1a1aa; --ph: #a1a1aa;
+  --dot-off: #a1a1aa; --scroll: #c4c4ca;
+  --fg-rgb: 24,24,27;             /* black-ish tints on white */
+  --accent: #4f46e5; --accent-fg: #4338ca; --accent-fg-hi: #3730a3; --accent-on: #4f46e5;
+  --accent-fg-dim: rgba(79,70,229,0.7);
+  --amber: #d97706; --green: #16a34a; --red: #dc2626;
+  --red-fg: #b91c1c; --red-fg-hi: #991b1b; --red-fg-dim: rgba(220,38,38,0.7);
+  --green-fg: #15803d; --green-fg-hi: #166534; --green-fg-dim: rgba(21,128,61,0.75);
+  --card-btn-fg: rgba(82,82,91,0.75);
+  --menu-shadow: 0 8px 24px rgba(24,24,27,0.12);
+  color-scheme: light;
+}
+/* light: hairlines a bit stronger than the tinted defaults, for separation */
+:root[data-theme="light"] .sidebar { border-right-color: #d4d4d8; }
+:root[data-theme="light"] .sidebar-header,
+:root[data-theme="light"] .lib-tools,
+:root[data-theme="light"] .side-top,
+:root[data-theme="light"] .topbar { border-bottom-color: #d4d4d8; }
+:root[data-theme="light"] .card { border-bottom-color: #dcdce0; }
+:root[data-theme="light"] .card.first-off,
+:root[data-theme="light"] .card.shell-row,
+:root[data-theme="light"] .card.tasks-row,
+:root[data-theme="light"] .card.server-row { border-color: #cfcfd4; }
+:root[data-theme="light"] .mob-input { border-top-color: #d4d4d8; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+
+body {
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+  display: flex;
+  -webkit-font-smoothing: antialiased;
+}
+
+.sidebar {
+  width: 175px;
+  min-width: 175px;
+  height: 100vh;
+  background: var(--panel);
+  border-right: 1px solid rgba(var(--fg-rgb),0.06);
+  display: flex;
+  flex-direction: column;
+}
+
+/* The product's name heads the sidebar (01.11.2026: before, it was only in the tab). */
+.brand {
+  display: flex; align-items: center; gap: 7px; flex: none;
+  padding: 8px 8px 7px;
+  border-bottom: 1px solid rgba(var(--fg-rgb),0.06);
+  font: 600 0.78rem 'Inter', system-ui, sans-serif; letter-spacing: 0.01em;
+  color: var(--text-hi); user-select: none;
+}
+.brand img { width: 18px; height: 18px; border-radius: 5px; display: block; flex: none; }
+
+.sidebar-header {
+  padding: 0.35rem 0.4rem;
+  border-bottom: 1px solid rgba(var(--fg-rgb),0.06);
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--text-hi);
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+}
+
+.sys-stats {
+  display: flex;
+  gap: 0.24rem;
+  font-size: 0.53rem;
+  font-weight: 400;
+  font-family: 'JetBrains Mono', monospace;
+  cursor: pointer;
+  margin-left: auto;
+  flex: none;
+  white-space: nowrap;
+}
+
+.sys-stats.hidden .val { display: none; }
+
+.stat { color: var(--ghost); }
+.stat .val { color: var(--dim); }
+.stat.warn .val { color: var(--amber); }
+.stat.crit .val { color: var(--red); }
+
+[hidden] { display: none !important; }
+
+/* The version and two links at the bottom of the sidebar (owner 19.11.2026: no version shown anywhere). */
+.side-foot { flex: none; padding: 8px 10px 10px; font-size: 11px; line-height: 1.4; color: rgba(var(--fg-rgb),0.45); border-top: 1px solid rgba(var(--fg-rgb),0.06); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-foot a { color: inherit; text-decoration: none; }
+.side-foot a:hover { color: rgba(var(--fg-rgb),0.8); text-decoration: underline; }
+@media (max-width: 700px) { .side-foot { display: none; } } /* phones: the list is the whole screen; no room for it */
+.agent-list { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; overscroll-behavior: contain; }
+
+/* ── Library tools: new topic + search ── */
+.lib-tools {
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid rgba(var(--fg-rgb),0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lib-tools.creating .new-row, .lib-tools.creating #search { display: none; }
+/* [＋ New][cmd]   5h 7% / wk 9% — cmd opens the one plain command line; the chip is
+   the Claude allowance like Claude's /usage (GET /api/quota) */
+.new-row { display: flex; gap: 3px; min-width: 0; }
+.new-row .new-btn { flex: 1 1 0; min-width: 0; }
+.new-row #newBtn { flex: none; width: auto; padding: 0 12px; }
+.quota-chip {
+  display: flex; flex-direction: column; justify-content: center; align-self: center;
+  margin-left: auto; padding-left: 4px; min-width: 0; text-align: right;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.56rem; line-height: 1.15;
+  color: var(--ghost); white-space: nowrap; cursor: default;
+}
+.quota-chip b { font-weight: 400; color: var(--dim); }
+.quota-chip .warn b { color: var(--amber); }
+.quota-chip .crit b { color: var(--red); }
+/* A guest's sandbox: whose Claude runs here — "Claude · owner's key $6.10/$20",
+   "Claude · own key …x4Fk", or just "Claude" beside today's chip; opens "Your Claude" */
+.claude-btn {
+  display: block; width: 100%; min-width: 0; margin: 0; padding: 1px 1px 0;
+  background: none; border: none; border-radius: 3px; text-align: left; cursor: pointer;
+  font: 0.62rem/1.3 'Inter', system-ui, sans-serif; color: var(--faint);
+  white-space: normal; overflow-wrap: anywhere;
+}
+.claude-btn[hidden] { display: none; }
+.claude-btn .cl-word { color: var(--accent-fg); }
+.claude-btn:hover .cl-word { color: var(--accent-fg-hi); text-decoration: underline; }
+.claude-btn:hover { color: var(--dim); }
+.claude-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.claude-btn.warn .cl-more { color: var(--amber); }
+.claude-btn.crit .cl-more { color: var(--red); }
+.lib-tools.creating .claude-btn { display: none; }
+.claude-top { display: none; }               /* the phone's place for it, below */
+.new-row .cmd-btn {
+  flex: none;
+  width: auto;
+  padding: 0 7px;
+  font-family: 'JetBrains Mono', monospace;
+  background: rgba(var(--fg-rgb),0.04);
+  border-color: rgba(var(--fg-rgb),0.16);
+  color: var(--text-2);
+}
+.new-row .cmd-btn:hover { background: rgba(var(--fg-rgb),0.1); border-color: rgba(var(--fg-rgb),0.3); color: var(--text-hi); }
+
+.new-btn {
+  width: 100%;
+  height: 22px;
+  background: rgba(99,102,241,0.16);
+  border: 1px solid rgba(129,140,248,0.55);
+  color: var(--accent-fg);
+  font: 500 0.68rem 'Inter', system-ui, sans-serif;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s;
+}
+.new-btn:hover { background: rgba(99,102,241,0.3); border-color: var(--accent); color: var(--accent-fg-hi); }
+.new-btn:active { transform: scale(0.98); }
+
+.lib-input {
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+  background: var(--input-bg);
+  border: 1px solid rgba(var(--fg-rgb),0.1);
+  border-radius: 4px;
+  color: var(--text);
+  font: 400 0.68rem 'Inter', system-ui, sans-serif;
+  padding: 0 6px;
+  outline: none;
+}
+.lib-input::placeholder { color: var(--ghost); }
+.lib-input:focus { border-color: rgba(129,140,248,0.55); }
+
+.new-form { display: flex; gap: 3px; align-items: center; }
+.new-form .lib-input { flex: 1 1 0; }
+.new-form button {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid rgba(var(--fg-rgb),0.12);
+  background: rgba(var(--fg-rgb),0.04);
+  color: var(--dim);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.new-form button[type=submit] { color: var(--green-fg); border-color: rgba(34,197,94,0.35); background: rgba(34,197,94,0.08); }
+.new-form button:disabled { opacity: 0.45; pointer-events: none; }
+
+.lib-empty { padding: 8px 7px; font-size: 0.64rem; color: var(--ghost); }
+
+/* ── Card ── */
+.card {
+  position: relative;
+  cursor: pointer;
+  user-select: none;
+  padding: 5px 7px;
+  border-bottom: 1px solid rgba(var(--fg-rgb),0.04);
+  transition: background 0.12s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(99,102,241,0.15);
+}
+
+.card:hover { background: rgba(var(--fg-rgb),0.025); }
+
+.card.sel {
+  background: rgba(99,102,241,0.07);
+  border-left: 2px solid var(--accent);
+  padding-left: 5px;
+}
+
+/* Unloaded (not in RAM): still one click away, but visibly quieter. */
+.card.unloaded .proj { color: var(--faint); }
+.card.unloaded .sid { color: var(--ghost-2); }
+.card.unloaded:hover .proj { color: var(--dim); }
+/* The first unloaded row after the loaded group draws the seam. */
+.card.first-off { border-top: 1px solid rgba(var(--fg-rgb),0.10); }
+/* The command line: pinned above the topics, no rename/archive/drag. */
+.card.shell-row { border-bottom: 1px solid rgba(var(--fg-rgb),0.10); }
+.card.shell-row .proj { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; }
+.card.tasks-row, .card.server-row { border-bottom: 1px solid rgba(var(--fg-rgb),0.10); }
+.card.tasks-row .proj, .card.server-row .proj { font-weight: 500; }
+/* Tasks / Server / cmd: an icon before the name sets them apart from terminals. */
+.proj .row-ico { width: 12px; height: 12px; margin-right: 6px; vertical-align: -2px; color: var(--dim); }
+.shell-close, .tasks-close, .server-close {
+  width: 18px; height: 18px; flex-shrink: 0; padding: 0;
+  border: 1px solid rgba(239,68,68,0.12); border-radius: 4px;
+  background: rgba(239,68,68,0.05); color: var(--red-fg-dim);
+  font-size: 0.62rem; line-height: 16px; text-align: center; cursor: pointer;
+  transition: all 0.12s;
+}
+.shell-close:hover, .tasks-close:hover, .server-close:hover { background: rgba(239,68,68,0.16); color: var(--red-fg-hi); border-color: rgba(239,68,68,0.32); }
+
+.card-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.proj {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.proj.empty { color: var(--ghost-2); font-weight: 400; }
+
+.card-btns {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: all 0.3s;
+  flex-shrink: 0;
+}
+
+.dot.working {
+  background: var(--amber);
+  box-shadow: 0 0 6px rgba(251,191,36,0.5);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.dot.idle {
+  background: var(--green);
+  box-shadow: 0 0 4px rgba(74,222,128,0.3);
+}
+
+.dot.off { background: var(--dot-off); }
+
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+.task {
+  font-size: 0.64rem;
+  color: var(--ghost);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+  padding-left: 1px;
+}
+
+.card-btn {
+  visibility: visible;
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(var(--fg-rgb),0.06);
+  border-radius: 4px;
+  background: rgba(var(--fg-rgb),0.03);
+  color: var(--card-btn-fg);
+  font-size: 0.7rem;
+  cursor: pointer;
+  line-height: 16px;
+  text-align: center;
+  transition: all 0.12s;
+  flex-shrink: 0;
+}
+.card-btn:hover { background: rgba(var(--fg-rgb),0.08); color: var(--text); border-color: rgba(var(--fg-rgb),0.16); }
+.card-btn.edit { color: var(--accent-fg-dim); background: rgba(99,102,241,0.05); border-color: rgba(99,102,241,0.12); }
+.card-btn.edit:hover { background: rgba(99,102,241,0.16); color: var(--accent-fg); border-color: rgba(99,102,241,0.32); }
+.card-btn.del { color: var(--red-fg-dim); background: rgba(239,68,68,0.05); border-color: rgba(239,68,68,0.12); }
+.card-btn.del:hover { background: rgba(239,68,68,0.16); color: var(--red-fg-hi); border-color: rgba(239,68,68,0.32); }
+/* Compact button — same dimensions as other row-1 buttons (22×22),
+   with a subtle green tint to stand out as the action button. */
+.card-btn.compact {
+  font-weight: 400;
+  color: var(--green-fg-dim);
+  background: rgba(34,197,94,0.05);
+  border-color: rgba(34,197,94,0.12);
+}
+.card-btn.compact:hover {
+  background: rgba(34,197,94,0.16);
+  border-color: rgba(34,197,94,0.32);
+  color: var(--green-fg);
+}
+.card-btn.compact:active { transform: scale(0.94); }
+/* ⟳ Restart (loaded rows only); pulses while the server restarts it */
+.card-btn.restart.busy { cursor: progress; animation: pulse 1s ease-in-out infinite; }
+.trash-btn.busy { cursor: progress; color: var(--red-fg); animation: pulse 1s ease-in-out infinite; }
+/* The page's one question (⟳ Restart, 🗑 Move to Trash, Empty trash): plain,
+   or red with "!" (.danger) when the answer interrupts work or erases for good */
+#confirmDlg {
+  width: min(360px, calc(100vw - 32px)); max-width: none; padding: 18px 18px 14px;
+  margin: auto;                     /* the page's * { margin: 0 } would pin it top-left */
+  border: 1px solid rgba(var(--fg-rgb),0.14); border-radius: 12px;
+  background: var(--menu-bg); color: var(--text); box-shadow: var(--menu-shadow);
+  font-family: 'Inter', sans-serif;
+}
+#confirmDlg::backdrop { background: rgba(0,0,0,0.45); }
+#confirmDlg .dlg-head { display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--text-hi); }
+#confirmDlg .dlg-icon { display: none; }
+#confirmDlg p { margin: 8px 0 16px; font-size: 13px; line-height: 1.45; color: var(--dim); }
+#confirmDlg .dlg-btns { display: flex; justify-content: flex-end; gap: 8px; }
+#confirmDlg .dlg-btns button {
+  min-height: 38px; padding: 0 14px; border-radius: 8px; cursor: pointer;
+  font: 500 13px 'Inter', sans-serif; color: var(--text-2);
+  background: transparent; border: 1px solid rgba(var(--fg-rgb),0.14);
+}
+/* .dlg-btns in the selector: it must outweigh the transparent button rule above;
+   #4f46e5 keeps white text readable (AA) in both themes */
+#confirmDlg .dlg-btns .dlg-ok { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+#confirmDlg .dlg-btns button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#confirmDlg.danger { border: 2px solid var(--red); }
+#confirmDlg.danger .dlg-head { color: var(--red-fg); }
+#confirmDlg.danger .dlg-icon {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 28px; height: 28px; border-radius: 50%; background: #dc2626; color: #fff;
+  font-weight: 700; font-size: 17px;
+}
+#confirmDlg.danger .dlg-btns .dlg-ok { background: #dc2626; border-color: #dc2626; color: #fff; }
+/* "Your Claude" (a guest's sandbox): what runs now, their own key or subscription
+   token instead, or back to the owner's key. The key leaves with the POST and the
+   field is emptied whatever the answer. */
+#claudeDlg {
+  width: min(440px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px);
+  padding: 18px 18px 14px; margin: auto; overflow: auto;
+  border: 1px solid rgba(var(--fg-rgb),0.14); border-radius: 12px;
+  background: var(--menu-bg); color: var(--text); box-shadow: var(--menu-shadow);
+  font: 13px/1.45 'Inter', sans-serif;
+}
+#claudeDlg::backdrop { background: rgba(0,0,0,0.45); }
+#claudeDlg h2 { font-size: 15px; font-weight: 600; color: var(--text-hi); margin-bottom: 12px; }
+#claudeDlg .cl-l { font-size: 11.5px; color: var(--faint); margin-bottom: 4px; padding: 0; }
+#claudeDlg .cl-sec { margin-bottom: 14px; }
+#claudeNow { color: var(--text-2); }
+#claudeNow .cl-sub { font-size: 11.5px; color: var(--faint); }
+#claudeDlg .cl-bar { height: 3px; max-width: 240px; margin-top: 5px; border-radius: 2px; background: rgba(var(--fg-rgb),0.12); }
+#claudeDlg .cl-bar i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+#claudeDlg .cl-bar.warn i { background: var(--amber); }
+#claudeDlg .cl-bar.crit i { background: var(--red); }
+#claudeDlg fieldset { border: none; padding: 0; margin: 0 0 8px; min-width: 0; }
+#claudeDlg .cl-radio { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; color: var(--text-2); }
+#claudeDlg .cl-radio input { margin: 0; accent-color: var(--accent); width: 14px; height: 14px; flex: none; }
+#claudeDlg .cl-hint { margin: 4px 0 0 22px; font-size: 12px; color: var(--dim); }
+#claudeDlg .cl-hint code { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-2);
+  background: rgba(var(--fg-rgb),0.07); padding: 0 4px; border-radius: 3px; }
+#claudeKey {
+  display: block; width: 100%; height: 34px; padding: 0 10px; border-radius: 7px;
+  border: 1px solid rgba(var(--fg-rgb),0.16); background: var(--input-bg); color: var(--text);
+  font: 13px 'JetBrains Mono', monospace; -webkit-text-security: disc; text-security: disc;
+}
+#claudeKey:focus { outline: none; border-color: var(--accent); }
+#claudeDlg .cl-note { margin-top: 6px; font-size: 11.5px; color: var(--faint); }
+#claudeMsg { min-height: 1.45em; margin: 10px 0 2px; color: var(--dim); overflow-wrap: anywhere; }
+#claudeMsg.good { color: var(--green); }
+#claudeMsg.bad { color: var(--red); }
+#claudeMsg:empty { min-height: 0; margin: 0; }
+#claudeDlg .cl-btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+#claudeDlg .cl-btns button {
+  min-height: 36px; padding: 0 14px; border-radius: 8px; cursor: pointer;
+  font: 500 13px 'Inter', sans-serif; color: var(--text-2);
+  background: transparent; border: 1px solid rgba(var(--fg-rgb),0.14);
+}
+#claudeDlg .cl-btns #claudeBack { margin-right: auto; }
+#claudeDlg .cl-btns .cl-ok { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+#claudeDlg .cl-btns button:disabled { opacity: 0.55; cursor: progress; }
+#claudeDlg .cl-btns button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#claudeDlg [hidden] { display: none !important; }
+
+.proj-edit {
+  font-size: 0.72rem;
+  background: rgba(var(--fg-rgb),0.06);
+  border: 1px solid rgba(129,140,248,0.4);
+  border-radius: 3px;
+  color: var(--text);
+  padding: 1px 4px;
+  width: 100%;
+  outline: none;
+  font-family: inherit;
+}
+
+/* ── Second row on each card: short session code + archive ── */
+.card-row2 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 0 0 1px;
+}
+
+.sid {
+  flex: 1;
+  min-width: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.56rem;
+  color: var(--ghost);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+/* the code under the name opens that terminal's tasks (the rest of the row opens the terminal) */
+.card .sid { flex: 0 1 auto; margin-right: auto; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.card .sid:hover { text-decoration: underline; color: var(--text, inherit); }
+
+.arch-btn {
+  flex: none;
+  height: 15px;
+  padding: 0 4px;
+  font: 400 0.56rem 'Inter', system-ui, sans-serif;
+  line-height: 13px;
+  color: var(--ghost);
+  background: transparent;
+  border: 1px solid rgba(var(--fg-rgb),0.06);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s;
+}
+.arch-btn:hover { color: var(--red-fg); border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.06); }
+/* Manual order: drag rows (desktop); ▲▼ on touch screens. */
+.card[draggable="true"] { -webkit-user-drag: element; }
+.card.dragging { opacity: 0.4; }
+.card.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.card.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+.mv-btn {
+  display: none;
+  flex: none;
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  font: 400 0.6rem 'Inter', system-ui, sans-serif;
+  line-height: 16px;
+  color: var(--faint);
+  background: transparent;
+  border: 1px solid rgba(var(--fg-rgb),0.08);
+  border-radius: 3px;
+  cursor: pointer;
+}
+html.touch .mv-btn { display: inline-block; }
+@media (hover: none) and (pointer: coarse) { .mv-btn { display: inline-block; } }
+
+/* 🗑 Move to Trash: every terminal row, after Archive (on an archived row, in its place). */
+.trash-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 15px;
+  padding: 0;
+  color: var(--ghost);
+  background: transparent;
+  border: 1px solid rgba(var(--fg-rgb),0.06);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.trash-btn svg { width: 9px; height: 9px; display: block; }
+.trash-btn:hover { color: var(--red-fg); border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.06); }
+
+/* Archived rows (only with "Show archived" on): below the rest, greyed. */
+.card.archived { opacity: 0.5; }
+.card.archived:hover { opacity: 0.8; }
+.card.archived .proj { font-style: italic; }
+.card.first-arch { border-top: 1px dashed rgba(var(--fg-rgb),0.12); }
+
+.arch-toggle {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 6px 7px;
+  background: transparent;
+  border: none;
+  color: var(--ghost);
+  font: 400 0.6rem 'Inter', system-ui, sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+.arch-toggle:hover { color: var(--dim); }
+.arch-toggle.on { color: var(--accent-on); }
+/* "Show archived" and "Show trash" share the list's last line */
+.list-foot { display: flex; align-items: center; }
+.list-foot .arch-toggle { width: auto; flex: none; }
+
+/* The trash ("Show trash"): below the list, its own rows — not terminal rows */
+.trash-view { border-top: 1px dashed rgba(var(--fg-rgb),0.12); padding-bottom: 4px; }
+.trash-head { display: flex; align-items: center; gap: 6px; padding: 5px 7px 3px; }
+.trash-title { flex: 1; min-width: 0; font: 500 0.62rem 'Inter', system-ui, sans-serif; color: var(--dim); }
+.trash-row {
+  display: flex; align-items: center; gap: 6px; padding: 4px 7px;
+  border-bottom: 1px solid rgba(var(--fg-rgb),0.04);
+}
+.trash-info { flex: 1; min-width: 0; }
+.trash-name {
+  font-size: 0.72rem; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* code · when trashed: wraps in the narrow sidebar rather than losing the time */
+.trash-row .when {
+  font: 400 0.56rem 'JetBrains Mono', monospace; color: var(--dim);
+  overflow-wrap: anywhere;
+}
+.restore-btn, .empty-trash {
+  flex: none; height: 18px; padding: 0 6px; border-radius: 3px; cursor: pointer;
+  font: 500 0.58rem 'Inter', system-ui, sans-serif; white-space: nowrap; transition: all 0.12s;
+}
+.restore-btn { color: var(--accent-fg); background: rgba(99,102,241,0.08); border: 1px solid rgba(129,140,248,0.35); }
+.restore-btn:hover { background: rgba(99,102,241,0.18); }
+.empty-trash { color: var(--red-fg); background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.35); }
+.empty-trash:hover { background: rgba(239,68,68,0.14); }
+.trash-empty { padding: 4px 7px 6px; font-size: 0.62rem; color: var(--faint); }
+.trash-empty.failed { color: var(--red-fg); }
+
+/* ── Add buttons (inside the sidebar header, next to "Agents") ── */
+.header-add {
+  display: flex;
+  gap: 3px;
+  flex: none;
+}
+
+/* Icon-only, so the frame is what makes them read as buttons at all. */
+.add-btn {
+  background: rgba(99,102,241,0.16);
+  border: 1px solid rgba(129,140,248,0.55);
+  color: var(--accent-fg);
+  font: 500 0.8rem 'Inter', system-ui, sans-serif;
+  padding: 0;
+  width: 22px;
+  height: 20px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.12s;
+  line-height: 1;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.add-btn:hover { background: rgba(99,102,241,0.3); border-color: var(--accent); color: var(--accent-fg-hi); }
+.add-btn:active { transform: scale(0.96); }
+.add-btn.disabled { pointer-events: none; opacity: 0.45; }
+
+/* ⋯ account menu: Telegram / Password / Logout */
+.topbar { position: relative; z-index: 20; }
+.acct { position: relative; flex: none; display: flex; }
+.acct-btn { font-weight: 600; letter-spacing: 0.04em; }
+.acct-btn[aria-expanded="true"] { color: var(--text); border-color: rgba(129,140,248,0.6); background: rgba(99,102,241,0.16); }
+.acct-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 110px;
+  padding: 4px;
+  background: var(--menu-bg);
+  border: 1px solid rgba(var(--fg-rgb),0.14);
+  border-radius: 6px;
+  box-shadow: var(--menu-shadow);
+}
+.acct-menu[hidden] { display: none; }
+.acct-menu .btn { display: block; text-align: left; padding: 0.3rem 0.5rem; }
+.acct-menu button.btn { width: 100%; font-family: inherit; }
+.acct-menu .btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 0; }
+/* no terminal open: the bar keeps only ⋯ (Password / Theme / Telegram / Logout must be
+   reachable on the empty dashboard too); the terminal buttons come back on pick */
+.topbar.no-term > :not(.acct) { display: none; }
+.topbar.no-term .acct { margin-left: auto; }
+
+.btn-logout { color: var(--red-fg); border-color: rgba(239,68,68,0.28); }
+.btn-logout:hover { color: var(--red-fg-hi); border-color: rgba(239,68,68,0.5); background: rgba(239,68,68,0.12); }
+
+/* ── Right area ── */
+body.solo .sidebar, body.solo #tOpen { display: none !important; }
+body.solo .main { height: 100vh !important; }
+.main {
+  flex: 1;
+  min-width: 0;        /* allow main to shrink to viewport-minus-sidebar */
+  overflow: hidden;    /* a long top line must never widen the iframe */
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  padding: 0.1rem 0.4rem;
+  border-bottom: 1px solid rgba(var(--fg-rgb),0.06);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--panel);
+  flex-shrink: 0;
+  min-width: 0;        /* don't let topbar content distend .main */
+}
+
+.topbar-lbl.link { cursor: pointer; }
+.topbar-lbl.link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.topbar-lbl {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.58rem;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.topbar-info {
+  flex: 1;
+  min-width: 0;        /* required so ellipsis works instead of overflowing */
+  font-size: 0.62rem;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-info b { color: var(--dim); font-weight: 500; }
+
+/* Compact, but the frame and contrast have to survive the shrink —
+   at 0.46rem on a near-invisible border the row read as plain text. */
+.btn {
+  padding: 0.14rem 0.4rem;
+  font-size: 0.62rem;
+  font-weight: 400;
+  color: var(--dim);
+  background: rgba(var(--fg-rgb),0.05);
+  border: 1px solid rgba(var(--fg-rgb),0.2);
+  border-radius: 4px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.12s;
+  flex-shrink: 0;
+}
+
+.btn:hover { color: var(--text); background: rgba(var(--fg-rgb),0.1); border-color: rgba(var(--fg-rgb),0.35); }
+
+.wrap { flex: 1; position: relative; }
+
+.wrap iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #000;
+}
+
+.ph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--ph);
+  font-size: 0.8rem;
+  pointer-events: none;
+}
+.ph-logo { width: 44px; height: 44px; border-radius: 11px; opacity: 0.9; }
+.ph-name { font: 600 1rem 'Inter', system-ui, sans-serif; letter-spacing: 0.01em; color: var(--dim); }
+.ph-hint { color: var(--ghost); }
+.ph .hint-narrow { display: none; }
+.brand-top { display: none; }               /* the phone's place for the name, below */
+
+/* Files dragged over the terminal: a dashed frame saying they will upload */
+.wrap.drop-files { position: relative; }
+.wrap.drop-files::after {
+  content: 'Drop to upload — the path goes into the terminal';
+  position: absolute; inset: 6px; z-index: 6;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px dashed var(--accent); border-radius: 10px;
+  background: rgba(0,0,0,0.35); color: #fff; font-size: 0.9rem;
+  pointer-events: none;
+}
+
+/* "Copied" chip after a terminal selection is copied. Never blocks a selection. */
+.copy-hint {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  z-index: 5;
+  padding: 3px 9px;
+  font-size: 0.66rem;
+  color: var(--text-2);
+  background: var(--menu-bg);
+  border: 1px solid rgba(var(--fg-rgb),0.14);
+  border-radius: 999px;
+  box-shadow: var(--menu-shadow);
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.copy-hint.show { opacity: 0.9; }
+
+.agent-list::-webkit-scrollbar { width: 3px; }
+.agent-list::-webkit-scrollbar-track { background: transparent; }
+.agent-list::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 2px; }
+
+.mob-input { display: none; }
+
+@media (max-width: 700px) {
+  html, body { position: fixed; width: 100%; height: 100%; overflow: hidden; }
+  body { flex-direction: column; }
+  .sidebar { width: 100%; min-width: 100%; height: auto; max-height: 15vh; }
+  .main { height: 85vh; display: flex; flex-direction: column; }
+  .wrap { position: static; flex: 1; display: flex; flex-direction: column; }
+  .wrap iframe { position: static; inset: auto; width: 100%; height: auto; flex: 1; touch-action: manipulation; }
+  .sidebar-header { padding: 4px 10px; font-size: 0.75rem; }
+  /* Phone: tools and header share ONE row (the sidebar is only 15vh):
+     [＋ New topic][search……][📋][CPU RAM] */
+  .side-top { display: flex; align-items: center; border-bottom: 1px solid rgba(var(--fg-rgb),0.06); flex: none; }
+  .side-top .sidebar-header { order: 2; flex: none; border-bottom: none; padding: 4px 8px 4px 5px; }
+  /* the one header row has no room left (the search must stay usable): the name moves
+     to the topbar's empty left end */
+  .brand { display: none; }
+  .topbar > .brand-top, .topbar.no-term > .brand-top {
+    display: flex; align-items: center; gap: 6px; flex: none; margin-right: auto;
+    font: 600 0.72rem 'Inter', system-ui, sans-serif; letter-spacing: 0.01em;
+    color: var(--text-hi); user-select: none;
+  }
+  .brand-top img { width: 18px; height: 18px; border-radius: 5px; display: block; }
+  .ph .hint-wide { display: none; }
+  .ph .hint-narrow { display: inline; }
+  .lib-tools { order: 1; flex: 1; min-width: 0; flex-direction: row; align-items: center; border-bottom: none; padding: 4px 0 4px 8px; }
+  .new-btn { width: auto; flex: none; height: 26px; padding: 0 8px; font-size: 0.72rem; }
+  .new-row { flex: none; }
+  .new-row .new-btn { flex: none; }
+  .new-row .cmd-btn { padding: 0 6px; }
+  .new-row #newBtn { padding: 0 8px; }
+  .quota-chip { display: none !important; }
+  /* the tools row has no room left (the search must stay usable): the label moves to
+     the topbar, beside ⋯ — whole on the empty page, just "Claude" over a terminal */
+  #claudeBtn { display: none !important; }
+  .topbar > .claude-top:not([hidden]), .topbar.no-term > .claude-top:not([hidden]) {
+    display: inline-block; width: auto; flex: none; min-width: 0;
+    height: 24px; line-height: 22px; padding: 0 8px; margin-left: auto;
+    border: 1px solid rgba(var(--fg-rgb),0.14); border-radius: 4px;
+    font-size: 0.68rem; white-space: nowrap;
+  }
+  .topbar > .claude-top:not([hidden]) + .acct { margin-left: 0; }
+  .topbar:not(.no-term) > .claude-top .cl-more { display: none; }
+  #claudeKey { font-size: 16px; height: 38px; }
+  #claudeDlg .cl-btns #claudeBack { order: 3; flex-basis: 100%; margin-right: 0; }
+  /* 16px: iOS zooms the page into any input with a smaller font. */
+  .lib-input { flex: 1 1 0; height: 26px; font-size: 16px; }
+  .new-form { flex: 1; min-width: 0; }
+  .new-form button { width: 26px; height: 26px; font-size: 0.8rem; }
+  .proj-edit { font-size: 16px; }
+  /* One row per session: the card's inner rows dissolve into a single
+     flex line — [name……][code][⟳][✎][Archive][🗑][●] (⟳ on loaded rows) */
+  .card { display: flex; align-items: center; padding: 3px 8px; cursor: pointer; gap: 5px; }
+  .card.sel { padding-left: 6px; }
+  .card-top, .card-btns, .card-row2 { display: contents; }
+  .proj { order: 1; flex: 1; min-width: 0; font-size: 0.8rem; }
+  .sid { order: 2; flex: none; font-size: 0.6rem; }
+  .card .sid { flex: none; margin-right: 0; }
+  .card-btn.edit, .card-btn.restart { order: 3; }
+  .arch-btn { order: 4; height: 20px; line-height: 18px; font-size: 0.64rem; padding: 0 5px; }
+  .trash-btn { order: 4; width: 20px; height: 20px; }
+  .trash-btn svg { width: 11px; height: 11px; }
+  /* thumb-sized in the trash view */
+  .restore-btn, .empty-trash { height: 28px; padding: 0 10px; font-size: 0.7rem; }
+  .trash-name { font-size: 0.8rem; }
+  .trash-row .when { font-size: 0.62rem; }
+  .dot { order: 5; }
+  .card-btn { visibility: visible; width: 20px; height: 20px; line-height: 18px; font-size: 0.8rem; }
+  .shell-close, .tasks-close, .server-close { order: 3; width: 20px; height: 20px; line-height: 18px; font-size: 0.7rem; }
+  .task { display: none; }
+  /* Compact header buttons on phone. */
+  .header-add { gap: 2px; }
+  .add-btn { font-size: 0.68rem; padding: 2px 6px; width: 20px; }
+  /* The 8-hex code is longer than the old "#N" and would push Logout off
+     the phone's topbar; the open topic is highlighted in the list above. */
+  .topbar-lbl { display: none; }
+
+  .mob-input {
+    display: flex;
+    gap: 0;
+    background: var(--panel);
+    border-top: 1px solid rgba(var(--fg-rgb),0.08);
+    flex-shrink: 0;
+  }
+  .mob-input input {
+    flex: 1 1 0;        /* shrink past intrinsic width */
+    min-width: 0;       /* without this, the input refuses to shrink and
+                           pushes the arrow cluster + ↵ off-screen */
+    background: var(--input-bg);
+    border: none;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    padding: 10px 10px;
+    outline: none;
+  }
+  .mob-input input::placeholder { color: var(--ghost-2); }
+  .mob-input button {
+    background: none;
+    border: none;
+    color: var(--ghost);
+    font-size: 16px;
+    padding: 8px 8px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .mob-input button:active { color: var(--accent); }
+  /* Brighten ↵ to match the cursor arrows — it's the most-used button. */
+  .mob-input #mobSend { color: var(--dim); }
+  .mob-input #mobSend:active { color: var(--accent); background: rgba(129,140,248,0.10); }
+  /* Key icons are inline SVGs, not font glyphs: Google's latin subset of
+     JetBrains Mono has ↑ ↓ but not ← → ↵, so a phone drew those in a
+     fallback font at another size (owner, 2026-10-23). */
+  .mob-input button svg { display: block; width: 16px; height: 16px; }
+
+  /* Tab + cursor-arrow cluster: 5 compact pills sitting between input and ↵.
+     Kept narrow so right-arrow + ↵ stay on-screen even on the smallest
+     iPhone widths (≈ 320 CSS px). */
+  .mob-arrows {
+    display: flex;
+    gap: 1px;
+    align-items: stretch;
+    flex-shrink: 0;
+  }
+  .mob-arrows .mob-arrow {
+    padding: 8px 5px;
+    line-height: 1;
+    color: var(--dim);
+    min-width: 22px;
+  }
+  .mob-arrows .mob-arrow:active { color: var(--accent); background: rgba(129,140,248,0.10); }
+}
+/* a terminal open: its name needs the room, the paw alone stays */
+@media (max-width: 700px) { .topbar:not(.no-term) .brand-word { display: none; } }

@@ -163,8 +163,10 @@ def test_real_browser_to_real_server(tmp_path, monkeypatch):
     class H(ss.PasteHandler):
         def do_GET(self):                        # the dashboard's files; any API → empty
             f = WEB_DIR / self.path.split("?", 1)[0].lstrip("/")
-            if f.is_file() and f.parent == WEB_DIR:
-                body, ctype = f.read_bytes(), "text/html; charset=utf-8"
+            if f.is_file() and WEB_DIR in f.resolve().parents:     # the page, its css/ and js/
+                body = f.read_bytes()
+                ctype = {".css": "text/css", ".js": "application/javascript"}.get(
+                    f.suffix, "text/html; charset=utf-8")
             else:
                 body, ctype = b"{}", "application/json"
             self.send_response(200)

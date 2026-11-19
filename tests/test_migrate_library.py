@@ -372,6 +372,25 @@ def test_rollback_dashboard_restores_the_legacy_page(mig):
     assert (web / "index-legacy.html").exists() and (web / "index-lib.html").exists()
 
 
+def test_rollback_and_swap_with_index_lib_as_a_link(mig):
+    """Today's checkout: index.html IS the library page and index-lib.html a symlink to it
+    (19.11.2026). Rolling back must not lose the library page through the link, and swapping
+    again must bring it back."""
+    web = mig.repo / "web"
+    (web / "index.html").write_text("<html>LIBRARY</html>")
+    (web / "index-legacy.html").write_text("<html>LEGACY</html>")
+    (web / "index-lib.html").unlink()
+    (web / "index-lib.html").symlink_to("index.html")
+    r = mig.migrate("--apply", "--rollback-dashboard")
+    assert r.returncode == 0, r.stderr
+    assert (web / "index.html").read_text() == "<html>LEGACY</html>"
+    assert (web / "index-lib.html").read_text() == "<html>LIBRARY</html>"
+    r = mig.migrate("--apply", "--swap-dashboard")
+    assert r.returncode == 0, r.stderr
+    assert (web / "index.html").read_text() == "<html>LIBRARY</html>"
+    assert (web / "index-legacy.html").read_text() == "<html>LEGACY</html>"
+
+
 def test_swap_saves_an_edited_index_before_overwriting(mig):
     assert mig.migrate("--apply", "--swap-dashboard").returncode == 0
     (mig.repo / "web" / "index.html").write_text("<html>HAND EDIT</html>")

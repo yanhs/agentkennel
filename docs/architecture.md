@@ -63,7 +63,12 @@ every agent alive, `ttyd` shows a tmux session in the browser, and Claude Code r
 - **`status_server.py`** — the login gate, the library/status/buffer/paste/services APIs,
   the Server page's data and the Telegram setup page. One process; it listens on
   `127.0.0.1` ports 3011 (main API), 3014, 3045, 3046 (login) and 3047 (image paste, 📎 File uploads).
-- **`web/index.html`** — the dashboard front-end; `web/server.html` is the Server page.
+- **`web/index.html`** — the dashboard front-end: the markup, with its styles in
+  `web/css/panel.css` and its code in `web/js/*.js` (plain scripts sharing one global scope,
+  run in the order the page lists them; no build step). After changing a CSS/JS file, run
+  `bin/stamp-assets`: it puts the file's hash in the page's link (`?v=…`), so browsers never
+  mix a new page with cached old scripts. `web/index-lib.html` is the same page under its
+  old name (a symlink). `web/server.html` is the Server page.
 - **`tg_bridge.py`** — the Telegram ⇄ tmux bridge (+ `whisper_transcribe.py` for voice).
 - **`tasks-dashboard/`** — the shared task board and its CLI, `tracker.py` (own README
   inside).
@@ -90,7 +95,8 @@ hooks/hold_on_timer.py   Claude Code hook: a pending timer keeps its terminal lo
 hooks/guard_*.py         Claude Code hooks: board before edits, no silent mid-task stop,
                          signals only to your own processes, no mail or secrets without you
 status_server.py         login gate + library/status/buffer/paste APIs + Telegram page
-web/                     dashboard front-end
+web/                     dashboard front-end: index.html, css/panel.css, js/*.js, server.html
+bin/stamp-assets         puts each CSS/JS file's hash in the page's links (run after editing them)
 tg_bridge.py             Telegram ⇄ tmux bridge
 whisper_transcribe.py    voice-note transcription helper
 Caddyfile, docker/       the proxy for install.sh / start.sh, and the Docker image's files

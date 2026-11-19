@@ -152,7 +152,7 @@ def _dashboard(pw, ttyd_server, init_script=None, device="Pixel 7"):
     def static(route):
         path = route.request.url[len(origin):].split("?", 1)[0].lstrip("/")
         f = WEB_DIR / path
-        if path and f.is_file() and f.resolve().parent == WEB_DIR.resolve():
+        if path and f.is_file() and WEB_DIR.resolve() in f.resolve().parents:   # + css/, js/
             return route.fulfill(status=200, path=str(f))
         route.fulfill(status=404, body="")
 

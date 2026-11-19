@@ -7,6 +7,8 @@ import json
 import re
 from pathlib import Path
 
+from tests.panel_page import panel_source   # the page + its css/ and js/ files
+
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "web"
 
@@ -33,8 +35,9 @@ def test_sidebar_footer_is_only_the_version_linking_to_the_site():
         body = foot.group(1).strip()
         # exactly one link, to the site; its text is filled from version.json
         assert body == FOOT_LINK, f"{page}: the footer holds only the version link: {body!r}"
-        assert "fetch('/version.json'" in html or 'fetch("/version.json"' in html
-        assert "textContent='v'+j.version" in html
+        src = panel_source(page)
+        assert "fetch('/version.json'" in src or 'fetch("/version.json"' in src
+        assert "textContent='v'+j.version" in src
 
 
 def test_footer_link_text_is_v_and_the_version_in_a_browser():

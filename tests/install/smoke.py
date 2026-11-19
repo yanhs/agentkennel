@@ -27,6 +27,7 @@ import base64
 import http.cookiejar
 import json
 import os
+import re
 import socket
 import ssl
 import sys
@@ -160,6 +161,16 @@ def main():
     for path in ("/tasks/", "/api/server"):
         code, _, _ = req("GET", path)
         check(f"GET {path} 200", code == 200, f"got {code}")
+
+    # 3. the page's own CSS/JS files: served after the login (the old /index-lib.html too)
+    code, _, page = req("GET", "/")
+    assets = re.findall(r'(?:href|src)="(/(?:css|js)/[^"]+)"', page.decode("utf-8", "replace"))
+    check("the dashboard links its css/ and js/ files", code == 200 and len(assets) >= 2,
+          f"{code} {assets}")
+    bad = [(p, c) for p in assets for c, _, _ in [req("GET", p)] if c != 200]
+    check("every css/ and js/ file 200", not bad, f"{bad}")
+    code, _, body = req("GET", "/index-lib.html")
+    check("GET /index-lib.html = the dashboard", code == 200 and body == page, f"got {code}")
 
     print("SMOKE", "OK" if not FAILED else f"FAILED: {', '.join(FAILED)}")
     return 0 if not FAILED else 1

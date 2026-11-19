@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""Stamp the panel's own CSS/JS links with a hash of the file: /js/list.js?v=<10 hex>.
+
+Run it after changing anything in web/css/ or web/js/:
+
+    bin/stamp-assets           # rewrites the links in web/*.html
+    bin/stamp-assets --check   # exit 1 (and say which) when a link is missing or stale
+
+Why: a browser keeps CSS/JS in its cache; a new hash is a new URL, so after an update the
+page never runs with the old scripts. It also changes index.html itself, which is what the
+open tabs watch (/api/page-version) to reload. tests/test_panel_assets.py runs --check."""
+import hashlib
+import re
+import sys
+from pathlib import Path
+
+WEB = Path(__file__).resolve().parent.parent / "web"
+# href="/css/panel.css" or src="/js/list.js", with or without ?v=...
+LINK = re.compile(r'((?:href|src)=")(/(?:css|js)/[A-Za-z0-9_.-]+\.(?:css|js))(?:\?v=[0-9a-f]*)?(")')
+
+
+def digest(rel):
+    return hashlib.sha256((WEB / rel.lstrip("/")).read_bytes()).hexdigest()[:10]
+
+
+def stamp(text):
+    return LINK.sub(lambda m: f"{m.group(1)}{m.group(2)}?v={digest(m.group(2))}{m.group(3)}", text)
+
+
+def pages():
+    # index-lib.html is a link to index.html: stamp the file itself once
+    return [p for p in sorted(WEB.glob("*.html")) if not p.is_symlink()]
+
+
+def main(argv):
+    check = "--check" in argv
+    stale = []
+    for page in pages():
+        old = page.read_text(encoding="utf-8")
+        new = stamp(old)
+        if new != old:
+            stale.append(page.name)
+            if not check:
+                page.write_text(new, encoding="utf-8")
+    if check and stale:
+        print(f"stale asset links in {', '.join(stale)}: run bin/stamp-assets", file=sys.stderr)
+        return 1
+    if not check:
+        print("stamped: " + (", ".join(stale) if stale else "nothing to do"))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

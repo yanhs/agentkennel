@@ -226,11 +226,21 @@ def swap_dashboard(web):
     return out
 
 
+def _unlink_lib(lib):
+    """index-lib.html is a symlink to index.html in the repo (19.11.2026): before index.html
+    is overwritten, make it a real copy, so the library page survives the rollback."""
+    if os.path.islink(lib):
+        tmp = f"{lib}.{os.getpid()}.tmp"
+        shutil.copyfile(lib, tmp)
+        os.replace(tmp, lib)
+
+
 def rollback_dashboard(web):
     index, legacy, lib = (os.path.join(web, f) for f in
                           ("index.html", "index-legacy.html", "index-lib.html"))
     if not os.path.exists(legacy):
         raise RuntimeError("no web/index-legacy.html — nothing to roll back")
+    _unlink_lib(lib)
     out = _save_if_unknown(index, [legacy, lib])
     if os.path.exists(index) and filecmp.cmp(index, legacy, shallow=False):
         return out + ["dashboard already old"]
