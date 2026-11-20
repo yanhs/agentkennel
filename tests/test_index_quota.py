@@ -56,6 +56,8 @@ def open_with(browser, site, answer, terms=TERMS, clock=False, **kw):  # noqa: F
     pg.route(re.compile(r"/api/quota/claude(\?|$)"), pg.claude.handle)
     if clock:
         pg.clock.install()
+        if clock == "paused":            # the page's time moves only with run_for
+            pg.clock.pause_at(time.time() + 1)
     pg.reload()
     pg.wait_for_selector(".card[data-sid]")
     pg.calls = calls
@@ -175,7 +177,11 @@ def test_hidden_on_a_phone_where_new_leaves_room_to_search(browser, site):  # no
 
 def test_polls_quota_each_minute_terminals_at_most_every_five(browser, site):  # noqa: F811
     state = {"answer": {"available": False}}
-    ctx, pg = open_with(browser, site, lambda: state["answer"], clock=True)
+    # The page's clock stands still between steps, and each step ends on a minute poll:
+    # a poll resumes when its answer is in, and on a busy machine that is after run_for
+    # has returned — at the clock's time then. With the wall clock flowing in, or a step
+    # ending past the poll, a slow answer read "over 5 minutes" a poll early.
+    ctx, pg = open_with(browser, site, lambda: state["answer"], clock="paused")
     pg.clock.run_for(1000)
     pg.wait_for_timeout(200)
     assert pg.calls["quota"] == 1 and pg.is_hidden("#quotaChip")
@@ -185,7 +191,9 @@ def test_polls_quota_each_minute_terminals_at_most_every_five(browser, site):  #
     assert pg.calls["quota"] == 2
     pg.wait_for_function("(document.getElementById('quotaChip').title || '').includes('Today by')")
     assert pg.calls["terminals"] == 1
-    for _ in range(5):                           # polls at 1, 2, 3, 4, 5 min: the list was
+    pg.clock.run_for(53_000)                     # to the 1-minute poll
+    pg.wait_for_timeout(150)
+    for _ in range(4):                           # polls at 2, 3, 4, 5 min: the list was
         pg.clock.run_for(60_000)                 # asked at 7 s, so not again yet
         pg.wait_for_timeout(150)
     assert pg.calls["quota"] == 7 and pg.calls["terminals"] == 1
