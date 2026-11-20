@@ -621,8 +621,9 @@ def test_settings_go_to_defaults_set(g):
     configure(g)
     body = {"claude_mode": "owner_sub", "usd_week": 10, "understood": True}
     assert post(g.base, "/api/guests/settings", body)[0] == 200
-    [call] = [c for c in g.calls() if c[0] == "defaults"]
-    assert call[1] == "--set" and json.loads(call[2]) == body
+    # the save itself; the refresh it starts in the background reads `defaults` too
+    [call] = [c for c in g.calls() if c[:2] == ["defaults", "--set"]]
+    assert json.loads(call[2]) == body
 
 
 def test_settings_error_is_400(g):
