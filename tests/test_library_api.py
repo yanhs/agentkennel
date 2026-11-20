@@ -592,14 +592,23 @@ def test_listing_spawns_no_pgrep_and_scans_legacy_once(api, monkeypatch):
 def test_child_map_matches_the_process_tree():
     ss = importlib.import_module("status_server")
     p = subprocess.Popen(["bash", "-c", "sleep 30 & wait"])
+
+    def cmdline(pid):
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                return f.read()
+        except OSError:
+            return b""
     try:
+        # until the child has exec'd sleep: right after the fork it is still a bash with
+        # the parent's command line (a busy machine showed that moment)
         deadline = time.time() + 5
-        while time.time() < deadline and not ss.child_map().get(p.pid):
+        while time.time() < deadline and not (
+                [k for k in ss.child_map().get(p.pid, []) if cmdline(k).startswith(b"sleep")]):
             time.sleep(0.05)
         kids = ss.child_map().get(p.pid, [])
         assert len(kids) == 1
-        with open(f"/proc/{kids[0]}/cmdline", "rb") as f:
-            assert f.read().startswith(b"sleep")
+        assert cmdline(kids[0]).startswith(b"sleep")
     finally:
         p.kill()
         p.wait()

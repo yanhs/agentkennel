@@ -686,7 +686,9 @@ def test_claude_inside_its_own_session_is_not_elsewhere(deck, monkeypatch):
     monkeypatch.setenv("AGENTKENNEL_TMUX_SOCKET", deck.socket)
     m = _mod()
     found = wait_for(lambda: m.claude_processes(U1))
-    assert [s for _, s in found] == ["cs-aaaaaaaa"]
+    # a set: the fake (bash with claude's argv) forks to run `sleep`, and a scan can catch
+    # the child before its exec — a second "claude", in the same session
+    assert {s for _, s in found} == {"cs-aaaaaaaa"}
     assert m.claude_elsewhere(U1, "cs-aaaaaaaa") == []
 
 
