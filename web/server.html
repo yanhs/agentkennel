@@ -670,6 +670,10 @@
       const s = el('span'); const i = el('i'); i.style.background = GROUP_COLOR[g];
       s.append(i, document.createTextNode(TITLES[g])); leg.appendChild(s);
     }
+    const u = el('span'); const ui = el('i');
+    ui.style.background = 'repeating-linear-gradient(135deg, var(--stripe-a) 0 3px, var(--stripe-b) 3px 6px)';
+    u.append(ui, document.createTextNode('Short-lived')); u.title = 'Processes that started and ended between two samples, and interrupts';
+    leg.appendChild(u);
     const s = el('span'); s.append(el('i', 'line'), document.createTextNode('Memory')); leg.appendChild(s);
   }
   let chartPts = [];
@@ -708,6 +712,20 @@
         d += 'Z';
         nodes.push(svg('path', { class: 'area', d, fill: GROUP_COLOR[g], 'fill-opacity': g === 'system' ? 0.55 : 0.72, 'data-group': g }));
         top.forEach((v, i) => base[i] = v);
+      }
+      // CPU the host counted but no live process holds (short-lived processes, interrupts): the
+      // stack then reaches the real load — 100% was drawn as 75% (owner 20.11.2026)
+      if (pts.some((p, i) => (p.cpu || 0) - base[i] >= 1)) {
+        let d = '';
+        const top = pts.map((p, i) => Math.min(100, Math.max(base[i], p.cpu || 0)));
+        pts.forEach((p, i) => { d += (i ? 'L' : 'M') + x(p.t).toFixed(1) + ',' + y(top[i]).toFixed(1); });
+        for (let i = pts.length - 1; i >= 0; i--) d += 'L' + x(pts[i].t).toFixed(1) + ',' + y(base[i]).toFixed(1);
+        const defs = svg('defs', {}), pat = svg('pattern', { id: 'stripes', width: 6, height: 6,
+          patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' });
+        pat.append(svg('rect', { width: 6, height: 6, fill: 'var(--stripe-b)' }),
+                   svg('rect', { width: 3, height: 6, fill: 'var(--stripe-a)' }));
+        defs.append(pat); nodes.unshift(defs);
+        nodes.push(svg('path', { class: 'area', d: d + 'Z', fill: 'url(#stripes)', 'data-group': 'untracked' }));
       }
       let d = '';
       pts.forEach((p, i) => { d += (i ? 'L' : 'M') + x(p.t).toFixed(1) + ',' + y(p.ram).toFixed(1); });

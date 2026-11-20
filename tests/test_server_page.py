@@ -174,7 +174,7 @@ def test_header_gauges(page):
 
 
 def test_history_chart_has_areas_and_ram_line(page):
-    paths = page.eval_on_selector_all("#chart path.area", "els => els.map(e => e.getAttribute('d'))")
+    paths = page.eval_on_selector_all("#chart path.area:not([data-group=untracked])", "els => els.map(e => e.getAttribute('d'))")
     assert len(paths) == 4 and all(p and len(p) > 50 for p in paths)
     assert page.get_attribute("#chart path.ram", "d")
 
@@ -376,7 +376,7 @@ def test_dark_is_the_default_and_unchanged(browser, site, api):
         assert css("body", "color") == "rgb(228, 228, 231)"
         assert css(".gauge", "backgroundColor") == "rgb(17, 17, 20)"
         # chart areas keep the dark group colours
-        fills = pg.eval_on_selector_all("#chart path.area", "els => els.map(e => getComputedStyle(e).fill)")
+        fills = pg.eval_on_selector_all("#chart path.area:not([data-group=untracked])", "els => els.map(e => getComputedStyle(e).fill)")
         assert "rgb(129, 140, 248)" in fills and "rgb(45, 212, 191)" in fills
         shot(pg, "theme-dark-server.png")
         assert pg.errors == []
@@ -399,7 +399,7 @@ def test_light_theme(browser, site, api):
         # the ring track and the bars are visible on white, not dark zinc
         trk = pg.eval_on_selector(".ring .trk", "e => getComputedStyle(e).stroke")
         assert _lum(trk) > 0.6, trk
-        fills = pg.eval_on_selector_all("#chart path.area", "els => els.map(e => getComputedStyle(e).fill)")
+        fills = pg.eval_on_selector_all("#chart path.area:not([data-group=untracked])", "els => els.map(e => getComputedStyle(e).fill)")
         assert len(set(fills)) == 4 and all(f not in ("none", "") for f in fills), fills
         grid = pg.eval_on_selector("#chart .grid", "e => getComputedStyle(e).stroke") \
             if pg.query_selector("#chart .grid") else None
@@ -467,5 +467,25 @@ def test_history_older_than_the_window_stays_inside_the_chart(browser, site, api
         box = pg.eval_on_selector("#chartBox", "b => b.getBoundingClientRect().left")
         for r in pg.eval_on_selector_all("#chart path.area", "els => els.map(e => e.getBoundingClientRect().left)"):
             assert r >= box - 0.5
+    finally:
+        ctx.close()
+
+
+def test_chart_top_is_the_real_server_load(browser, site, api):
+    """Owner 20.11.2026: the server was at 100% but the chart showed 75% — it stacked only CPU held
+    by live processes; short-lived processes and interrupts went missing. A striped band fills the gap."""
+    t = 1_790_000_000.0
+    api.snap["history"]["points"] = [
+        {"t": t - 600 + i * 5, "cpu": 98, "ram": 60, "g": {"agents": 480, "apps": 60, "jobs": 0, "system": 8}}
+        for i in range(121)]
+    ctx, pg = _open(browser, site, api)
+    try:
+        band = pg.query_selector("#chart path.area[data-group=untracked]")
+        assert band, "no band for short-lived processes"
+        top = pg.evaluate("""() => { const b = document.querySelector('#chartBox').getBoundingClientRect();
+            const tops = [...document.querySelectorAll('#chart path.area')].map(e => e.getBoundingClientRect().top);
+            return [(Math.min(...tops) - b.top) / b.height]; }""")[0]
+        # 98% of the plot: near the top (padT 6 + plot ~130px of 150)
+        assert top < 0.1, f"chart top at {top:.2f} of the box height, not ~98%"
     finally:
         ctx.close()
