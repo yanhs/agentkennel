@@ -82,6 +82,11 @@
 			reverse_proxy 127.0.0.1:3011
 		}
 
+		# updates: a new release, the Update button, the night-time patch setting — status_server
+		handle /api/update* {
+			reverse_proxy 127.0.0.1:3011
+		}
+
 		# Telegram-bot setup page (status_server, behind the login gate)
 		handle /telegram* {
 			reverse_proxy 127.0.0.1:3011

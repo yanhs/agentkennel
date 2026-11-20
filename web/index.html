@@ -17,6 +17,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/panel.css?v=746bc095db">
+  <link rel="stylesheet" href="/css/update.css?v=59dfefef51">
 </head>
 <body>
   <div class="sidebar">
@@ -49,6 +50,7 @@
     </div>
     <div class="lib-empty" id="libEmpty" hidden></div>
     <div class="agent-list" id="list"><div class="list-foot" id="listFoot"><button type="button" class="arch-toggle" id="showArchived" title="Show archived terminals (greyed) so you can restore them">Show archived</button><button type="button" class="arch-toggle" id="showTrash" title="Show the trash: terminals you moved there, to restore them or erase them for good">Show trash</button></div><div class="trash-view" id="trashView" hidden><div class="trash-head"><span class="trash-title" id="trashTitle">Trash</span><button type="button" class="empty-trash" id="emptyTrash" hidden title="Erase every conversation shown here for good">Empty trash</button></div><div id="trashList"></div><div class="trash-empty" id="trashEmpty" hidden>The trash is empty</div></div></div>
+    <div class="side-upd" id="sideUpd" hidden><button type="button" class="upd-line" id="updLine" aria-haspopup="dialog"></button></div>
     <div class="side-foot" id="sideFoot"><a id="akVer" href="https://agentkennel.com" target="_blank" rel="noopener"></a></div>
   </div>
   <div class="main">
@@ -103,6 +105,22 @@
         </div>
       </form>
     </dialog>
+    <dialog id="updDlg" aria-labelledby="updTitle">
+      <h2 id="updTitle">AgentKennel</h2>
+      <p class="upd-sub" id="updSub"></p>
+      <div class="upd-notes" id="updNotes" tabindex="0" aria-label="What changed"></div>
+      <div class="upd-cmd" id="updCmd" hidden><code id="updCmdText"></code><button type="button" id="updCopy">Copy</button></div>
+      <ol class="upd-steps" id="updSteps" hidden></ol>
+      <p id="updMsg" role="status" aria-live="polite"></p>
+      <label class="upd-auto" id="updAutoRow" hidden><input type="checkbox" id="updAuto"><span>Install patch releases (<span id="updAutoSeries"></span>) by themselves at night, when no agent is working</span></label>
+      <div class="upd-btns">
+        <button type="button" id="updCheck">Check now</button>
+        <button type="button" id="updClose">Close</button>
+        <button type="button" id="updCancel" hidden>Don't wait</button>
+        <button type="button" id="updIdle" class="upd-ok" hidden>Update when all are idle</button>
+        <button type="button" id="updGo" class="upd-ok" hidden>Update now</button>
+      </div>
+    </dialog>
     <div class="mob-input" id="mobInput">
       <button id="mobEsc" title="Ctrl+C">⎋</button>
       <input type="text" id="mobText" placeholder="Type here..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
@@ -131,6 +149,7 @@
   <script src="/js/paste-upload.js?v=eb2fd53de9"></script>
   <script src="/js/quota.js?v=3e8a760afc"></script>
   <script src="/js/guest-claude.js?v=b1a47817e0"></script>
+  <script src="/js/update.js?v=096b78f722"></script>
   <script src="/js/boot.js?v=0010ce0867"></script>
   <script src="/js/version.js?v=37c113a5e5"></script>
 </body>

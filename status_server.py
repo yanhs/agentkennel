@@ -44,7 +44,10 @@ import services_keeper   # the Server page's Services block (GET/POST /api/servi
 #   backend/server_tab.py     /api/server, /api/services
 #   backend/guests.py         /api/guests
 #   backend/quota.py          /api/quota*
-#   backend/http_api.py       Handler (:3011), BufferHandler (:3045), LiveHandler (:3014)
+#   backend/slots_api.py      POST /: the numbered terminals' order, reset and labels
+#   backend/updates.py        /api/update: a new release, the Update button, night updates
+#   backend/http_api.py       Handler (:3011)
+#   backend/live.py           BufferHandler (:3045), LiveHandler (:3014)
 #   backend/auth.py           the login gate (:3046)
 #   backend/uploads.py        image paste and file upload (:3047)
 # Every module's names are re-exported here. Setting one on this module (monkeypatch, or
@@ -57,9 +60,11 @@ import types as _types
 for _k in [k for k in sys.modules if k == "backend" or k.startswith("backend.")]:
     del sys.modules[_k]
 
-from backend import (terminals, telegram, library_api, restart_trash, server_tab, guests, quota, http_api, auth, uploads)  # noqa: E402
+from backend import (terminals, telegram, library_api, restart_trash, server_tab, guests, quota,  # noqa: E402
+                     slots_api, updates, http_api, live, auth, uploads)
 
-_PARTS = (terminals, telegram, library_api, restart_trash, server_tab, guests, quota, http_api, auth, uploads)
+_PARTS = (terminals, telegram, library_api, restart_trash, server_tab, guests, quota, slots_api,
+          updates, http_api, live, auth, uploads)
 for _m in _PARTS:
     for _k, _v in vars(_m).items():
         if not _k.startswith("__"):
@@ -90,7 +95,9 @@ sys.modules[__name__].__class__ = _Facade
 # what the command line below uses, by name (all of it is re-exported above as well)
 from backend.telegram import tg_autostart  # noqa: E402
 from backend.server_tab import SERVER_COLLECTOR  # noqa: E402
-from backend.http_api import BufferHandler, Handler, LiveHandler  # noqa: E402
+from backend.http_api import Handler  # noqa: E402
+from backend.live import BufferHandler, LiveHandler  # noqa: E402
+from backend.updates import UpdateScheduler  # noqa: E402
 from backend.auth import AuthHandler, PASSFILE, reset_password, setup_link_path, setup_url  # noqa: E402
 from backend.uploads import PasteHandler  # noqa: E402
 
@@ -114,6 +121,7 @@ if __name__ == "__main__":
         sys.exit(0 if link else 1)
     from threading import Thread
     SERVER_COLLECTOR.start()  # /api/server: sample /proc every 5 s
+    UpdateScheduler().start()  # /api/update: the daily release check, idle queue, night updates
     tg_autostart()  # bring the Telegram bridge back up if it was configured + enabled
     Thread(target=lambda: HTTPServer(("127.0.0.1", 3014), LiveHandler).serve_forever(), daemon=True).start()
     Thread(target=lambda: HTTPServer(("127.0.0.1", 3045), BufferHandler).serve_forever(), daemon=True).start()

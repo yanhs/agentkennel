@@ -1,5 +1,5 @@
-"""The HTTP handlers: the main API on :3011 (Handler), the tmux buffer (:3045) and the page
-version for live reload (:3014).
+"""The main API on :3011 (Handler). The tmux buffer (:3045) and the page version (:3014)
+are in backend/live.py.
 
 Part of status_server (the facade re-exports every name here)."""
 
@@ -7,16 +7,15 @@ from http.server import BaseHTTPRequestHandler
 import json
 import subprocess
 import time
-import os
-import re
 from urllib.parse import parse_qs, urlparse
 
-from backend import _HERE
 from backend.terminals import (
     detect_project_from_cwd, get_cwd, get_pane_pid, get_system_stats, is_working, load_agents,
-    parse_pane, reset_agent, SAMPLE_INTERVAL, save_agents, SESSIONS, tree_cpu_ticks
+    parse_pane, SAMPLE_INTERVAL, save_agents, SESSIONS, tree_cpu_ticks
 )
 from backend.telegram import tg_action, tg_notify_action, tg_render
+from backend.slots_api import slot_post
+from backend.updates import upd_post, UPD_ROUTE, upd_state
 from backend.library_api import (
     LIB_BODY_MAX, lib_listing, lib_origin_ok, lib_post, LIB_ROUTE, LibError
 )
@@ -101,6 +100,26 @@ class Handler(BaseHTTPRequestHandler):
             self._lib_json(200, data)
         except LibError as e:
             self._lib_json(e.code, {"error": str(e)})
+        except Exception as e:
+            self._lib_json(500, {"error": str(e)[:200]})
+
+    def _is_updates(self):
+        r = self._route()
+        return r == UPD_ROUTE or r.startswith(UPD_ROUTE + "/")
+
+    def _updates(self, method):
+        """GET /api/update; POST /api/update/<check|start|cancel|auto|seen> (same-origin)."""
+        route = self._route()
+        try:
+            if method == "GET" and route == UPD_ROUTE:
+                data = upd_state()
+            elif method == "POST" and route.startswith(UPD_ROUTE + "/"):
+                data = upd_post(route[len(UPD_ROUTE) + 1:], self._write_body())
+            else:
+                raise LibError(404, "not found")
+            self._lib_json(200, data)
+        except LibError as e:
+            self._lib_json(e.code, {"error": str(e), **e.extra})
         except Exception as e:
             self._lib_json(500, {"error": str(e)[:200]})
 
@@ -198,6 +217,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._services("GET")
         if self._is_guests():
             return self._guests("GET")
+        if self._is_updates():
+            return self._updates("GET")
         if (urlparse(getattr(self, "path", "/")).path.rstrip("/") or "/") == "/telegram":
             body = tg_render().encode("utf-8")
             self.send_response(200)
@@ -376,113 +397,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._services("POST")
         if self._is_guests():
             return self._guests("POST")
+        if self._is_updates():
+            return self._updates("POST")
         if (urlparse(getattr(self, "path", "/")).path.rstrip("/") or "/") == "/telegram":
             return self._telegram_post()
         length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(length))
 
-        # Order sync
-        if "_order" in body:
-            agents = load_agents()
-            agents["_order"] = body["_order"]
-            save_agents(agents)
-            self._json_response(200, {"ok": True})
-            return
-
-        agent_id = str(body.get("id", ""))
-        valid_ids = {t["id"]: t["session"] for t in SESSIONS}
-        if agent_id not in valid_ids:
-            self._json_response(400, {"error": "invalid id"})
-            return
-
-        # Hard reset: wipe tmux session + conversation JSONL + override entry.
-        if body.get("reset"):
-            info = reset_agent(agent_id, valid_ids[agent_id])
-            self._json_response(200, {"ok": True, **info})
-            return
-
-        # Fire-and-forget slash commands ("compact" so far). Pure runtime —
-        # only sends if the tmux session is alive; nothing is persisted.
-        VALID_ACTIONS = {"compact": "/compact"}
-        if "action" in body:
-            action = body["action"]
-            if action not in VALID_ACTIONS:
-                self._json_response(400, {"error": f"unknown action {action!r}"})
-                return
-            session_name = valid_ids[agent_id]
-            r = subprocess.run(   # exact targets: never another slot (see reset_agent)
-                ["tmux", "has-session", "-t", "=" + session_name],
-                capture_output=True, text=True,
-            )
-            if r.returncode == 0:
-                subprocess.run(
-                    ["tmux", "send-keys", "-t", f"={session_name}:",
-                     VALID_ACTIONS[action], "Enter"],
-                    capture_output=True, text=True,
-                )
-            self._json_response(200, {"ok": True, "sent": r.returncode == 0})
-            return
-
-        # Effort must be one of these — validated BEFORE we touch the file
-        # so a bad value never overwrites anything on disk.
-        VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max", "auto"}
-        if "effort" in body and body["effort"] not in ({""} | VALID_EFFORTS):
-            self._json_response(400, {"error": f"invalid effort {body['effort']!r}"})
-            return
-
-        agents = load_agents()
-        if agent_id not in agents:
-            agents[agent_id] = {}
-        if "project" in body:
-            agents[agent_id]["project"] = body["project"]
-            agents[agent_id]["locked"] = True
-        if "task" in body:
-            agents[agent_id]["task"] = body["task"]
-        if "unlock" in body and body["unlock"]:
-            agents[agent_id]["locked"] = False
-        # Per-agent model override. Empty string clears the override so the
-        # next launch falls back to the Claude subscription default.
-        slash_cmds: list[str] = []
-        if "model" in body:
-            val = body["model"]
-            if isinstance(val, str) and val:
-                agents[agent_id]["model"] = val
-                slash_cmds.append(f"/model {val}")
-            else:
-                agents[agent_id].pop("model", None)
-        # Per-agent effort override. Empty string clears → next launch uses "auto".
-        if "effort" in body:
-            val = body["effort"]
-            if isinstance(val, str) and val:
-                agents[agent_id]["effort"] = val
-                slash_cmds.append(f"/effort {val}")
-            else:
-                agents[agent_id].pop("effort", None)
-        save_agents(agents)
-
-        # Live-apply: if the agent's tmux session is alive, inject the slash
-        # command(s) so the change takes effect immediately. Without this,
-        # POSTing only persists to disk and the user wouldn't see anything
-        # change in the terminal until the next launch.
-        if slash_cmds:
-            session_name = valid_ids[agent_id]
-            r = subprocess.run(   # exact targets: never another slot (see reset_agent)
-                ["tmux", "has-session", "-t", "=" + session_name],
-                capture_output=True, text=True,
-            )
-            if r.returncode == 0:
-                for cmd in slash_cmds:
-                    subprocess.run(
-                        ["tmux", "send-keys", "-t", f"={session_name}:", cmd, "Enter"],
-                        capture_output=True, text=True,
-                    )
-
-        self._json_response(200, {"ok": True})
+        code, data = slot_post(body)
+        self._json_response(code, data)
 
     def do_OPTIONS(self):
         self.send_response(204)
         if (self._is_library() or self._is_services() or self._is_guests()
-                or self._route() == SERVER_ROUTE):   # no CORS preflight
+                or self._is_updates() or self._route() == SERVER_ROUTE):   # no CORS preflight
             self.end_headers()
             return
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -498,70 +426,6 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode())
-
-    def log_message(self, *args):
-        pass
-
-
-class BufferHandler(BaseHTTPRequestHandler):
-    """GET /  — return tmux paste buffer for a session."""
-    def do_GET(self):
-        from urllib.parse import urlparse, parse_qs
-        qs = parse_qs(urlparse(self.path).query)
-        session = qs.get("session", [""])[0]
-        if not session or not re.match(r'^[\w-]+$', session):
-            self._resp(400, {"error": "bad session"})
-            return
-        r = subprocess.run(
-            ["tmux", "show-buffer", "-t", session],
-            capture_output=True, text=True,
-        )
-        if r.returncode != 0:
-            # try without -t (global buffer)
-            r = subprocess.run(["tmux", "show-buffer"], capture_output=True, text=True)
-        self._resp(200, {"text": r.stdout if r.returncode == 0 else ""})
-
-    def _resp(self, code, data):
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(json.dumps(data, ensure_ascii=False).encode())
-
-    def log_message(self, *args):
-        pass
-
-
-# the actually-served dashboard file (the old ../agents/index.html was archived,
-# so page-version was stuck at "0" and live-reload never fired)
-WEB_DIR = os.path.join(_HERE, "web")
-WATCH_FILE = os.path.join(WEB_DIR, "index.html")   # kept for callers of the old name
-# pages that poll /api/page-version, by the file name the browser shows in Referer;
-# anything else (/, unknown names) watches index.html
-WATCHED_PAGES = ("index.html", "index-lib.html")
-
-
-def watch_file_for(referer):
-    """The page file whose mtime is this page's version: the library page is
-    served from web/index-lib.html, so edits to it must reload it too."""
-    page = os.path.basename(urlparse(referer or "").path)
-    return os.path.join(WEB_DIR, page if page in WATCHED_PAGES else "index.html")
-
-
-class LiveHandler(BaseHTTPRequestHandler):
-    """Returns mtime of the page that asks (Referer) for live-reload."""
-    def do_GET(self):
-        try:
-            mtime = os.path.getmtime(watch_file_for(self.headers.get("Referer")))
-        except OSError:
-            mtime = 0
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(str(mtime).encode())
 
     def log_message(self, *args):
         pass

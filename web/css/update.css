@@ -1,0 +1,67 @@
+/* Updates (web/js/update.js): a line above the version at the bottom of the sidebar when a
+   new release is out, an update runs or its result is waiting to be read; the dialog with
+   what changed, the Update button and the night-time patch setting. */
+.side-upd { flex: none; padding: 7px 10px 0; font-size: 11.5px; line-height: 1.4; border-top: 1px solid rgba(var(--fg-rgb),0.06); }
+.side-upd[hidden] { display: none; }
+.side-upd + .side-foot { border-top: none; padding-top: 2px; }
+.upd-line {
+  display: block; max-width: 100%; padding: 0; border: none; background: none; cursor: pointer;
+  font: inherit; text-align: left; color: var(--accent-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.upd-line::before { content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 6px 1px 0; border-radius: 50%; background: var(--accent); }
+.upd-line:hover { color: var(--accent-fg-hi); text-decoration: underline; }
+.upd-line:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.upd-line.run::before { background: var(--amber); animation: pulse 1s ease-in-out infinite; }
+.upd-line.good { color: var(--green-fg); }
+.upd-line.good::before { background: var(--green); }
+.upd-line.bad { color: var(--red-fg); }
+.upd-line.bad::before { background: var(--red); }
+@media (max-width: 700px) { .side-upd { display: none; } } /* phones: the ⋯ menu has it */
+
+#updDlg {
+  width: min(520px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px);
+  padding: 18px 18px 14px; margin: auto; overflow: auto;
+  border: 1px solid rgba(var(--fg-rgb),0.14); border-radius: 12px;
+  background: var(--menu-bg); color: var(--text); box-shadow: var(--menu-shadow);
+  font: 13px/1.45 'Inter', sans-serif;
+}
+#updDlg::backdrop { background: rgba(0,0,0,0.45); }
+#updDlg [hidden] { display: none !important; }
+#updDlg h2 { font-size: 15px; font-weight: 600; color: var(--text-hi); }
+#updDlg .upd-sub { margin: 2px 0 12px; color: var(--dim); }
+.upd-notes { max-height: min(46vh, 360px); overflow: auto; padding: 10px 12px; border-radius: 8px; background: rgba(var(--fg-rgb),0.04); border: 1px solid rgba(var(--fg-rgb),0.08); color: var(--text-2); }
+.upd-notes:empty { display: none; }
+.upd-notes:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.upd-notes h3 { font-size: 13px; font-weight: 600; color: var(--text-hi); margin: 10px 0 4px; }
+.upd-notes h3:first-child { margin-top: 0; }
+.upd-notes h4 { font-size: 12px; font-weight: 600; color: var(--dim); margin: 8px 0 2px; }
+.upd-notes ul { margin: 0 0 4px 18px; padding: 0; }
+.upd-notes li { margin: 3px 0; }
+.upd-notes p { margin: 4px 0; }
+.upd-notes b { color: var(--text-hi); font-weight: 600; }
+.upd-notes code, .upd-cmd code { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; background: rgba(var(--fg-rgb),0.07); padding: 0 4px; border-radius: 3px; }
+.upd-cmd { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.upd-cmd code { flex: 1; padding: 6px 8px; overflow-wrap: anywhere; color: var(--text); }
+.upd-cmd button, .upd-btns button {
+  min-height: 36px; padding: 0 14px; border-radius: 8px; cursor: pointer;
+  font: 500 13px 'Inter', sans-serif; color: var(--text-2);
+  background: transparent; border: 1px solid rgba(var(--fg-rgb),0.14);
+}
+.upd-steps { margin: 12px 0 0 18px; padding: 0; color: var(--dim); }
+.upd-steps li { margin: 2px 0; }
+.upd-steps li.ok { color: var(--green-fg); }
+.upd-steps li.bad { color: var(--red-fg); }
+.upd-steps li.now { color: var(--text-hi); }
+#updMsg { min-height: 1.45em; margin: 12px 0 2px; color: var(--dim); overflow-wrap: anywhere; }
+#updMsg:empty { min-height: 0; margin: 0; }
+#updMsg.good { color: var(--green-fg); }
+#updMsg.bad { color: var(--red-fg); }
+#updMsg.warn { color: var(--amber); }
+.upd-auto { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; color: var(--text-2); cursor: pointer; }
+.upd-auto input { margin: 2px 0 0; accent-color: var(--accent); width: 14px; height: 14px; flex: none; }
+.upd-btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.upd-btns #updCheck { margin-right: auto; }
+.upd-btns .upd-ok { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+.upd-btns button:disabled { opacity: 0.55; cursor: progress; }
+.upd-btns button:focus-visible, .upd-cmd button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 700px) { .upd-btns #updCheck { order: 9; flex-basis: 100%; margin-right: 0; } }

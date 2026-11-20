@@ -2,6 +2,18 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## v2.8.0 — updates from the panel
+
+### Panel
+- **"Update available: vX.Y.Z"** above the version at the bottom of the sidebar (on a phone, in the **⋯** menu) when a new release is out. The panel asks GitHub for the latest release once a day, without a token (an ETag, so an unchanged answer costs nothing; an hour's pause after an error, GitHub's reset time after a rate limit). It opens what changed since your version, from the release's CHANGELOG.md.
+- **Update in one click.** While an agent works the panel says which one and offers **Update when all are idle** instead. Then: a backup with a time stamp in `.sessions/update/backups/` (the code and the settings an update may change, never your terminals, board or password), the release tag fetched and your branch fast-forwarded to it, the new release's own setup steps (the guard hooks), a restart of the panel's own services only, and a check that the new version answers. If anything fails after the backup it rolls back by itself (code, settings, services) and says what failed. A clone with changes of its own, or a panel whose restart could stop the terminals (a service that holds the tmux server, such as a Telegram bridge that started it), is refused before anything changes. The result stays in the panel until you read it and goes to Telegram when the install has a bot, success and failure alike.
+- **Night-time patch updates, off by default.** "Install patch releases by themselves at night" installs a patch release (2.8.0 → 2.8.1, never a minor or major one) between 02:00 and 05:00 server time, only when no agent works, with the same backup and rollback; a release that failed once is left to you.
+- **Docker** shows `docker compose pull && docker compose up -d` instead of the button; a guest's sandbox shows nothing. `AGENTKENNEL_UPDATES=0` turns it all off. Settings and details: docs/configuration.md.
+
+### Upgrading
+- From v2.7.2 or earlier: once more the old way (run `~/agentkennel/install.sh` again, or `git pull` and restart the panel); the panel updates itself from then on.
+- When a release changes `install.sh`, the update's result says to run it once more (it may need your sudo password, which the panel never asks for).
+
 ## v2.7.2 — the Server tab opens at once
 
 - **The Server tab opens at once when you come back to it.** The dashboard reloads the page on every click; it now shows what it last saw in this browser session straight away (the guests' and services' buttons wait for fresh data, a fraction of a second), then refreshes. Measured with 150 ms of network latency: the guests list in 0.3 s instead of 1–3 s.

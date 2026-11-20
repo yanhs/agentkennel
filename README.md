@@ -165,7 +165,10 @@ curl -fsSL https://raw.githubusercontent.com/yanhs/agentkennel/master/install.sh
   `~/.claude` (merged, never overwritten; `AGENTKENNEL_GUARDS=0` skips them).
 - **How it runs:** systemd services as your user, started at boot:
   `systemctl status 'agentkennel-*'`, `journalctl -u agentkennel-status`.
-- **Update or repair:** run the same command again; running agents keep running.
+- **Update or repair:** the panel says **Update available** when a new release is out and
+  updates itself in one click (a backup first, rolled back if the new version doesn't answer;
+  see [Configuration](docs/configuration.md)); or run the same command again. Running agents
+  keep running.
   **Remove:** `~/agentkennel/install.sh --uninstall` keeps your terminals, board and password;
   add `--purge` to delete the folder too (only one the installer cloned itself).
 - **Forgot the password?** `~/agentkennel/install.sh --reset-password` prints a new one-time
