@@ -907,7 +907,18 @@ def _rs_seed(A, u=U1, name="restart", archived=False):
 
 
 def _claudes(u):
-    return sorted(p for p, _ in library_cli.claude_processes(u))
+    """The claudes on u. Not a fake's own fork: the fake (bash with claude's argv) forks
+    to run `sleep`, and until that exec the child carries the same command line — on a
+    busy machine a scan caught it (a second "claude" whose parent is the first)."""
+    hits = {p for p, _ in library_cli.claude_processes(u)}
+    return sorted(p for p in hits if library_cli._ppid(p) not in hits)
+
+
+def _one_claude(u):
+    """[pid] when exactly one claude runs u, else None — from ONE scan (two scans can
+    disagree)."""
+    now = _claudes(u)
+    return now if len(now) == 1 else None
 
 
 def _ensure(A, sid):
@@ -915,7 +926,7 @@ def _ensure(A, sid):
     r = subprocess.run([sys.executable, str(TERMINAL_DIR / "library_cli.py"), "ensure", sid],
                        capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
-    pids = wait_for(lambda: _claudes(U1) if len(_claudes(U1)) == 1 else None, timeout=15)
+    pids = wait_for(lambda: _one_claude(U1), timeout=15)
     assert pids, "the fake claude never started"
     return pids
 
@@ -935,7 +946,7 @@ def test_restart_starts_claude_again_in_the_same_conversation(rs):
     assert e["active"] is True and e["archived"] is False
     # loaded again with no tab open: one claude, a new process, the same conversation
     assert _alive(rs, "cs-" + sid)
-    new = wait_for(lambda: _claudes(U1) if len(_claudes(U1)) == 1 else None, timeout=15)
+    new = wait_for(lambda: _one_claude(U1), timeout=15)
     assert new and new != old
     starts = _starts(rs)
     assert len(starts) == 2
@@ -970,7 +981,7 @@ def test_restart_force_restarts_a_busy_terminal(rs, monkeypatch):
     assert post(rs, "restart", {"id": sid})[1]["reason"] == "printing"
     code, e = post(rs, "restart", {"id": sid, "force": True})
     assert code == 200 and e["restarted"] is True, e
-    new = wait_for(lambda: _claudes(U1) if len(_claudes(U1)) == 1 else None, timeout=15)
+    new = wait_for(lambda: _one_claude(U1), timeout=15)
     assert new and new != old and len(_starts(rs)) == 2
 
 
@@ -981,7 +992,7 @@ def test_restart_with_a_tab_open_is_not_refused(rs):
     assert wait_for(lambda: get(rs)[1]["sessions"][0]["attached"], timeout=5)
     code, e = post(rs, "restart", {"id": sid})
     assert code == 200 and e["restarted"] is True, e
-    new = wait_for(lambda: _claudes(U1) if len(_claudes(U1)) == 1 else None, timeout=15)
+    new = wait_for(lambda: _one_claude(U1), timeout=15)
     assert new and new != old
 
 
@@ -1036,7 +1047,7 @@ def test_restart_kills_a_claude_that_ignores_the_hangup(rs, monkeypatch):
     import signal
     assert (old[0], signal.SIGTERM) in sent and (old[0], signal.SIGKILL) in sent
     assert {p for p, _ in sent} == set(old)      # only the old claude was signalled
-    new = wait_for(lambda: _claudes(U1) if len(_claudes(U1)) == 1 else None, timeout=15)
+    new = wait_for(lambda: _one_claude(U1), timeout=15)
     assert new and new != old
 
 
