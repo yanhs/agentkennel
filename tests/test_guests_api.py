@@ -110,6 +110,16 @@ def g(tmp_path, monkeypatch):
     tg = tmp_path / "telegram.json"
     tg.write_text(json.dumps({"enabled": True, "token": "999:" + "y" * 35, "owner": 42}))
     monkeypatch.setattr(ss, "TG_CONF", str(tg))
+    # the refreshes the panel starts in the background read GUESTS_DIR when they run: one
+    # still running after this test would call the NEXT test's fake guestctl (seen under
+    # load), so the test waits for its own before it ends
+    spawned = []
+
+    def spawn(self, fn):
+        t = threading.Thread(target=fn, daemon=True)
+        spawned.append(t)
+        t.start()
+    monkeypatch.setattr(ss.GuestsPanel, "_spawn", spawn)
     srv = HTTPServer(("127.0.0.1", 0), ss.Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
 
@@ -133,6 +143,8 @@ def g(tmp_path, monkeypatch):
     finally:
         srv.shutdown()
         srv.server_close()
+        for t in spawned:
+            t.join(timeout=120)
 
 
 def get(base, path="/api/guests"):
