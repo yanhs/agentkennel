@@ -78,12 +78,15 @@ def _wait_port(port, timeout=10):
     raise RuntimeError(f"ttyd did not come up on {port}")
 
 
-@pytest.fixture(scope="module")
-def ttyd_server():
+def _ttyd_server(who):
+    """The app in its own tmux server behind ttyd. Phones and the desktop get one each:
+    tmux sizes a window to its latest client, so with the desktop's (taller) tab
+    attached last, the phone saw only the bottom of the window ("line 18" where
+    "line 03" was meant) — found when a random order ran the desktop tests first."""
     tmp = tempfile.mkdtemp(prefix="adx.", dir="/tmp")        # short: socket path limit
     env = dict(os.environ, TMUX_TMPDIR=tmp)
     env.pop("TMUX", None)
-    name = f"adx-touch-{os.getpid()}"
+    name = f"adx-touch-{who}-{os.getpid()}"
     app, log = os.path.join(tmp, "app.py"), os.path.join(tmp, "app.log")
     Path(app).write_text(APP)
     Path(log).write_bytes(b"")
@@ -109,6 +112,16 @@ def ttyd_server():
         subprocess.run(tmux + ["kill-server"], env=env, timeout=10,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.fixture(scope="module")
+def ttyd_server():
+    yield from _ttyd_server("touch")
+
+
+@pytest.fixture(scope="module")
+def ttyd_desktop():
+    yield from _ttyd_server("desk")
 
 
 IPAD_PLATFORM = "Object.defineProperty(Navigator.prototype, 'platform', {get: () => 'MacIntel'});"
@@ -139,9 +152,9 @@ def ipad(pw, ttyd_server):
 
 
 @pytest.fixture(scope="module")
-def desktop(pw, ttyd_server):
+def desktop(pw, ttyd_desktop):
     """The dashboard in a desktop browser (mouse wheel and touchpad, no touch)."""
-    yield from _dashboard(pw, ttyd_server, device=None)
+    yield from _dashboard(pw, ttyd_desktop, device=None)
 
 
 def _dashboard(pw, ttyd_server, init_script=None, device="Pixel 7"):
