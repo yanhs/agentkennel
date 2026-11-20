@@ -18,7 +18,13 @@ namespaces): a test there cannot see or signal another worker's processes or the
 terminals, reach the live tmux server, or connect to a port outside its worker. Still
 write tests as if they ran side by side: files in `tmp_path`, a server in the test's own
 process binds port 0 and reads the port back (a guard test checks this), tmux only
-with `-L <unique name>`.
+with `-L <unique name>`. A random order (`--random-order`) finds tests that lean on an
+earlier one (module-level state, a background thread outliving its test, a shared tmux
+session sized by another tab).
+
+One run at a time on a machine: the sandbox hides the rest of the machine from a worker,
+not the worker from the machine, so a plain serial `pytest` started next to a parallel
+run sees its fake `claude` processes.
 
 ## How contributions are licensed
 
