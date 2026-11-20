@@ -169,10 +169,20 @@ template engine. Pages people should find (a landing, articles) are rendered on 
 server, so search engines and link previews see them. An existing site keeps its stack
 unless the person asks to move it.
 """
+# Small files. 20.11.2026 the owner: split code from the start - the panel had grown a
+# 3,500-line server and two 3,260-line copies of one page.
+FILES_MARK = "<!-- agentkennel-small-files -->"
+FILES_MD = """\
+{mark}
+## Small files
+Code goes into small files from the start, one job per file: split before a file passes 500
+lines. Page markup, styles and scripts in separate files; a server in modules by area.
+No copies of a file under two names; before changing a large file, move the part you touch out.
+"""
 # Blocks that go into AgentKennel's own CLAUDE.md (new, or written by it earlier), once.
 # Keeping only a block's mark line opts out of it: the block is not added back.
 OWN_BLOCKS = ((ENV_MARK, ENV_MD), (SAFETY_MARK, SAFETY_MD), (TDD_MARK, TDD_MD),
-              (LINKS_MARK, LINKS_MD), (WEB_MARK, WEB_MD))
+              (LINKS_MARK, LINKS_MD), (WEB_MARK, WEB_MD), (FILES_MARK, FILES_MD))
 REPLACED_BLOCKS += ((WEB_MARK, OLD_WEB_MD, WEB_MD),)
 
 

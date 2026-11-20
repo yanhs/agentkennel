@@ -24,8 +24,9 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INSTALL = os.path.join(REPO, "hooks", "install_guards.py")
 HOOKS = os.path.join(REPO, "hooks")
 EXAMPLE = os.path.join(HOOKS, "settings.example.json")
-# the default CLAUDE.md stays short enough to be read whole (70 until the web rule, 31.10)
-MAX_MD_LINES = 80
+# the default CLAUDE.md stays short enough to be read whole (70 until the web rule, 31.10;
+# 80 until the small-files rule the owner asked for everywhere, 20.11)
+MAX_MD_LINES = 90
 
 
 def run(tmp_path, *args, env=None):
@@ -716,3 +717,23 @@ def test_a_persons_own_claude_md_gets_no_web_rule(tmp_path):
     md.write_text("my own rules\n")
     run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
     assert WEB_MARK not in md.read_text()
+
+
+FILES_MARK = "<!-- agentkennel-small-files -->"
+
+
+def test_agents_split_code_into_small_files(tmp_path):
+    """20.11.2026, the owner: code goes into small files from the start, one job per file
+    (the panel had grown a 3,500-line server and two 3,260-line copies of its page).
+    Into the agents' rules, everywhere: every AgentKennel and every guest sandbox."""
+    md = tmp_path / "CLAUDE.md"
+    r = run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
+    assert r.returncode == 0, r.stderr
+    text = md.read_text()
+    assert text.count(FILES_MARK) == 1
+    block = " ".join(text.split(FILES_MARK, 1)[1].split("<!--", 1)[0].split())
+    for words in ("small files", "one job per file", "500 lines", "No copies of a file"):
+        assert words in block, words
+    assert text.isascii() and len(text.splitlines()) < MAX_MD_LINES
+    run(tmp_path, "--claude-md", str(md), "--services-dir", "/work/.services")
+    assert md.read_text().count(FILES_MARK) == 1          # added once, not on every run
