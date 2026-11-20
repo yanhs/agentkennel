@@ -3067,6 +3067,8 @@ def test_phone_long_press_vertical_drag_selects_and_copies(browser, site):
     ctx, pg, cdp, reads = _touch_page(browser, site)
     try:
         _long_press_drag(pg, cdp)
+        _wait_hint(pg)              # first: it shows for 1.5 s (the checks below took longer
+        #                             than that once, on a busy machine)
         downs, moves, ups = (_fake(pg, k) for k in ("mousedown", "mousemove", "mouseup"))
         assert len(downs) == 1 and len(ups) == 1 and len(moves) >= 4
         for e in downs + moves + ups:
@@ -3076,7 +3078,6 @@ def test_phone_long_press_vertical_drag_selects_and_copies(browser, site):
         assert abs(downs[0]["x"] - (x - b["x"])) < 2 and abs(downs[0]["y"] - (y - b["y"])) < 2
         assert moves[-1]["y"] > downs[0]["y"] + 100                 # dragged straight down
         assert _fake(pg, "wheel") == []
-        _wait_hint(pg)
         assert _clip(pg) == TOUCH_SEL
         assert reads == []                       # the phone never reads the tmux buffer
     finally:
