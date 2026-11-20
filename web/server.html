@@ -677,7 +677,10 @@
     const box = $('#chartBox'), chart = $('#chart');
     const W = Math.max(100, box.clientWidth), H = Math.max(60, box.clientHeight);
     chart.setAttribute('viewBox', `0 0 ${W} ${H}`);
-    const pts = (data.history && data.history.points) || [];
+    const all = (data.history && data.history.points) || [];
+    // only the 15 minutes shown: older history was drawn left of the frame (owner 20.11.2026)
+    const last = all.length ? all[all.length - 1].t : 0;
+    const pts = all.filter(p => p.t >= last - 900);
     chartPts = pts;
     $('#chartEmpty').hidden = pts.length >= 2;
     const nodes = [];

@@ -450,3 +450,22 @@ def test_a_theme_saved_under_the_old_key_still_applies(browser, site, api):
         assert pg.evaluate("document.documentElement.dataset.theme") == "dark"
     finally:
         ctx.close()
+
+
+def test_history_older_than_the_window_stays_inside_the_chart(browser, site, api):
+    """Owner 20.11.2026: the load chart spilled out of its frame on the left — the server keeps more
+    history than the 15 minutes shown, and those points were drawn at negative x."""
+    t = 1_790_000_000.0
+    api.snap["history"]["points"] = [
+        {"t": t - 1800 + i * 5, "ram": 60, "g": {"agents": 200, "apps": 100, "jobs": 50, "system": 30}}
+        for i in range(361)]
+    ctx, pg = _open(browser, site, api)
+    try:
+        xs = pg.eval_on_selector_all(
+            "#chart path", "els => els.flatMap(e => [...e.getAttribute('d').matchAll(/[ML](-?[\\d.]+),/g)].map(m => +m[1]))")
+        assert xs and min(xs) >= 0, f"points drawn left of the chart: min x {min(xs)}"
+        box = pg.eval_on_selector("#chartBox", "b => b.getBoundingClientRect().left")
+        for r in pg.eval_on_selector_all("#chart path.area", "els => els.map(e => e.getBoundingClientRect().left)"):
+            assert r >= box - 0.5
+    finally:
+        ctx.close()
