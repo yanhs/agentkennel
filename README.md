@@ -57,9 +57,9 @@ docker compose up -d --wait && docker compose logs agentkennel | grep setup
 > touch the host. [Safety](#-safety-what-agents-never-do-without-you) lists what they never
 > do without you.
 
-**Latest: v2.7.2** — the Server tab opens at once. **v2.7.0** — a guest's Rules hold in
-their live web terminal too (Claude-only, and you hear of attempts to get around them);
-guests' web addresses work on the script install (Caddy). → [CHANGELOG](CHANGELOG.md)
+**Latest: v2.8.1** — sort the Server tab by memory; 15 minutes' refusal after 5 wrong
+passwords. **v2.8.0** — updates from the panel: "Update available", one click, a backup and
+a rollback of its own. → [CHANGELOG](CHANGELOG.md)
 
 ## Why AgentKennel
 

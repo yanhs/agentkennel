@@ -2,6 +2,12 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## v2.8.1 — sort the Server tab by memory; a safer login
+
+- **Server tab: Sort by CPU or Memory.** A switch above the list; Memory puts what takes the most memory first. Stopped programs and "Other" stay last either way. The choice is remembered in your browser.
+- **The login page stops guessing.** After 5 wrong passwords from one address that address is refused for 15 minutes (the password is not even checked meanwhile). Other visitors are not affected, so a stranger cannot lock you out.
+- **"5h —" instead of a "5h 0%" that never moves.** When Anthropic counts no 5-hour window for the subscription (it reports only the week), the allowance next to cmd says so: "5h —", and its title "no limit counted now (only the week)". When the 5-hour numbers come back, they show as before.
+
 ## v2.8.0 — updates from the panel
 
 ### Panel
