@@ -1,0 +1,9 @@
+/* Server page: "Sort by CPU · Memory" above the groups (js/server-sort.js) */
+.sortbar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 4px 0 8px; font-size: 11px; color: var(--faint); }
+.sortbar .sl { margin-right: 2px; }
+.sortbar button {
+  font: inherit; color: var(--dim); background: transparent; border: 1px solid var(--line);
+  border-radius: 6px; padding: 3px 9px; cursor: pointer;
+}
+.sortbar button:hover { color: var(--text); background: var(--hover); }
+.sortbar button[aria-pressed="true"] { color: var(--text); background: var(--s2); border-color: var(--hi-line); }

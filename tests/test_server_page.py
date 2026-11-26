@@ -152,10 +152,13 @@ def shot(pg, name):
 
 
 def test_page_exists_and_is_self_contained():
+    # its own code split out (owner 20.11.2026: small files) comes from the panel's
+    # /js/ and /css/, stamped like index.html's (bin/stamp-assets); nothing else is fetched
     html = PAGE.read_text(encoding="utf-8")
     assert "<title>" in html
     for src in re.findall(r'<script[^>]+src="([^"]+)"', html):
-        assert src.startswith("https://cdn.jsdelivr.net/"), src
+        assert (src.startswith("https://cdn.jsdelivr.net/")
+                or re.fullmatch(r"/js/[a-z-]+\.js\?v=[0-9a-f]{10}", src)), src
     assert "/api/server" in html
     assert "innerHTML" not in html          # every value goes in as text
 
@@ -487,5 +490,75 @@ def test_chart_top_is_the_real_server_load(browser, site, api):
             return [(Math.min(...tops) - b.top) / b.height]; }""")[0]
         # 98% of the plot: near the top (padT 6 + plot ~130px of 150)
         assert top < 0.1, f"chart top at {top:.2f} of the box height, not ~98%"
+    finally:
+        ctx.close()
+
+
+# ── sort by CPU (as before) or by memory; the choice is remembered ─────────
+def _order(pg, group):
+    return pg.eval_on_selector_all(f'section.group[data-group="{group}"] .row',
+                                   "els => els.map(e => e.dataset.id)")
+
+
+def _by_mem_snap(api):
+    snap = copy.deepcopy(api.snap)
+    snap["groups"][0]["members"] = [
+        m("agent:1", "Busy small", "claude", "working", 150.0, 200, terminal="cs-11111111"),
+        m("agent:2", "Quiet big", "claude", "idle", 1.0, 2400, terminal="cs-22222222"),
+        m("agent:3", "Middle", "claude", "idle", 20.0, 800, terminal="cs-33333333"),
+        m("agent:4", "Stopped huge", "claude", "stopped", 0, 0, terminal="cs-44444444"),
+    ]
+    api.snap = snap
+
+
+def test_sorted_by_cpu_by_default(browser, site, api):
+    _by_mem_snap(api)
+    ctx, pg = _open(browser, site, api)
+    try:
+        pg.evaluate("() => { try { localStorage.removeItem('agentkennel-server-sort'); } catch (e) {} }")
+        pg.reload(); pg.wait_for_selector(".row[data-id]")
+        assert _order(pg, "agents") == ["agent:1", "agent:3", "agent:2", "agent:4"]
+        assert pg.get_attribute('#sortBar [data-sort="cpu"]', "aria-pressed") == "true"
+        assert pg.get_attribute('#sortBar [data-sort="mem"]', "aria-pressed") == "false"
+        assert pg.errors == []
+    finally:
+        ctx.close()
+
+
+def test_memory_sort_puts_the_biggest_first_and_is_remembered(browser, site, api):
+    _by_mem_snap(api)
+    ctx, pg = _open(browser, site, api)
+    try:
+        pg.click('#sortBar [data-sort="mem"]')
+        # biggest memory first; a stopped one stays last
+        assert _order(pg, "agents") == ["agent:2", "agent:3", "agent:1", "agent:4"]
+        assert pg.get_attribute('#sortBar [data-sort="mem"]', "aria-pressed") == "true"
+        # survives a live refresh and a reload
+        snap = copy.deepcopy(api.snap)
+        snap["groups"][0]["members"][0]["rss_mb"] = 5000
+        api.snap = snap
+        pg.wait_for_function("() => document.querySelector('section.group[data-group=\"agents\"] .row')"
+                             ".dataset.id === 'agent:1'")
+        pg.reload(); pg.wait_for_selector(".row[data-id]")
+        assert _order(pg, "agents") == ["agent:1", "agent:2", "agent:3", "agent:4"]
+        assert pg.get_attribute('#sortBar [data-sort="mem"]', "aria-pressed") == "true"
+        pg.click('#sortBar [data-sort="cpu"]')
+        assert _order(pg, "agents") == ["agent:1", "agent:3", "agent:2", "agent:4"]
+        pg.reload(); pg.wait_for_selector(".row[data-id]")
+        assert pg.get_attribute('#sortBar [data-sort="cpu"]', "aria-pressed") == "true"
+        assert pg.errors == []
+    finally:
+        ctx.close()
+
+
+def test_memory_sort_keeps_other_last_and_fits_a_phone(browser, site, api):
+    ctx, pg = _open(browser, site, api, width=390, height=844, mobile=True)
+    try:
+        pg.click('#sortBar [data-sort="mem"]')
+        assert _order(pg, "system")[-1] == "sys:other"        # "Other" stays last, as with CPU
+        assert pg.evaluate("() => document.documentElement.scrollWidth") <= 390
+        assert pg.is_visible("#sortBar")
+        shot(pg, "server-sort-mem-phone.png")
+        assert pg.errors == []
     finally:
         ctx.close()

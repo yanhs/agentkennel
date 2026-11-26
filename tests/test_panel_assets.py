@@ -81,7 +81,11 @@ def test_every_referenced_asset_exists_and_every_asset_is_referenced():
     assert any(l.startswith("/css/") for l in links) and sum(l.startswith("/js/") for l in links) >= 5
     for l in links:
         assert asset_path(l).is_file(), l
-    referenced = {asset_path(l).resolve() for l in links}
+    # the Server page has a few of its own (js/server-sort.js …): referenced from some page
+    pages = [p for p in WEB.glob("*.html") if not p.is_symlink()]
+    referenced = {asset_path(l).resolve() for p in pages for l in asset_links(p.read_text(encoding="utf-8"))}
+    for l in referenced:
+        assert l.is_file(), l
     on_disk = {p.resolve() for p in list((WEB / "css").glob("*.css")) + list((WEB / "js").glob("*.js"))}
     assert on_disk == referenced, f"not referenced: {on_disk - referenced}"
 

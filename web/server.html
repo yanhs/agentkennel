@@ -12,6 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/server-sort.css?v=98dd45238a">
   <style>
     :root {
       --bg: #09090b; --s1: #111114; --s2: #18181b; --line: #27272a; --line2: #1f1f23;
@@ -534,10 +535,16 @@
     </div>
   </section>
 
+  <div id="sortBar" class="sortbar" role="group" aria-label="Sort the rows">
+    <span class="sl">Sort by</span>
+    <button type="button" data-sort="cpu" aria-pressed="true">CPU</button>
+    <button type="button" data-sort="mem" aria-pressed="false">Memory</button>
+  </div>
   <main id="groups"></main>
   <footer id="foot"></footer>
 </div>
 
+<script src="/js/server-sort.js?v=b2969d3a75"></script>
 <script>
 (() => {
   'use strict';
@@ -575,6 +582,7 @@
   const open = new Set();                 // expanded member ids
   const showAll = new Set();              // groups showing every row
   const ema = new Map();                  // member id -> smoothed CPU (stable ordering)
+  const sortMode = ServerSort.bind($('#sortBar'), () => { if (data) renderGroups(); });
 
   // ── formatting ──
   const cores = () => (data && data.host && data.host.cores) || 1;
@@ -950,12 +958,9 @@
         paths[1].setAttribute('d', d);
         paths[0].setAttribute('d', d + 'L72,18L0,18Z');
       }
-      // stable order: smoothed CPU, stopped last, "Other" last
+      // stable order: smoothed CPU or memory (the Sort by buttons), stopped last, "Other" last
       for (const m of g.members) ema.set(m.id, ema.has(m.id) ? ema.get(m.id) * 0.6 + m.cpu_pct * 0.4 : m.cpu_pct);
-      const ms = g.members.slice().sort((a, b) =>
-        ((a.status === 'stopped') - (b.status === 'stopped')) ||
-        ((a.id === 'sys:other') - (b.id === 'sys:other')) ||
-        (ema.get(b.id) - ema.get(a.id)) || (b.rss_mb - a.rss_mb) || a.id.localeCompare(b.id));
+      const ms = ServerSort.order(g.members, sortMode(), ema);
       const list = sec.querySelector('.list');
       let prev = null;
       ms.forEach((m, i) => {
