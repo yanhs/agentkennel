@@ -67,6 +67,12 @@ async function pollQuota() {
   const parts = [['5 hours', d.five_hour, false], ['week', d.seven_day, true]].map(([name, w, withDay], i) => {
     const pct = Math.round(w.utilization * 100);
     const line = chip.children[i];
+    // no 5-hour window (no reset time): Anthropic counts only the week now (26.11.2026)
+    if (i === 0 && !(w.resets_at > 0) && w.utilization <= 0) {
+      line.className = '';
+      line.querySelector('b').textContent = '—';
+      return `${name}: no limit counted now (only the week)`;
+    }
     line.className = pct >= 90 ? 'crit' : pct >= 70 ? 'warn' : '';
     line.querySelector('b').textContent = pct + '%';
     return `${name}: ${pct}%` + (w.resets_at > 0 ? ` · resets ${quotaReset(w.resets_at, withDay)}` : '');

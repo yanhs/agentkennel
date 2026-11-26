@@ -130,11 +130,16 @@ def test_the_title_says_when_each_window_resets(browser, site):  # noqa: F811
     ctx.close()
 
 
-def test_a_window_not_open_yet_says_no_reset(browser, site):  # noqa: F811
-    ctx, pg = open_with(browser, site, quota(u5=0, r5=0, source="guest"))
+def test_no_five_hour_window_shows_a_dash_not_zero(browser, site):  # noqa: F811
+    # 26.11.2026: Anthropic reports only the week (Claude Code itself gets only seven_day);
+    # "5h 0%" that never moved read as a broken counter — the owner: "doesn't work"
+    ctx, pg = open_with(browser, site, quota(u5=0, r5=0))
     pg.wait_for_selector("#quotaChip:not([hidden])")
-    assert chip_lines(pg)[0] == "5h 0%"
-    assert pg.get_attribute("#quotaChip", "title").startswith("5 hours: 0%; week: 9% · resets ")
+    assert chip_lines(pg) == ["5h —", "wk 9%"]
+    title = pg.get_attribute("#quotaChip", "title")
+    assert title.startswith("5 hours: no limit counted now (only the week); week: 9% · resets "), title
+    line = pg.eval_on_selector("#quotaChip > span", "e => e.className")
+    assert line == ""                                             # never amber or red
     ctx.close()
 
 
