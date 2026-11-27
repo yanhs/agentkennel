@@ -68,6 +68,7 @@ import library              # topic registry (.sessions/library.json)
 import envcompat            # settings: AGENTKENNEL_*, then the old AGENTDECK_*
 import library_cli          # tmux socket choice, transcript path of a topic
 import convo_sync           # a terminal takes the number of its live conversation
+import tg_use_menu as um    # /use: the allowance and the action buttons
 
 from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
@@ -294,7 +295,7 @@ def legacy_pane_command(session: str) -> str | None:
 # unloads a working or watched one) — the bridge only asks it.
 
 LIBRARY_CLI = os.path.join(GATE_DIR, "library_cli.py")
-NEED_PICK = "Pick a terminal first: /use <part of the name or id> · /list · /new <name>"
+NEED_PICK = "Pick a terminal first: /use"
 TOPIC_NAME_MAX = 100       # a topic name typed in /new
 TOPIC_BUTTONS_MAX = 24     # topic buttons in one /use picker
 READY_TIMEOUT = 45         # s to wait for a just-loaded Claude to draw its screen
@@ -1623,8 +1624,8 @@ def _running_legacy() -> list[str]:
 
 
 def _no_terminals(n_arch: int) -> str:
-    return ("No terminals outside the archive — /archive · /new <name>" if n_arch
-            else "No terminals yet — /new <name>")
+    return ("No terminals outside the archive — /use: 🗄 Archive · 🆕 New" if n_arch
+            else "No terminals yet — /use: 🆕 New")
 
 
 def _agents_overview(chat_id: int) -> str:
@@ -1737,19 +1738,25 @@ def _use_keyboard() -> tuple[InlineKeyboardMarkup, int]:
     return _topics_keyboard(_load_lib()["sessions"], with_legacy=True)
 
 
-def _use_menu(cur) -> tuple[str, InlineKeyboardMarkup | None]:
-    """/use without text: the terminals outside the archive as buttons, with a
-    hint when some did not fit and a pointer to /archive when it has any."""
+def _use_menu(cur) -> tuple[str, InlineKeyboardMarkup]:
+    """/use without text — the one menu (owner 27.11.2026): the Claude allowance, the
+    terminals outside the archive as buttons (a hint when some did not fit), then
+    the current terminal's Compact and Restart, New, and Archive when it has any."""
     kb, more = _use_keyboard()
     n_arch = len(archived_topics())
     if not kb.inline_keyboard:
-        return _no_terminals(n_arch), None
-    lines = [f"Current: {target_label(cur)}. Pick a terminal:" if cur else "Pick a terminal:"]
-    if more:
-        lines.append(_more_hint(more))
-    if n_arch:
-        lines.append(f"🗄 {n_arch} in the archive — /archive")
-    return "\n".join(lines), kb
+        lines = [_no_terminals(n_arch)]
+    else:
+        lines = [f"Current: {target_label(cur)}. Pick a terminal:" if cur else "Pick a terminal:"]
+        if more:
+            lines.append(_more_hint(more))
+    quota = um.quota_line(um.fetch_quota())
+    if quota:
+        lines.insert(0, quota)
+    rows = [list(r) for r in kb.inline_keyboard]
+    for row in um.action_rows(cur, is_topic(cur) if cur else False, n_arch):
+        rows.append([InlineKeyboardButton(label, callback_data=data) for label, data in row])
+    return "\n".join(lines), InlineKeyboardMarkup(rows)
 
 
 def _archived_button(e: dict) -> InlineKeyboardButton:
@@ -1894,7 +1901,7 @@ async def cmd_use(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await reply("\n".join(lines), reply_markup=kb)
             return
         await reply(f"No terminal «{_clip(query, 60)}», the archive included. "
-                    "All terminals: /list · new: /new <name>")
+                    "All terminals and 🆕 New: /use")
         return
     if len(hits) == 1:
         await reply(await _apply_topic(chat_id, hits[0]))
@@ -1922,17 +1929,49 @@ async def cmd_new(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """/new <name> — create a topic (name optional: a dated default), select it
     and load it. It starts where the dashboard's "＋ New" starts one."""
     name = _CTRL_NL.sub("", " ".join(ctx.args or [])).replace("\n", " ").strip()[:TOPIC_NAME_MAX]
+    chat_id = update.effective_chat.id
+    await _create_and_pick(chat_id, name, update.message.reply_text, update.message.reply_text)
+
+
+async def _create_and_pick(chat_id: int, name: str, answer, send) -> None:
+    """A new terminal (/new <name>, or 🆕 New in /use with the dated default name),
+    selected and loaded. answer: where the result goes; send: later messages."""
     cwd = envcompat.get("WORKDIR") or os.path.dirname(GATE_DIR)
     try:
         with library.update(_lib_file()) as lib:
             e = dict(library.create(lib, name, cwd=cwd, now=int(time.time())))
     except LIB_ERRORS as ex:
-        await update.message.reply_text(f"⚠️ couldn't create the terminal: {_clip(ex, 300)}")
+        await answer(f"⚠️ couldn't create the terminal: {_clip(ex, 300)}")
         return
     log.info("NEW %s", topic_label(e))
-    chat_id = update.effective_chat.id
-    await update.message.reply_text("🆕 " + await _apply_topic(chat_id, e))
-    _after_pick(chat_id, update.message.reply_text, e["id"], new=True)
+    await answer("🆕 " + await _apply_topic(chat_id, e))
+    _after_pick(chat_id, send, e["id"], new=True)
+
+
+async def on_use_action_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """The buttons under the terminals in /use: 🆕 New, 🗄 Archive, and the current
+    terminal's 🗜 Compact and ⟳ Restart (the terminal is named in the button)."""
+    q = update.callback_query
+    if update.effective_user.id != OWNER_ID:
+        await q.answer("no access"); return
+    await q.answer()
+    action, _, sid = (q.data or "").partition(":")
+    chat_id = q.message.chat_id
+
+    async def edit(text, **k):
+        await q.edit_message_text(text, **k)
+    if action == um.NEW:
+        await _create_and_pick(chat_id, "", edit, _chat_sender(ctx.bot, chat_id))
+    elif action == um.ARCHIVE:
+        try:
+            text, kb = await asyncio.to_thread(_archive_menu, "")
+        except LIB_ERRORS as ex:
+            text, kb = f"⚠️ couldn't read the terminal list: {_clip(ex, 300)}", None
+        await edit(text, reply_markup=kb)
+    elif action == um.COMPACT and session_for(sid):
+        await edit(await _compact(sid))
+    elif action == um.RESTART and library.valid_id(sid):
+        await _restart_or_ask(sid, edit)
 
 
 async def on_use_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -1945,7 +1984,7 @@ async def on_use_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if is_topic(key):
         e = topic_entry(key)
         if e is None:
-            await q.edit_message_text("No such terminal (or it was archived) — /list · /archive")
+            await q.edit_message_text("No such terminal (or it was archived) — /use")
             return
         await q.edit_message_text(await _apply_topic(chat_id, e))
         _after_pick(chat_id, _chat_sender(ctx.bot, chat_id), key)
@@ -1974,7 +2013,7 @@ async def on_archive_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except LIB_ERRORS as ex:
         await q.edit_message_text(f"⚠️ couldn't restore the terminal: {_clip(ex, 300)}"); return
     if e is None:
-        await q.edit_message_text("No such terminal — /archive · /list"); return
+        await q.edit_message_text("No such terminal — /use"); return
     if restored:
         log.info("RESTORE %s", topic_label(e))
     await q.edit_message_text(await _apply_topic(chat_id, e, restored=restored))
@@ -2102,18 +2141,22 @@ async def cmd_restart(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     cur = resolve_current(update.effective_chat.id)
     if not cur:
         await update.message.reply_text(NEED_PICK); return
+    await _restart_or_ask(cur, update.message.reply_text)
+
+
+async def _restart_or_ask(sid: str, send) -> None:
+    """Restart an idle terminal; a busy one gets a "Restart anyway" button first."""
     try:
-        busy = (await asyncio.to_thread(ss.lib_restart, cur, False, True) or {}).get("busy")
+        busy = (await asyncio.to_thread(ss.lib_restart, sid, False, True) or {}).get("busy")
     except ss.LibError as e:
-        await update.message.reply_text(_restart_error(e)); return
+        await send(_restart_error(e)); return
     if busy:
         kb = InlineKeyboardMarkup([[InlineKeyboardButton(
-            "⟳ Restart anyway", callback_data=f"rst:{cur}")]])
-        await update.message.reply_text(
-            f"Claude is working right now ({busy}). A restart cuts the current answer off; "
-            "the conversation itself is kept.", reply_markup=kb)
+            "⟳ Restart anyway", callback_data=f"rst:{sid}")]])
+        await send(f"Claude is working right now ({busy}). A restart cuts the current answer off; "
+                   "the conversation itself is kept.", reply_markup=kb)
         return
-    await _do_restart(update.message.reply_text, cur, force=False)
+    await _do_restart(send, sid, force=False)
 
 
 async def on_restart_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -2187,17 +2230,22 @@ async def cmd_enter(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_compact(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    s = _require_session(update)
-    if not s:
-        await update.message.reply_text(NEED_PICK); return
-    if not has_session(s):
-        await update.message.reply_text("⚠️ terminal isn't running"); return
     cur = resolve_current(update.effective_chat.id)
-    if not await asyncio.to_thread(pane_is_claude, cur, s):
-        await update.message.reply_text(_not_claude_text(target_label(cur))); return
+    if not cur or not session_for(cur):
+        await update.message.reply_text(NEED_PICK); return
+    await update.message.reply_text(await _compact(cur))
+
+
+async def _compact(sid: str) -> str:
+    """Type /compact into a terminal that runs Claude (never into a bare shell)."""
+    s = session_for(sid)
+    if not await asyncio.to_thread(has_session, s):
+        return "⚠️ terminal isn't running"
+    if not await asyncio.to_thread(pane_is_claude, sid, s):
+        return _not_claude_text(target_label(sid))
     log.info("COMPACT -> %s", s)
     await asyncio.to_thread(send_text, s, "/compact")
-    await update.message.reply_text("🗜 /compact sent")
+    return f"🗜 /compact sent to {target_label(sid)}"
 
 
 def _not_claude_text(label: str) -> str:
@@ -2501,16 +2549,13 @@ async def on_invite_cb(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await q.edit_message_text(text, reply_markup=_invite_markup(buttons))
 
 
+# /list, /archive, /new, /compact and /restart are out of the menu (owner 27.11.2026):
+# their buttons are in /use. Typed, they still work.
 BOT_COMMANDS = [
-    BotCommand("use", "pick a terminal: buttons, or /use <part of the name or id>"),
-    BotCommand("list", "terminals: loaded first, current one marked"),
-    BotCommand("archive", "archived terminals: tap one to restore and open it"),
-    BotCommand("new", "new terminal: /new <name>"),
+    BotCommand("use", "terminals and the Claude allowance; new, archive, compact, restart"),
     BotCommand("read", "show the current terminal's screen again"),
     BotCommand("esc", "interrupt Claude (Escape)"),
     BotCommand("enter", "send Enter"),
-    BotCommand("compact", "compact Claude's conversation (/compact)"),
-    BotCommand("restart", "restart the current terminal (same conversation, Claude starts anew)"),
     BotCommand("services", "programs that run without a terminal: list, restart, stop"),
 ]
 
@@ -2558,6 +2603,7 @@ def build_app() -> Application:
     app.add_handler(CallbackQueryHandler(on_services_cb, pattern=r"^svc:"))
     app.add_handler(CallbackQueryHandler(on_invite_cb, pattern=r"^ginv:"))
     app.add_handler(CallbackQueryHandler(on_use_cb, pattern=r"^use:"))
+    app.add_handler(CallbackQueryHandler(on_use_action_cb, pattern=um.PATTERN))
     app.add_handler(CallbackQueryHandler(on_archive_cb, pattern=r"^arch:"))
     app.add_handler(CallbackQueryHandler(on_menu_select_cb, pattern=r"^msel:"))
     app.add_handler(CallbackQueryHandler(on_menu_chat_cb, pattern=r"^mchat:"))

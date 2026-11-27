@@ -260,8 +260,9 @@ Create a bot with [@BotFather](https://t.me/BotFather), find your numeric user i
 example with [@userinfobot](https://t.me/userinfobot)), then in the dashboard open
 **⋯ → Telegram**, paste both and press **Save & start**. The bot answers only you.
 
-`/use` picks a terminal, `/list` shows them all, `/new <name>` starts one, `/archive` brings
-one back, `/services` lists your services. Plain text is typed into the terminal; voice
+`/use` shows your terminals and the Claude allowance, with buttons to pick a terminal,
+start a new one, bring one back from the archive, compact or restart; `/services` lists
+your services. Plain text is typed into the terminal; voice
 notes are transcribed locally (not in the Docker image). Optional: a second bot just for
 notifications (guests' spending, strange requests and attempts to get around their
 Rules, published sites), on the same page.

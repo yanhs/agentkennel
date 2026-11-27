@@ -43,18 +43,16 @@ gives that path.
 
 | Command | What it does |
 |---|---|
-| `/use` | pick a terminal from buttons (loaded ones first, archived ones left out) |
+| `/use` | the one menu: the Claude allowance (`📊 Claude: session 12% · week 45%`, the 5-hour session and the week, as Claude's `/usage` counts them), the terminals as buttons (loaded ones first, archived ones left out), and under them **🗜 Compact** and **⟳ Restart** for the current terminal (Restart asks first if Claude is busy), **🆕 New terminal** and **🗄 Archive** (a tap on an archived terminal restores and picks it) |
 | `/use <text>` | pick a terminal by part of its name or its code (several matches → buttons; a match only in the archive → a button that restores it) |
-| `/list` | all terminals, loaded ones first; the current one is marked; how many are archived |
-| `/archive` | archived terminals as buttons: a tap restores the terminal and picks it |
-| `/archive <text>` | only the archived terminals whose name or code matches |
-| `/new <name>` | start a new terminal and select it |
 | `/read` | re-read the current terminal's screen (after every pick this happens by itself) |
 | `/esc` | interrupt the agent (Escape) |
 | `/enter` | send Enter |
-| `/compact` | compact the agent's conversation |
-| `/restart` | restart Claude in the current terminal, on the same conversation (asks first if it is busy) |
 | `/services` | your services with their state, and buttons to restart, stop or start each |
+
+Out of the bot's menu since 2.8.2, because their buttons are in `/use`, but still answered
+when typed: `/list`, `/archive [text]` (a search past the button cap), `/new <name>` (a new
+terminal with a name; the button gives a dated one), `/compact`, `/restart`.
 
 Plain text is typed into the selected terminal (an unloaded one is loaded first). Voice
 notes are transcribed locally with [`faster-whisper`](https://github.com/SYSTRAN/faster-whisper).

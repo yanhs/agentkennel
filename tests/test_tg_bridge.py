@@ -1138,6 +1138,7 @@ class World:
         monkeypatch.setattr(tb, "has_session",
                             lambda s: s.startswith("cs-") and s[3:] in self.loaded)
         monkeypatch.setattr(tb, "_agent_labels", lambda: {})
+        monkeypatch.setattr(tb.um, "fetch_quota", lambda: None)   # no dashboard to ask
 
     def cli(self, *args, **kw):
         import threading
@@ -1307,7 +1308,7 @@ def test_use_unknown_topic_says_so_and_points_to_new(world):
     world.add("Café taxes 2026", uuid=U2)
     replies = run_cmd(tb.cmd_use, ["no such"])
     assert tb.get_current(CHAT) is None and world.ensured() == []
-    assert "/new" in replies[-1][0] and "/list" in replies[-1][0]
+    assert "New" in replies[-1][0] and "/use" in replies[-1][0]     # /use has 🆕 New (27.11)
 
 
 def test_use_archived_topic_is_not_selectable(world):
@@ -2016,14 +2017,12 @@ def test_open_session_prints_no_cyrillic():
 
 def test_bot_commands_are_english():
     got = {c.command: c.description for c in tb.BOT_COMMANDS}
-    assert got["use"] == "pick a terminal: buttons, or /use <part of the name or id>"
-    assert got["list"] == "terminals: loaded first, current one marked"
-    assert got["new"] == "new terminal: /new <name>"
+    assert got["use"] == "terminals and the Claude allowance; new, archive, compact, restart"
     assert not [d for d in got.values() if _CYR.search(d)]
 
 
 def test_need_pick_is_english():
-    assert tb.NEED_PICK == "Pick a terminal first: /use <part of the name or id> · /list · /new <name>"
+    assert tb.NEED_PICK == "Pick a terminal first: /use"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -2248,9 +2247,9 @@ def test_use_menu_excludes_archived_and_points_to_the_archive(world):
     world.add("in the archive", uuid=U2, archived=True)
     text, markup = run_cmd(tb.cmd_use, [])[-1]
     cbs = _callbacks(markup)
-    assert cbs == ["use:aaaa1111"]
+    assert [c for c in cbs if c.startswith("use:")] == ["use:aaaa1111"]
     assert not [c for c in cbs if "bbbb2222" in c]
-    assert "/archive" in text
+    assert "uarc" in cbs                                      # the 🗄 Archive button (27.11)
 
 
 def test_use_menu_caps_the_buttons_with_a_hint(world, monkeypatch):
@@ -2259,7 +2258,8 @@ def test_use_menu_caps_the_buttons_with_a_hint(world, monkeypatch):
     world.add("t2", uuid=U2, last_used=20)
     world.add("t3", uuid=U3, last_used=30)
     text, markup = run_cmd(tb.cmd_use, [])[-1]
-    assert _callbacks(markup) == ["use:c0ffee00", "use:bbbb2222"]   # most recent first
+    assert _callbacks(markup)[:2] == ["use:c0ffee00", "use:bbbb2222"]   # most recent first
+    assert "use:aaaa1111" not in _callbacks(markup)
     assert "1 more" in text and "/use" in text
 
 
@@ -2291,7 +2291,7 @@ def test_use_name_prefers_a_non_archived_match(world, monkeypatch):
 def test_use_name_with_no_match_anywhere(world):
     world.add("Taxes 2025", uuid=U1, archived=True)
     text, markup = run_cmd(tb.cmd_use, ["nothing like it"])[-1]
-    assert markup is None and "/new" in text and "/list" in text
+    assert markup is None and "New" in text and "/use" in text
     assert _is_archived(world, "aaaa1111") is True
 
 
@@ -2440,11 +2440,10 @@ def test_list_without_an_archive_does_not_point_to_it(world):
 
 
 def test_bot_commands_list_the_archive_in_menu_order_and_are_english():
-    assert [c.command for c in tb.BOT_COMMANDS] == [
-        "use", "list", "archive", "new", "read", "esc", "enter", "compact", "restart",
-        "services"]
+    # /list, /archive, /new, /compact, /restart: buttons in /use since 27.11.2026
+    assert [c.command for c in tb.BOT_COMMANDS] == ["use", "read", "esc", "enter", "services"]
     got = {c.command: c.description for c in tb.BOT_COMMANDS}
-    assert "archive" in got["archive"].lower()
+    assert "archive" in got["use"].lower()
     for d in got.values():
         assert d.isascii() and not _CYR.search(d) and 0 < len(d) <= 80
 
@@ -2572,8 +2571,8 @@ def test_menu_speaks_of_terminals_with_their_names_not_tmux_ids(world, monkeypat
 def test_use_menu_when_every_terminal_is_archived(world):
     world.add("gone", uuid=U1, archived=True)
     text, markup = run_cmd(tb.cmd_use, [])[-1]
-    assert markup is None
-    assert "outside the archive" in text and "/archive" in text
+    assert _callbacks(markup) == ["unew", "uarc"]               # New and 🗄 Archive (27.11)
+    assert "outside the archive" in text and "Archive" in text
     assert "yet" not in text
 
 
@@ -2785,8 +2784,8 @@ def test_trashed_terminals_are_in_no_menu_list_or_search(world):
     _trash(world, "bbbb2222")
     _trash(world, "c0ffee00")
     text, markup = run_cmd(tb.cmd_use, [])[-1]
-    assert _callbacks(markup) == ["use:aaaa1111"]
-    assert "/archive" not in text                              # the archive is empty now
+    assert _callbacks(markup) == ["use:aaaa1111", "unew"]
+    assert "uarc" not in _callbacks(markup)                   # the archive is empty now
     assert run_cmd(tb.cmd_archive, [])[-1][1] is None           # the archive menu too
     listing = "\n".join(t for t, _ in run_cmd(tb.cmd_list, []))
     assert "binned" not in listing and "archive" not in listing.lower()
@@ -2854,8 +2853,11 @@ def _fake_restart(calls, busy=None, error=None):
     return lib_restart
 
 
-def test_restart_is_in_the_bot_menu():
-    assert "restart" in [c.command for c in tb.BOT_COMMANDS]
+def test_restart_is_in_the_use_menu(world):
+    world.add("chores", uuid=U1)
+    tb.set_current(CHAT, "aaaa1111")
+    markup = run_cmd(tb.cmd_use, [])[-1][1]
+    assert "urst:aaaa1111" in _callbacks(markup)
 
 
 def test_restart_without_a_pick_asks_to_pick_one(world, monkeypatch):
