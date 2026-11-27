@@ -18,6 +18,7 @@
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/panel.css?v=746bc095db">
   <link rel="stylesheet" href="/css/update.css?v=59dfefef51">
+  <link rel="stylesheet" href="/css/menu-quota.css?v=265986f77c">
 </head>
 <body>
   <div class="sidebar">
@@ -66,6 +67,7 @@
       <div class="acct" id="tAcct">
         <button type="button" class="btn acct-btn" id="tMenu" aria-haspopup="menu" aria-expanded="false" aria-controls="tMenuList" title="Account: Telegram, password, log out">⋯</button>
         <div class="acct-menu" id="tMenuList" role="menu" aria-labelledby="tMenu" hidden>
+          <div class="menu-quota" id="tQuota" role="none" tabindex="-1" hidden><div class="mq-head"></div><div class="mq-nums"><span>5h <b></b></span><span>wk <b></b></span></div><div class="mq-reset"></div></div>
           <a class="btn" role="menuitem" id="tTg" href="/telegram" title="Set up the Telegram bot">Telegram</a>
           <a class="btn" role="menuitem" id="tChpw" href="/change-password" title="Change the dashboard password">Password</a>
           <button type="button" class="btn" role="menuitem" id="tTheme" title="Switch between the dark and the light look">Light theme</button>
@@ -147,7 +149,7 @@
   <script src="/js/menu.js?v=edecc29ba9"></script>
   <script src="/js/clipboard.js?v=ee86bd042c"></script>
   <script src="/js/paste-upload.js?v=eb2fd53de9"></script>
-  <script src="/js/quota.js?v=1c8381b74b"></script>
+  <script src="/js/quota.js?v=9042fb4acb"></script>
   <script src="/js/guest-claude.js?v=b1a47817e0"></script>
   <script src="/js/update.js?v=096b78f722"></script>
   <script src="/js/boot.js?v=0010ce0867"></script>

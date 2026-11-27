@@ -1,0 +1,16 @@
+/* The Claude allowance at the top of the ⋯ menu — phones only (27.11.2026): their tools
+   row has no room for the chip beside cmd, so the owner saw no numbers at all. Text, not
+   an item: tapping it leaves the menu open. */
+.menu-quota { display: none; }
+@media (max-width: 700px) {
+  .menu-quota:not([hidden]) {
+    display: block; padding: 0.3rem 0.5rem 0.45rem; margin-bottom: 2px;
+    border-bottom: 1px solid rgba(var(--fg-rgb),0.1);
+    font-size: 0.7rem; color: var(--dim); white-space: nowrap; cursor: default;
+  }
+  .menu-quota:focus { outline: none; }   /* focusable only so a tap keeps the menu open */
+  .mq-nums { display: flex; gap: 12px; margin: 2px 0; font-size: 0.82rem; color: var(--text); }
+  .mq-nums b { font-weight: 500; }
+  .mq-nums .warn b { color: var(--amber); }
+  .mq-nums .crit b { color: var(--red); }
+}

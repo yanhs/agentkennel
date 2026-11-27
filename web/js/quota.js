@@ -49,6 +49,7 @@ async function pollQuota() {
   const ok = w => w && isFinite(w.utilization) && isFinite(w.resets_at);
   if (!d || d.available !== true || !ok(d.five_hour) || !ok(d.seven_day)) {
     chip.hidden = true;
+    document.getElementById('tQuota').hidden = true;
     renderClaude(null);
     if (++_quotaPolls === 1) setTimeout(pollQuota, 5000);   // the server's first fetch runs now
     return;
@@ -64,19 +65,24 @@ async function pollQuota() {
     }
   }
   if (d.source !== 'subscription') _quotaTerms = [];
+  // the same numbers twice: the chip beside cmd, and the top of the ⋯ menu (phones)
+  const menu = document.getElementById('tQuota'), resets = [];
+  const show = (i, cls, text) => [chip.children[i], menu.querySelector('.mq-nums').children[i]]
+    .forEach(line => { line.className = cls; line.querySelector('b').textContent = text; });
   const parts = [['5 hours', d.five_hour, false], ['week', d.seven_day, true]].map(([name, w, withDay], i) => {
     const pct = Math.round(w.utilization * 100);
-    const line = chip.children[i];
     // no 5-hour window (no reset time): Anthropic counts only the week now (26.11.2026)
     if (i === 0 && !(w.resets_at > 0) && w.utilization <= 0) {
-      line.className = '';
-      line.querySelector('b').textContent = '—';
+      show(i, '', '—');
       return `${name}: no limit counted now (only the week)`;
     }
-    line.className = pct >= 90 ? 'crit' : pct >= 70 ? 'warn' : '';
-    line.querySelector('b').textContent = pct + '%';
+    show(i, pct >= 90 ? 'crit' : pct >= 70 ? 'warn' : '', pct + '%');
+    if (w.resets_at > 0) resets.push(`${name} resets ${quotaReset(w.resets_at, withDay)}`);
     return `${name}: ${pct}%` + (w.resets_at > 0 ? ` · resets ${quotaReset(w.resets_at, withDay)}` : '');
   });
+  menu.querySelector('.mq-head').textContent =
+    d.source === 'guest' ? 'Your Claude limits' : 'Claude subscription';
+  menu.querySelector('.mq-reset').textContent = resets.join(' · ');
   const terms = _quotaTerms.filter(t => t && t.tokens_today > 0)
     .map(t => `${t.name} ${fmtTok(t.tokens_today)}`).join(', ');
   chip.title = parts.join('; ')
@@ -84,4 +90,5 @@ async function pollQuota() {
     + (terms ? `\nToday by terminal: ${terms}` : '');
   _quotaLast = d;
   chip.hidden = renderClaude(d);       // the owner's key or their own: the label says it
+  menu.hidden = chip.hidden;
 }

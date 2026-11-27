@@ -527,3 +527,59 @@ def test_on_a_phone_a_broken_setup_says_it_needs_the_owner(browser, site):  # no
     box = pg.eval_on_selector("#claudeDlg", "e => e.getBoundingClientRect().toJSON()")
     assert box["left"] >= 0 and box["right"] <= 390, box
     ctx.close()
+
+
+# 27.11.2026, the owner: "on my phone I don't see the subscription indicator — maybe
+# under the three dots, next to the menu". The phone's tools row has no room for the chip,
+# so the same numbers sit at the top of the ⋯ menu.
+def open_menu(pg):
+    pg.click("#tMenu")
+    pg.wait_for_selector("#tMenuList:not([hidden])")
+
+
+def test_on_a_phone_the_menu_shows_the_allowance(browser, site):  # noqa: F811
+    ctx, pg = open_with(browser, site, quota(u5=0, r5=0), **PHONE)
+    pg.wait_for_function("document.getElementById('tQuota') && !document.getElementById('tQuota').hidden")
+    assert not pg.is_visible("#tQuota")                            # closed menu: nothing shows
+    open_menu(pg)
+    assert pg.is_visible("#tQuota")
+    nums = pg.eval_on_selector_all("#tQuota .mq-nums > span", "els => els.map(e => e.innerText.trim())")
+    assert nums == ["5h —", "wk 9%"], nums
+    text = pg.inner_text("#tQuota")
+    assert "Claude subscription" in text and "week resets " in text, text
+    first = pg.eval_on_selector("#tMenuList", "e => e.firstElementChild.id")
+    assert first == "tQuota"                                       # on top, above Telegram
+    box = pg.eval_on_selector("#tMenuList", "e => e.getBoundingClientRect().toJSON()")
+    assert box["left"] >= 0 and box["right"] <= 390, box
+    assert pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    pg.click("#tQuota")                                            # just text: the menu stays
+    assert pg.is_visible("#tMenuList")
+    assert not pg.errors, pg.errors
+    shot(pg, "quota-menu-phone.png")
+    ctx.close()
+
+
+@pytest.mark.parametrize("u5,u7,c5,c7", [(0.95, 0.2, "crit", ""), (0.3, 0.75, "", "warn")],
+                         ids=["red-5h", "amber-week"])
+def test_on_a_phone_the_menu_numbers_turn_amber_then_red(browser, site, u5, u7, c5, c7):  # noqa: F811
+    ctx, pg = open_with(browser, site, quota(u5, u7), **PHONE)
+    pg.wait_for_function("document.getElementById('tQuota') && !document.getElementById('tQuota').hidden")
+    cls = pg.eval_on_selector_all("#tQuota .mq-nums > span", "els => els.map(e => e.className)")
+    assert cls == [c5, c7], cls
+    ctx.close()
+
+
+def test_on_a_phone_without_numbers_the_menu_has_no_allowance(browser, site):  # noqa: F811
+    ctx, pg = open_with(browser, site, {"available": False}, **PHONE)
+    pg.wait_for_timeout(600)
+    open_menu(pg)
+    assert not pg.is_visible("#tQuota")
+    ctx.close()
+
+
+def test_on_a_computer_the_menu_keeps_to_the_account(browser, site):  # noqa: F811
+    ctx, pg = open_with(browser, site, quota())
+    pg.wait_for_selector("#quotaChip:not([hidden])")
+    open_menu(pg)
+    assert not pg.is_visible("#tQuota")                            # the chip is right there
+    ctx.close()
