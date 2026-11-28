@@ -2,6 +2,13 @@
 
 All notable changes to AgentKennel (formerly AgentDeck). Newest first.
 
+## v2.8.2 — one /use menu in Telegram; the allowance on a phone
+
+- **Telegram: `/use` is the one menu.** Its first line is the Claude allowance (`📊 Claude: session 12% · week 45%`: the 5-hour session and the week, as Claude's `/usage` counts them, the same numbers as the panel). Under the terminal buttons: **🗜 Compact** and **⟳ Restart** for the current terminal (Restart asks first while Claude is working), **🆕 New terminal** (a dated name) and **🗄 Archive** with its count (a tap on an archived terminal restores and picks it).
+- **A shorter bot menu:** `/use`, `/read`, `/esc`, `/enter`, `/services`. `/list`, `/archive`, `/new`, `/compact` and `/restart` left the menu, since their buttons are in `/use`; typed, they still answer (`/new <name>` names the terminal, `/archive <text>` searches the archive).
+- **The allowance on a phone.** The ⋯ menu starts with a "Claude subscription" line: 5h and week in percent (amber from 70%, red from 90%) and when the week resets. On a computer it stays next to cmd, as before.
+- **Upgrading:** the panel's update does not restart the Telegram bridge (on some servers its service holds every terminal's tmux), so the new menu shows once the bridge restarts. If `systemctl --user status claude-tg-bridge` lists no tmux, restart it. If it does, first give it `KillMode=process` (a drop-in, then `systemctl --user daemon-reload`), so that a restart stops only the bridge itself.
+
 ## v2.8.1 — sort the Server tab by memory; a safer login
 
 - **Server tab: Sort by CPU or Memory.** A switch above the list; Memory puts what takes the most memory first. Stopped programs and "Other" stay last either way. The choice is remembered in your browser.

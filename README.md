@@ -57,9 +57,9 @@ docker compose up -d --wait && docker compose logs agentkennel | grep setup
 > touch the host. [Safety](#-safety-what-agents-never-do-without-you) lists what they never
 > do without you.
 
-**Latest: v2.8.1** — sort the Server tab by memory; 15 minutes' refusal after 5 wrong
-passwords. **v2.8.0** — updates from the panel: "Update available", one click, a backup and
-a rollback of its own. → [CHANGELOG](CHANGELOG.md)
+**Latest: v2.8.2** — Telegram's `/use` is one menu with the Claude allowance and buttons for
+new, archive, compact and restart; the allowance in a phone's ⋯ menu. **v2.8.0** — updates
+from the panel: "Update available", one click, a backup and a rollback. → [CHANGELOG](CHANGELOG.md)
 
 ## Why AgentKennel
 
